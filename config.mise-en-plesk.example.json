@@ -1,0 +1,5 @@
+{
+  "reportsDirectory": "reports",
+  "hosts": ["master", "dev"],
+  "allowSshConfigSnippet": false
+}

@@ -1,0 +1,10 @@
+node_modules/
+dist/
+coverage/
+inventory.json
+reports/*.json
+config.mise-en-plesk.json
+.mise-en-plesk/
+*.local
+ssh-config.d/
+.DS_Store

@@ -1,0 +1,26 @@
+{
+  "name": "mise-en-plesk",
+  "version": "0.1.0",
+  "private": true,
+  "description": "Read-only Plesk and WordPress inventory and audit tooling.",
+  "type": "commonjs",
+  "bin": {
+    "mise-plesk-audit": "dist/bin/mise-plesk-audit.js"
+  },
+  "scripts": {
+    "build": "tsc",
+    "typecheck": "tsc --noEmit",
+    "test": "vitest run",
+    "test:watch": "vitest",
+    "mise-plesk-audit": "tsx bin/mise-plesk-audit.ts"
+  },
+  "engines": {
+    "node": ">=20"
+  },
+  "devDependencies": {
+    "@types/node": "^26.2.0",
+    "tsx": "^4.23.12",
+    "typescript": "^7.0.2",
+    "vitest": "^4.1.10"
+  }
+}
