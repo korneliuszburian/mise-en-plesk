@@ -17,7 +17,17 @@ describe("plesk scan", () => {
     const invocation = buildSshInvocation(host, "secret-password");
 
     expect(invocation.executable).toBe("sshpass");
-    expect(invocation.args).toEqual(["-e", "ssh", "-p", "22", "root@master.example.test"]);
+    expect(invocation.args).toEqual([
+      "-e",
+      "ssh",
+      "-o",
+      "ConnectTimeout=10",
+      "-o",
+      "ConnectionAttempts=1",
+      "-p",
+      "22",
+      "root@master.example.test",
+    ]);
     expect(invocation.env?.SSHPASS).toBe("secret-password");
   });
 

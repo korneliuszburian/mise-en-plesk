@@ -8,6 +8,8 @@ export function auditMarkdown(result: AuditResult): string {
     lines.push(`## ${host.host}`, ``);
     for (const site of host.wordpress) {
       lines.push(`### ${site.installation.domain ?? site.installation.path}`, ``, `- Core: ${site.coreVersion}`, `- Reachable: ${site.health.reachable ? "yes" : "no"}`);
+      if (site.health.status) lines.push(`- Health status: ${site.health.status}`);
+      if (site.health.detail) lines.push(`- Health detail: ${site.health.detail}`);
       const updateCount = site.plugins.filter((plugin) => plugin.hasUpdate).length;
       const abandonedCount = site.plugins.filter((plugin) => plugin.wporgStatus !== undefined && plugin.wporgStatus !== "active" || plugin.wporgLastUpdated !== undefined && Date.parse(plugin.wporgLastUpdated) < Date.now() - 365 * 24 * 60 * 60 * 1000).length;
       const vulnerablePluginCount = site.plugins.filter((plugin) => plugin.vulnerabilities.length > 0).length;

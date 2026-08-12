@@ -54,16 +54,24 @@ async function scanHost(
   const ssh = (command: string) => runSshCommand(host, command, credentials?.password);
   const scan = await scanPleskHost(host, (_host, command) => ssh(command));
   let vulnerabilityLookups = 0;
-  const wordpress = await Promise.all(scan.wordpress.map((installation) => auditWordPressInstallation(installation, (_installation, command) => ssh(buildWpCliCommand(installation, command)), {
-    enabled: process.env.MISE_PLESK_ENABLE_VULNS === "1",
-    vulnerabilityLookup: async (slug, options) => {
-      if (process.env.MISE_PLESK_ENABLE_VULNS !== "1") return null;
-      if (maxVulnerabilityLookups !== undefined && vulnerabilityLookups >= maxVulnerabilityLookups) return null;
-      vulnerabilityLookups += 1;
-      return lookupPluginVulnerabilities(slug, options);
-    },
-    suspiciousFileRunner: (_installation, command) => ssh(command),
-  })));
+  const wordpress = [];
+  for (let index = 0; index < scan.wordpress.length; index += 4) {
+    const batch = scan.wordpress.slice(index, index + 4);
+    wordpress.push(...await Promise.all(batch.map((installation) => auditWordPressInstallation(
+      installation,
+      (_installation, command) => ssh(buildWpCliCommand(installation, command)),
+      {
+        enabled: process.env.MISE_PLESK_ENABLE_VULNS === "1",
+        vulnerabilityLookup: async (slug, options) => {
+          if (process.env.MISE_PLESK_ENABLE_VULNS !== "1") return null;
+          if (maxVulnerabilityLookups !== undefined && vulnerabilityLookups >= maxVulnerabilityLookups) return null;
+          vulnerabilityLookups += 1;
+          return lookupPluginVulnerabilities(slug, options);
+        },
+        suspiciousFileRunner: (_installation, command) => ssh(command),
+      },
+    ))));
+  }
   console.error(`[${alias}] found ${scan.subscriptions.length} subscription(s), ${scan.wordpress.length} WordPress installation(s)`);
   return { host: scan.host, wordpress };
 }

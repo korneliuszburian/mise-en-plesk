@@ -53,6 +53,33 @@ describe("WordPress audit", () => {
     });
   });
 
+  it("treats PHP/plugin failures as reachable WP-CLI errors", async () => {
+    const runner: WpCommandRunner = async (_installation, command) => {
+      if (command === "core version") return "6.6.1";
+      throw new Error("PHP Parse error: syntax error, unexpected ')' in plugin.php");
+    };
+
+    const result = await auditWordPressInstallation({ path: "/var/www/vhosts/broken.test/httpdocs" }, runner);
+
+    expect(result).toMatchObject({
+      coreVersion: "6.6.1",
+      health: { reachable: true, status: "wp-cli-error" },
+    });
+    expect(result.priorities).toContain("WP-CLI audit failed; manual review required");
+  });
+
+  it("distinguishes a reachable site with an incompatible PHP runtime", async () => {
+    const runner: WpCommandRunner = async (_installation, command) => {
+      if (command === "core version") return "7.0.3";
+      throw new Error("Your server is running PHP version 7.2.24 but WordPress 7.0.3 requires at least 7.4.");
+    };
+
+    const result = await auditWordPressInstallation({ path: "/var/www/vhosts/old.test/httpdocs" }, runner);
+
+    expect(result.health).toMatchObject({ reachable: true, status: "runtime-incompatible" });
+    expect(result.priorities).toContain("WordPress runtime is incompatible with the installed PHP version");
+  });
+
   it("flags plugin updates and stale or inactive wp.org plugins", () => {
     const audit = applyHeuristics({
       installation: { path: "/srv/site" },

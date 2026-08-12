@@ -23,7 +23,7 @@ export function buildSshInvocation(host: HostConfig, password?: string): {
   args: string[];
   env?: NodeJS.ProcessEnv;
 } {
-  const sshArgs = ["-p", String(host.port), `${host.user}@${host.host}`];
+  const sshArgs = ["-o", "ConnectTimeout=10", "-o", "ConnectionAttempts=1", "-p", String(host.port), `${host.user}@${host.host}`];
   if (!password) return { executable: "ssh", args: [...sshArgs] };
   return {
     executable: "sshpass",
@@ -37,12 +37,16 @@ export async function runSshCommand(host: HostConfig, command: string, password?
   try {
     const result = await execFileAsync(invocation.executable, [...invocation.args, command], {
       env: invocation.env,
-      timeout: 60_000,
+      timeout: 20_000,
     });
     return result.stdout;
   } catch (error: unknown) {
-    const failure = error as { stderr?: string; message?: string };
-    throw new Error(failure.stderr?.trim() || failure.message || "SSH command failed.");
+    const failure = error as { stdout?: string; stderr?: string; message?: string };
+    const detail = [failure.stdout, failure.stderr, failure.message]
+      .filter((value): value is string => Boolean(value?.trim()))
+      .map((value) => value.trim())
+      .join("\n");
+    throw new Error(detail || "SSH command failed.");
   }
 }
 

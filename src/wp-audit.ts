@@ -17,7 +17,12 @@ export interface WordPressAudit {
   plugins: PluginInfo[];
   vulnerabilities: PluginVulnerabilitySummary[];
   suspiciousFiles: string[];
-  health: { reachable: boolean; lastUpdate?: string };
+  health: {
+    reachable: boolean;
+    lastUpdate?: string;
+    status?: "runtime-incompatible" | "wp-cli-error" | "unreachable";
+    detail?: string;
+  };
   priorities: string[];
 }
 
@@ -60,8 +65,9 @@ export async function auditWordPressInstallation(
   runner: WpCommandRunner = defaultWpRunner,
   options: WordPressAuditOptions = {},
 ): Promise<WordPressAudit> {
+  let coreVersion = "unknown";
   try {
-    const coreVersion = (await runner(installation, "core version")).trim();
+    coreVersion = (await runner(installation, "core version")).trim();
     const pluginOutput = await runner(installation, "plugin list --format=json --fields=name,status,update,version,update_version,wporg_status,wporg_last_updated");
     const rawPlugins: unknown = JSON.parse(pluginOutput);
     if (!Array.isArray(rawPlugins)) throw new Error(`wp plugin list returned invalid JSON for ${installation.path}`);
@@ -97,16 +103,29 @@ export async function auditWordPressInstallation(
       return summary.length ? [{ slug: plugin.name, vulnerabilities: summary }] : [];
     });
     return applyHeuristics({ installation, coreVersion, plugins, vulnerabilities, suspiciousFiles, health: { reachable: true } }, options);
-  } catch {
+  } catch (error: unknown) {
+    const health = classifyAuditError(error);
     return applyHeuristics({
       installation,
-      coreVersion: "unknown",
+      coreVersion,
       plugins: [],
       vulnerabilities: [],
       suspiciousFiles: [],
-      health: { reachable: false },
+      health,
     }, options);
   }
+}
+
+function classifyAuditError(error: unknown): WordPressAudit["health"] {
+  const detail = error instanceof Error ? error.message : String(error);
+  const shortDetail = detail.replace(/\s+/g, " ").trim().slice(0, 240);
+  if (/PHP version.*requires at least|requires PHP/i.test(detail)) {
+    return { reachable: true, status: "runtime-incompatible", detail: shortDetail };
+  }
+  if (/connection refused|connection reset|connection closed|permission denied|timed out|could not resolve|kex_exchange|wp unavailable|no route to host/i.test(detail)) {
+    return { reachable: false, status: "unreachable", detail: shortDetail };
+  }
+  return { reachable: true, status: "wp-cli-error", detail: shortDetail };
 }
 
 export function parseSuspiciousFiles(output: string): string[] {
@@ -120,6 +139,11 @@ export function applyHeuristics(
   const priorities: string[] = [];
   if (/^(4|5)\./.test(audit.coreVersion)) priorities.push("core is very old");
   if (!audit.health.reachable) priorities.push("installation is unreachable");
+  if (audit.health.status === "runtime-incompatible") {
+    priorities.push("WordPress runtime is incompatible with the installed PHP version");
+  } else if (audit.health.status === "wp-cli-error") {
+    priorities.push("WP-CLI audit failed; manual review required");
+  }
   const now = (options.now ?? new Date()).getTime();
   const abandonmentDays = options.abandonmentDays ?? 365;
   const abandonmentMs = abandonmentDays * 24 * 60 * 60 * 1000;
