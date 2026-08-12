@@ -51,7 +51,7 @@ export function buildWpAuditBatchCommand(installation: WordPressInstallation): s
     `value=$(${command} 2>&1)`,
     "status=$?",
     "printf '%s\\n' \"$value\"",
-    `printf '%s\\n' "__MISE_${name.toUpperCase()}_STATUS_$status__"`,
+    `printf '%s\\n' "__MISE_${name.toUpperCase()}_STATUS_\${status}__"`,
     `printf '%s\\n' '__MISE_${name.toUpperCase()}_END__'`,
   ].join("; ")).join("; ");
 }

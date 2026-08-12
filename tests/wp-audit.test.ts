@@ -12,6 +12,7 @@ describe("WordPress audit", () => {
 
     expect(command).toContain("__MISE_CORE_BEGIN__");
     expect(command).toContain("__MISE_PLUGINS_BEGIN__");
+    expect(command).toContain("__MISE_CORE_STATUS_${status}__");
     expect(command).toContain("wp core verify-checksums");
     expect(command).toContain("find '/srv/site/wp-content/uploads'");
   });
