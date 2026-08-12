@@ -1,6 +1,7 @@
 import { describe, expect, it } from "vitest";
 import {
   normalizeHostDescriptor,
+  parseSecureNoteSsh,
   type BitwardenItem,
   type BwRunner,
   listBitwardenItems,
@@ -40,6 +41,38 @@ describe("bitwarden", () => {
       port: 2222,
       user: "root",
       identitySource: "ssh-key",
+    });
+  });
+
+  it("normalizes the host part of a secure SSH note without exposing its password", () => {
+    const item: BitwardenItem = {
+      id: "secure-note-1",
+      name: "master ssh",
+      notes: "master.example.test:2222\nroot:test-password",
+    };
+
+    expect(normalizeHostDescriptor(item)).toEqual({
+      id: "secure-note-1",
+      name: "master ssh",
+      host: "master.example.test",
+      port: 2222,
+      user: "root",
+      identitySource: "bitwarden:secure-note-1",
+    });
+    expect(parseSecureNoteSsh(item.notes)).toEqual({
+      host: "master.example.test",
+      port: 2222,
+      user: "root",
+      password: "test-password",
+    });
+  });
+
+  it("accepts the literal backslash-n separator used by Bitwarden secure notes", () => {
+    expect(parseSecureNoteSsh("master.example.test:2222\\nroot:test-password")).toEqual({
+      host: "master.example.test",
+      port: 2222,
+      user: "root",
+      password: "test-password",
     });
   });
 });

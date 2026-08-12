@@ -13,6 +13,7 @@ export interface BitwardenField {
 export interface BitwardenItem {
   id: string;
   name: string;
+  notes?: string | null;
   login?: {
     username?: string;
     uris?: Array<{ uri?: string | null }>;
@@ -29,6 +30,13 @@ export interface HostDescriptor {
   identitySource: string;
 }
 
+export interface SecureNoteSshCredentials {
+  host: string;
+  port: number;
+  user: string;
+  password: string;
+}
+
 export function ensureBwSession(env: NodeJS.ProcessEnv = process.env): string {
   const session = env.BW_SESSION?.trim();
   if (!session) {
@@ -42,6 +50,16 @@ export function ensureBwSession(env: NodeJS.ProcessEnv = process.env): string {
 async function runBw(args: string[], env: NodeJS.ProcessEnv = process.env): Promise<string> {
   const result = await execFileAsync("bw", args, { env });
   return result.stdout;
+}
+
+export async function getBitwardenItem(
+  id: string,
+  env: NodeJS.ProcessEnv = process.env,
+  runner: BwRunner = runBw,
+): Promise<BitwardenItem> {
+  const session = ensureBwSession(env);
+  const output = await runner(["get", "item", id], { ...env, BW_SESSION: session });
+  return JSON.parse(output) as BitwardenItem;
 }
 
 export async function listBitwardenItems(
@@ -72,9 +90,12 @@ function parseSshUri(rawUri: string): { host: string; port: number } {
 
 export function normalizeHostDescriptor(item: BitwardenItem): HostDescriptor {
   const rawUri = item.login?.uris?.find((entry) => entry.uri)?.uri;
-  if (!rawUri) throw new Error(`Bitwarden item ${item.id} has no login URI.`);
-  const { host, port } = parseSshUri(rawUri);
-  const user = item.login?.username?.trim();
+  const secureNote = parseSecureNoteSsh(item.notes);
+  if (!rawUri && !secureNote) {
+    throw new Error(`Bitwarden item ${item.id} has no SSH login URI or supported secure note.`);
+  }
+  const { host, port } = rawUri ? parseSshUri(rawUri) : secureNote!;
+  const user = item.login?.username?.trim() ?? secureNote?.user;
   if (!user) throw new Error(`Bitwarden item ${item.id} has no login username.`);
   return {
     id: item.id,
@@ -84,4 +105,17 @@ export function normalizeHostDescriptor(item: BitwardenItem): HostDescriptor {
     user,
     identitySource: fieldValue(item, "identitySource") ?? `bitwarden:${item.id}`,
   };
+}
+
+export function parseSecureNoteSsh(notes: string | null | undefined): SecureNoteSshCredentials | null {
+  if (!notes) return null;
+  const match = notes.trim().match(/^([^:\s]+):(\d+)(?:\\n|\n)([^:\s]+):(.+)$/s);
+  if (!match) return null;
+  const port = Number(match[2]);
+  if (!Number.isInteger(port) || port < 1 || port > 65535) return null;
+  return { host: match[1], port, user: match[3], password: match[4] };
+}
+
+export function extractSecureNoteSshCredentials(item: BitwardenItem): SecureNoteSshCredentials | null {
+  return parseSecureNoteSsh(item.notes);
 }

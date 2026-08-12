@@ -31,8 +31,9 @@ implementation → tests → `code-review`.
 
 ## Local requirements
 
-Node.js 20+, pnpm, Bitwarden CLI (`bw`), access to the relevant vault, and
-standard SSH tooling. Run `source scripts/setup-bw-session.sh` before syncing.
+Node.js 20+, pnpm, Bitwarden CLI (`bw`), access to the relevant vault, SSH,
+and `sshpass` for password-authenticated Secure Notes. Run
+`source scripts/setup-bw-session.sh` before syncing.
 
 ## Git history
 

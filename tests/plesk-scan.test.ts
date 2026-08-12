@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { scanPleskHost, type SshCommandRunner } from "../src/plesk-scan";
+import { buildSshInvocation, scanPleskHost, type SshCommandRunner } from "../src/plesk-scan";
 import type { HostConfig } from "../src/ssh-inventory";
 
 const host: HostConfig = {
@@ -13,6 +13,14 @@ const host: HostConfig = {
 };
 
 describe("plesk scan", () => {
+  it("keeps SSH passwords in the child environment and out of argv", () => {
+    const invocation = buildSshInvocation(host, "secret-password");
+
+    expect(invocation.executable).toBe("sshpass");
+    expect(invocation.args).toEqual(["-e", "ssh", "-p", "22", "root@master.example.test"]);
+    expect(invocation.env?.SSHPASS).toBe("secret-password");
+  });
+
   it("collects subscriptions and WordPress config paths using read-only commands", async () => {
     const calls: string[] = [];
     const runner: SshCommandRunner = async (_host, command) => {
@@ -28,7 +36,7 @@ describe("plesk scan", () => {
     });
     expect(calls).toEqual([
       "plesk bin subscription --list",
-      "find /var/www/vhosts -type f -name wp-config.php -print",
+      "find /var/www/vhosts -xdev -type f -name wp-config.php -print",
     ]);
   });
 });

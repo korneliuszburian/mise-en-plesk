@@ -18,9 +18,32 @@ export interface PleskScanResult {
 
 export type SshCommandRunner = (host: HostConfig, command: string) => Promise<string>;
 
-export async function runSshCommand(host: HostConfig, command: string): Promise<string> {
-  const result = await execFileAsync("ssh", [host.alias, command]);
-  return result.stdout;
+export function buildSshInvocation(host: HostConfig, password?: string): {
+  executable: "ssh" | "sshpass";
+  args: string[];
+  env?: NodeJS.ProcessEnv;
+} {
+  const sshArgs = ["-p", String(host.port), `${host.user}@${host.host}`];
+  if (!password) return { executable: "ssh", args: [...sshArgs] };
+  return {
+    executable: "sshpass",
+    args: ["-e", "ssh", ...sshArgs],
+    env: { ...process.env, SSHPASS: password },
+  };
+}
+
+export async function runSshCommand(host: HostConfig, command: string, password?: string): Promise<string> {
+  const invocation = buildSshInvocation(host, password);
+  try {
+    const result = await execFileAsync(invocation.executable, [...invocation.args, command], {
+      env: invocation.env,
+      timeout: 60_000,
+    });
+    return result.stdout;
+  } catch (error: unknown) {
+    const failure = error as { stderr?: string; message?: string };
+    throw new Error(failure.stderr?.trim() || failure.message || "SSH command failed.");
+  }
 }
 
 export function parseLineList(output: string): string[] {
@@ -41,7 +64,7 @@ export async function scanPleskHost(
 ): Promise<PleskScanResult> {
   const subscriptions = parseLineList(await runner(host, "plesk bin subscription --list"));
   const configPaths = parseLineList(
-    await runner(host, "find /var/www/vhosts -type f -name wp-config.php -print"),
+    await runner(host, "find /var/www/vhosts -xdev -type f -name wp-config.php -print"),
   );
   return { host: host.alias, subscriptions, wordpress: configPaths.map(wordpressPath) };
 }

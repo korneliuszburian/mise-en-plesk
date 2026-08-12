@@ -18,6 +18,13 @@ Bitwarden items must be searchable with `mise-en-plesk`, contain a login
 username and SSH URI, and use fields for optional metadata such as
 `identitySource`. The local `inventory.json` is a cache and is gitignored.
 
+The current organization also stores `master ssh` and `dev ssh` as Secure
+Notes. Their read-only SSH shape is `host:port\nuser:password` (the separator
+may be a literal `\\n`). `sync-ssh` understands these two notes and writes only
+host metadata to `inventory.json`; the password is fetched again from
+Bitwarden at scan time and passed to `sshpass` through the child environment.
+Install `sshpass` locally when password-authenticated SSH is required.
+
 The `scan <target>` command runs a read-only SSH/Plesk/WordPress scan and writes
 a Markdown report under `reports/`. Plesk commands are intentionally
 read-only; this project does not delete anything, update plugins/themes, or

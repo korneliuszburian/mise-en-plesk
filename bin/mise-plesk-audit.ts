@@ -1,6 +1,7 @@
 #!/usr/bin/env node
 import { readFile } from "node:fs/promises";
-import { readInventory, syncFromBitwarden } from "../src/ssh-inventory";
+import { getInventoryHostItem, readInventory, syncFromBitwarden } from "../src/ssh-inventory";
+import { extractSecureNoteSshCredentials } from "../src/bitwarden";
 import { runSshCommand, scanPleskHost } from "../src/plesk-scan";
 import { auditWordPressInstallation, type AuditResult } from "../src/wp-audit";
 import { writeAuditReport } from "../src/report";
@@ -47,8 +48,11 @@ async function scanHost(
   maxVulnerabilityLookups?: number,
 ): Promise<AuditResult["hosts"][number]> {
   const host = inventory[alias];
+  const item = process.env.BW_SESSION ? await getInventoryHostItem(host) : null;
+  const credentials = item ? extractSecureNoteSshCredentials(item) : null;
   console.error(`[${alias}] scanning Plesk host ${host.host}`);
-  const scan = await scanPleskHost(host);
+  const ssh = (command: string) => runSshCommand(host, command, credentials?.password);
+  const scan = await scanPleskHost(host, (_host, command) => ssh(command));
   let vulnerabilityLookups = 0;
   const wordpress = await Promise.all(scan.wordpress.map((installation) => auditWordPressInstallation(installation, undefined, {
     enabled: process.env.MISE_PLESK_ENABLE_VULNS === "1",
@@ -58,7 +62,7 @@ async function scanHost(
       vulnerabilityLookups += 1;
       return lookupPluginVulnerabilities(slug, options);
     },
-    suspiciousFileRunner: (_installation, command) => runSshCommand(host, command),
+    suspiciousFileRunner: (_installation, command) => ssh(command),
   })));
   console.error(`[${alias}] found ${scan.subscriptions.length} subscription(s), ${scan.wordpress.length} WordPress installation(s)`);
   return { host: scan.host, wordpress };

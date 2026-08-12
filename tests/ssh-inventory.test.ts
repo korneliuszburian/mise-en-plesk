@@ -51,4 +51,25 @@ describe("ssh inventory", () => {
     });
     await expect(readInventory(path)).resolves.toEqual(inventory);
   });
+
+  it("falls back to named master and dev secure notes when the tag search is empty", async () => {
+    const directory = await mkdtemp(join(tmpdir(), "mise-en-plesk-"));
+    const path = join(directory, "inventory.json");
+    const searches: string[] = [];
+    const inventory = await syncFromBitwarden("mise-en-plesk", path, {
+      listItems: async (term) => {
+        searches.push(term);
+        if (term === "") return [
+          { id: "master", name: "master ssh", notes: "master.example.test:2222\nroot:secret" },
+          { id: "dev", name: "dev ssh", notes: "dev.example.test:2222\nroot:secret" },
+          { id: "other", name: "Unrelated note", notes: "other.example.test:2222\nroot:secret" },
+        ];
+        return [];
+      },
+    });
+
+    expect(searches).toEqual(["mise-en-plesk", ""]);
+    expect(Object.keys(inventory)).toEqual(["master-ssh", "dev-ssh"]);
+    expect(inventory["master-ssh"]).not.toHaveProperty("password");
+  });
 });

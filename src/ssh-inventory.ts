@@ -2,8 +2,9 @@ import { mkdir, readFile, writeFile } from "node:fs/promises";
 import { dirname } from "node:path";
 import {
   listBitwardenItems,
-  normalizeHostDescriptor,
   type BitwardenItem,
+  getBitwardenItem,
+  normalizeHostDescriptor,
   type HostDescriptor,
 } from "./bitwarden";
 
@@ -41,7 +42,11 @@ export async function syncFromBitwarden(
   sync: BitwardenSync = { listItems: (term) => listBitwardenItems(term) },
 ): Promise<Inventory> {
   const inventory: Inventory = {};
-  for (const item of await sync.listItems(searchTerm)) {
+  let items = await sync.listItems(searchTerm);
+  if (!items.length && searchTerm === "mise-en-plesk") {
+    items = (await sync.listItems("")).filter((item) => /^(master|dev) ssh$/i.test(item.name));
+  }
+  for (const item of items) {
     const descriptor = normalizeHostDescriptor(item);
     let alias = aliasFor(descriptor.name);
     let suffix = 2;
@@ -50,6 +55,10 @@ export async function syncFromBitwarden(
   }
   await writeInventory(path, inventory);
   return inventory;
+}
+
+export async function getInventoryHostItem(host: HostConfig): Promise<BitwardenItem> {
+  return getBitwardenItem(host.id);
 }
 
 export function renderSshConfig(inventory: Inventory): string {
