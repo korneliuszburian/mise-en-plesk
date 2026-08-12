@@ -36,7 +36,7 @@ describe("plesk scan", () => {
     });
     expect(calls).toEqual([
       "plesk bin subscription --list",
-      "find /var/www/vhosts -xdev -type f -name wp-config.php -print",
+      "find /var/www/vhosts -xdev -maxdepth 4 -type f -name wp-config.php -print",
     ]);
   });
 });

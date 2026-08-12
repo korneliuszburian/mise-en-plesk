@@ -3,7 +3,7 @@ import { readFile } from "node:fs/promises";
 import { getInventoryHostItem, readInventory, syncFromBitwarden } from "../src/ssh-inventory";
 import { extractSecureNoteSshCredentials } from "../src/bitwarden";
 import { runSshCommand, scanPleskHost } from "../src/plesk-scan";
-import { auditWordPressInstallation, type AuditResult } from "../src/wp-audit";
+import { auditWordPressInstallation, buildWpCliCommand, type AuditResult } from "../src/wp-audit";
 import { writeAuditReport } from "../src/report";
 import { lookupPluginVulnerabilities } from "../src/vulnerabilities";
 
@@ -54,7 +54,7 @@ async function scanHost(
   const ssh = (command: string) => runSshCommand(host, command, credentials?.password);
   const scan = await scanPleskHost(host, (_host, command) => ssh(command));
   let vulnerabilityLookups = 0;
-  const wordpress = await Promise.all(scan.wordpress.map((installation) => auditWordPressInstallation(installation, undefined, {
+  const wordpress = await Promise.all(scan.wordpress.map((installation) => auditWordPressInstallation(installation, (_installation, command) => ssh(buildWpCliCommand(installation, command)), {
     enabled: process.env.MISE_PLESK_ENABLE_VULNS === "1",
     vulnerabilityLookup: async (slug, options) => {
       if (process.env.MISE_PLESK_ENABLE_VULNS !== "1") return null;

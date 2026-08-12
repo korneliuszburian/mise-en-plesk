@@ -40,6 +40,10 @@ function shellQuote(value: string): string {
   return `'${value.replaceAll("'", "'\\''")}'`;
 }
 
+export function buildWpCliCommand(installation: WordPressInstallation, command: string): string {
+  return `wp ${command} --path=${shellQuote(installation.path)} --allow-root`;
+}
+
 const defaultWpRunner: WpCommandRunner = async (installation, command) => {
   const { execFile } = await import("node:child_process");
   const { promisify } = await import("node:util");

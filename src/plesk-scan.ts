@@ -64,7 +64,7 @@ export async function scanPleskHost(
 ): Promise<PleskScanResult> {
   const subscriptions = parseLineList(await runner(host, "plesk bin subscription --list"));
   const configPaths = parseLineList(
-    await runner(host, "find /var/www/vhosts -xdev -type f -name wp-config.php -print"),
+    await runner(host, "find /var/www/vhosts -xdev -maxdepth 4 -type f -name wp-config.php -print"),
   );
   return { host: host.alias, subscriptions, wordpress: configPaths.map(wordpressPath) };
 }

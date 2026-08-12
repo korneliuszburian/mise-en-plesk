@@ -4,6 +4,7 @@ dist/
 coverage/
 inventory.json
 reports/*.json
+reports/*.md
 config.mise-en-plesk.json
 .mise-en-plesk/
 *.local

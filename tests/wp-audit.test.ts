@@ -1,7 +1,12 @@
 import { describe, expect, it } from "vitest";
-import { applyHeuristics, auditWordPressInstallation, type WpCommandRunner } from "../src/wp-audit";
+import { applyHeuristics, auditWordPressInstallation, buildWpCliCommand, type WpCommandRunner } from "../src/wp-audit";
 
 describe("WordPress audit", () => {
+  it("builds a read-only WP-CLI command for a remote SSH shell", () => {
+    expect(buildWpCliCommand({ path: "/var/www/vhosts/example.test/httpdocs" }, "core version"))
+      .toBe("wp core version --path='/var/www/vhosts/example.test/httpdocs' --allow-root");
+  });
+
   it("collects core, plugin, and checksum health through wp CLI", async () => {
     const calls: string[] = [];
     const runner: WpCommandRunner = async (_instance, command) => {
