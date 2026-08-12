@@ -1,5 +1,7 @@
 import { execFile } from "node:child_process";
+import { mkdtemp, rm } from "node:fs/promises";
 import { dirname } from "node:path";
+import { tmpdir } from "node:os";
 import { promisify } from "node:util";
 import type { HostConfig } from "./ssh-inventory";
 
@@ -18,12 +20,19 @@ export interface PleskScanResult {
 
 export type SshCommandRunner = (host: HostConfig, command: string) => Promise<string>;
 
-export function buildSshInvocation(host: HostConfig, password?: string): {
+interface SshInvocationOptions {
+  controlPath?: string;
+}
+
+export function buildSshInvocation(host: HostConfig, password?: string, options: SshInvocationOptions = {}): {
   executable: "ssh" | "sshpass";
   args: string[];
   env?: NodeJS.ProcessEnv;
 } {
-  const sshArgs = ["-o", "ConnectTimeout=10", "-o", "ConnectionAttempts=1", "-p", String(host.port), `${host.user}@${host.host}`];
+  const controlArgs = options.controlPath
+    ? ["-o", "ControlMaster=auto", "-o", "ControlPersist=120", "-o", `ControlPath=${options.controlPath}`]
+    : [];
+  const sshArgs = ["-o", "ConnectTimeout=10", "-o", "ConnectionAttempts=1", ...controlArgs, "-p", String(host.port), `${host.user}@${host.host}`];
   if (!password) return { executable: "ssh", args: [...sshArgs] };
   return {
     executable: "sshpass",
@@ -32,8 +41,8 @@ export function buildSshInvocation(host: HostConfig, password?: string): {
   };
 }
 
-export async function runSshCommand(host: HostConfig, command: string, password?: string): Promise<string> {
-  const invocation = buildSshInvocation(host, password);
+export async function runSshCommand(host: HostConfig, command: string, password?: string, options: SshInvocationOptions = {}): Promise<string> {
+  const invocation = buildSshInvocation(host, password, options);
   try {
     const result = await execFileAsync(invocation.executable, [...invocation.args, command], {
       env: invocation.env,
@@ -48,6 +57,34 @@ export async function runSshCommand(host: HostConfig, command: string, password?
       .join("\n");
     throw new Error(detail || "SSH command failed.");
   }
+}
+
+export interface SshSession {
+  run(command: string): Promise<string>;
+  close(): Promise<void>;
+}
+
+export async function createSshSession(host: HostConfig, password?: string): Promise<SshSession> {
+  const directory = await mkdtemp(`${tmpdir()}/mise-en-plesk-`);
+  const controlPath = `${directory}/control`;
+  const run = (command: string) => runSshCommand(host, command, password, { controlPath });
+  await run(":");
+
+  return {
+    run,
+    async close(): Promise<void> {
+      try {
+        await execFileAsync("ssh", [
+          "-o", "ControlPath=" + controlPath,
+          "-O", "exit",
+          "-p", String(host.port),
+          `${host.user}@${host.host}`,
+        ], { timeout: 5_000 });
+      } finally {
+        await rm(directory, { recursive: true, force: true });
+      }
+    },
+  };
 }
 
 export function parseLineList(output: string): string[] {

@@ -31,6 +31,14 @@ describe("plesk scan", () => {
     expect(invocation.env?.SSHPASS).toBe("secret-password");
   });
 
+  it("supports a local SSH control socket for connection reuse", () => {
+    const invocation = buildSshInvocation(host, "secret-password", { controlPath: "/tmp/mise-en-plesk/control" });
+
+    expect(invocation.args).toContain("ControlMaster=auto");
+    expect(invocation.args).toContain("ControlPersist=120");
+    expect(invocation.args).toContain("ControlPath=/tmp/mise-en-plesk/control");
+  });
+
   it("collects subscriptions and WordPress config paths using read-only commands", async () => {
     const calls: string[] = [];
     const runner: SshCommandRunner = async (_host, command) => {
