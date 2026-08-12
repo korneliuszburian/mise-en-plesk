@@ -12,7 +12,9 @@ const result: AuditResult = {
     wordpress: [{
       installation: { path: "/var/www/vhosts/example.test/httpdocs", domain: "example.test" },
       coreVersion: "5.9.0",
-      plugins: [],
+      plugins: [{ name: "sample", version: "1.0", active: true, hasUpdate: true, vulnerabilities: [] }],
+      vulnerabilities: [],
+      suspiciousFiles: ["/var/www/vhosts/example.test/httpdocs/wp-content/uploads/shell.php"],
       health: { reachable: true },
       priorities: ["core is very old"],
     }],
@@ -22,6 +24,7 @@ const result: AuditResult = {
 describe("audit reports", () => {
   it("renders useful Markdown sections and priorities", () => {
     expect(auditMarkdown(result)).toContain("## master");
+    expect(auditMarkdown(result)).toContain("Plugin risk: 1 with updates, 0 abandoned, 0 with known vulnerabilities");
     expect(auditMarkdown(result)).toContain("- Priorities: core is very old");
   });
 

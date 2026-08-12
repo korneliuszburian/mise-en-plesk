@@ -21,3 +21,9 @@ The `scan <target>` command runs a read-only SSH/Plesk/WordPress scan and writes
 a Markdown report under `reports/`. Plesk commands are intentionally
 read-only; this project does not delete anything, update plugins/themes, or
 change databases.
+
+Online plugin vulnerability lookups are opt-in. Set
+`MISE_PLESK_ENABLE_VULNS=1` before running `scan` to query the public
+WPVulnerability API. With the variable unset (or any value other than `1`),
+the scanner performs no external vulnerability API requests. API failures are
+reported as missing vulnerability data and never trigger remediation.

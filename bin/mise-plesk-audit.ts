@@ -1,6 +1,6 @@
 #!/usr/bin/env node
 import { readInventory, syncFromBitwarden } from "../src/ssh-inventory";
-import { scanPleskHost } from "../src/plesk-scan";
+import { runSshCommand, scanPleskHost } from "../src/plesk-scan";
 import { auditWordPressInstallation, type AuditResult } from "../src/wp-audit";
 import { writeAuditReport } from "../src/report";
 
@@ -25,7 +25,9 @@ async function main(): Promise<void> {
       usage();
     }
     const scan = await scanPleskHost(inventory[target]);
-    const wordpress = await Promise.all(scan.wordpress.map((installation) => auditWordPressInstallation(installation)));
+    const wordpress = await Promise.all(scan.wordpress.map((installation) => auditWordPressInstallation(installation, undefined, {
+      suspiciousFileRunner: (_installation, command) => runSshCommand(inventory[target], command),
+    })));
     const result: AuditResult = {
       generatedAt: new Date().toISOString(),
       hosts: [{ host: scan.host, wordpress }],

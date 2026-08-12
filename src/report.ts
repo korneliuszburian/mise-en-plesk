@@ -8,6 +8,14 @@ export function auditMarkdown(result: AuditResult): string {
     lines.push(`## ${host.host}`, ``);
     for (const site of host.wordpress) {
       lines.push(`### ${site.installation.domain ?? site.installation.path}`, ``, `- Core: ${site.coreVersion}`, `- Reachable: ${site.health.reachable ? "yes" : "no"}`);
+      const updateCount = site.plugins.filter((plugin) => plugin.hasUpdate).length;
+      const abandonedCount = site.plugins.filter((plugin) => plugin.wporgStatus !== undefined && plugin.wporgStatus !== "active" || plugin.wporgLastUpdated !== undefined && Date.parse(plugin.wporgLastUpdated) < Date.now() - 365 * 24 * 60 * 60 * 1000).length;
+      const vulnerablePluginCount = site.plugins.filter((plugin) => plugin.vulnerabilities.length > 0).length;
+      lines.push(`- Plugin risk: ${updateCount} with updates, ${abandonedCount} abandoned, ${vulnerablePluginCount} with known vulnerabilities`);
+      if (site.suspiciousFiles.length) {
+        lines.push(`- Suspicious uploads: ${site.suspiciousFiles.length} PHP file(s); details are available in JSON`);
+        for (const file of site.suspiciousFiles.slice(0, 5)) lines.push(`  - ${file}`);
+      }
       if (site.priorities.length) lines.push(`- Priorities: ${site.priorities.join(", ")}`);
       lines.push("");
     }
