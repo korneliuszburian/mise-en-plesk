@@ -28,3 +28,9 @@ implementation → tests → `code-review`.
 
 Node.js 20+, pnpm, Bitwarden CLI (`bw`), access to the relevant vault, and
 standard SSH tooling. Run `source scripts/setup-bw-session.sh` before syncing.
+
+## Git history
+
+Use Conventional Commits for every new commit: `feat:`, `fix:`, `test:`,
+`docs:`, `refactor:`, `chore:`, or another valid semantic type with an
+optional scope. Keep the subject imperative and concise.
