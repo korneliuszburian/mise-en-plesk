@@ -1,10 +1,36 @@
 import { describe, expect, it } from "vitest";
-import { applyHeuristics, auditWordPressInstallation, buildWpCliCommand, type WpCommandRunner } from "../src/wp-audit";
+import { applyHeuristics, auditWordPressInstallation, buildWpAuditBatchCommand, buildWpCliCommand, createBatchedWpRunners, type WpCommandRunner } from "../src/wp-audit";
 
 describe("WordPress audit", () => {
   it("builds a read-only WP-CLI command for a remote SSH shell", () => {
     expect(buildWpCliCommand({ path: "/var/www/vhosts/example.test/httpdocs" }, "core version"))
       .toBe("wp core version --path='/var/www/vhosts/example.test/httpdocs' --allow-root");
+  });
+
+  it("builds one read-only batch for all per-installation checks", () => {
+    const command = buildWpAuditBatchCommand({ path: "/srv/site" });
+
+    expect(command).toContain("__MISE_CORE_BEGIN__");
+    expect(command).toContain("__MISE_PLUGINS_BEGIN__");
+    expect(command).toContain("wp core verify-checksums");
+    expect(command).toContain("find '/srv/site/wp-content/uploads'");
+  });
+
+  it("reuses one batch result for WP and uploads checks", async () => {
+    let calls = 0;
+    const batched = createBatchedWpRunners({ path: "/srv/site" }, async () => {
+      calls += 1;
+      return [
+        "__MISE_CORE_BEGIN__", "6.6.1", "__MISE_CORE_STATUS_0__", "__MISE_CORE_END__",
+        "__MISE_PLUGINS_BEGIN__", "[]", "__MISE_PLUGINS_STATUS_0__", "__MISE_PLUGINS_END__",
+        "__MISE_CHECKSUMS_BEGIN__", "ok", "__MISE_CHECKSUMS_STATUS_0__", "__MISE_CHECKSUMS_END__",
+        "__MISE_UPLOADS_BEGIN__", "/srv/site/wp-content/uploads/shell.php", "__MISE_UPLOADS_STATUS_0__", "__MISE_UPLOADS_END__",
+      ].join("\n");
+    });
+
+    await expect(batched.runner({ path: "/srv/site" }, "core version")).resolves.toBe("6.6.1");
+    await expect(batched.suspiciousFileRunner({ path: "/srv/site" }, "ignored")).resolves.toContain("shell.php");
+    expect(calls).toBe(1);
   });
 
   it("collects core, plugin, and checksum health through wp CLI", async () => {

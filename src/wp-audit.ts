@@ -34,6 +34,63 @@ export interface AuditResult {
 export type WpCommandRunner = (installation: WordPressInstallation, command: string) => Promise<string>;
 export type SuspiciousFileRunner = (installation: WordPressInstallation, command: string) => Promise<string>;
 
+interface BatchSection {
+  output: string;
+  status: number;
+}
+
+export function buildWpAuditBatchCommand(installation: WordPressInstallation): string {
+  const commands = {
+    core: buildWpCliCommand(installation, "core version"),
+    plugins: buildWpCliCommand(installation, "plugin list --format=json --fields=name,status,update,version,update_version,wporg_status,wporg_last_updated"),
+    checksums: buildWpCliCommand(installation, "core verify-checksums"),
+    uploads: `find ${shellQuote(`${installation.path}/wp-content/uploads`)} -type f -name '*.php' -print`,
+  };
+  return Object.entries(commands).map(([name, command]) => [
+    `printf '%s\\n' '__MISE_${name.toUpperCase()}_BEGIN__'`,
+    `value=$(${command} 2>&1)`,
+    "status=$?",
+    "printf '%s\\n' \"$value\"",
+    `printf '%s\\n' "__MISE_${name.toUpperCase()}_STATUS_$status__"`,
+    `printf '%s\\n' '__MISE_${name.toUpperCase()}_END__'`,
+  ].join("; ")).join("; ");
+}
+
+function parseBatchSections(output: string): Map<string, BatchSection> {
+  const sections = new Map<string, BatchSection>();
+  for (const name of ["CORE", "PLUGINS", "CHECKSUMS", "UPLOADS"]) {
+    const match = output.match(new RegExp(`__MISE_${name}_BEGIN__\\n([\\s\\S]*?)\\n__MISE_${name}_STATUS_(\\d+)__\\n__MISE_${name}_END__`));
+    if (match) sections.set(name.toLowerCase(), { output: match[1], status: Number(match[2]) });
+  }
+  return sections;
+}
+
+export function createBatchedWpRunners(
+  installation: WordPressInstallation,
+  remoteRunner: (command: string) => Promise<string>,
+): { runner: WpCommandRunner; suspiciousFileRunner: SuspiciousFileRunner } {
+  let sectionsPromise: Promise<Map<string, BatchSection>> | undefined;
+  const sections = async (): Promise<Map<string, BatchSection>> => {
+    sectionsPromise ??= remoteRunner(buildWpAuditBatchCommand(installation)).then(parseBatchSections);
+    return sectionsPromise;
+  };
+  const read = async (name: string): Promise<string> => {
+    const section = (await sections()).get(name);
+    if (!section) throw new Error(`WP audit batch did not return ${name} output.`);
+    if (section.status !== 0) throw new Error(section.output || `WP ${name} command failed.`);
+    return section.output;
+  };
+  return {
+    runner: async (_installation, command) => {
+      if (command === "core version") return read("core");
+      if (command.startsWith("plugin list")) return read("plugins");
+      if (command === "core verify-checksums") return read("checksums");
+      throw new Error(`Unsupported batched WP command: ${command}`);
+    },
+    suspiciousFileRunner: async () => read("uploads"),
+  };
+}
+
 export interface WordPressAuditOptions extends VulnerabilityLookupOptions {
   abandonmentDays?: number;
   now?: Date;

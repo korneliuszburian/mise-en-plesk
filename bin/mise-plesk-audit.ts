@@ -3,7 +3,7 @@ import { readFile } from "node:fs/promises";
 import { getInventoryHostItem, readInventory, syncFromBitwarden } from "../src/ssh-inventory";
 import { extractSecureNoteSshCredentials } from "../src/bitwarden";
 import { createSshSession, scanPleskHost } from "../src/plesk-scan";
-import { auditWordPressInstallation, buildWpCliCommand, type AuditResult } from "../src/wp-audit";
+import { auditWordPressInstallation, createBatchedWpRunners, type AuditResult } from "../src/wp-audit";
 import { writeAuditReport } from "../src/report";
 import { lookupPluginVulnerabilities } from "../src/vulnerabilities";
 
@@ -59,10 +59,9 @@ async function scanHost(
     const wordpress = [];
     for (let index = 0; index < scan.wordpress.length; index += 4) {
       const batch = scan.wordpress.slice(index, index + 4);
-      wordpress.push(...await Promise.all(batch.map((installation) => auditWordPressInstallation(
-        installation,
-        (_installation, command) => ssh(buildWpCliCommand(installation, command)),
-        {
+      wordpress.push(...await Promise.all(batch.map(async (installation) => {
+        const batched = createBatchedWpRunners(installation, ssh);
+        return auditWordPressInstallation(installation, batched.runner, {
           enabled: process.env.MISE_PLESK_ENABLE_VULNS === "1",
           vulnerabilityLookup: async (slug, options) => {
             if (process.env.MISE_PLESK_ENABLE_VULNS !== "1") return null;
@@ -70,9 +69,9 @@ async function scanHost(
             vulnerabilityLookups += 1;
             return lookupPluginVulnerabilities(slug, options);
           },
-          suspiciousFileRunner: (_installation, command) => ssh(command),
-        },
-      ))));
+          suspiciousFileRunner: batched.suspiciousFileRunner,
+        });
+      })));
     }
     console.error(`[${alias}] found ${scan.subscriptions.length} subscription(s), ${scan.wordpress.length} WordPress installation(s)`);
     return { host: scan.host, wordpress };
