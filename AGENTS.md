@@ -14,6 +14,11 @@ in the current conversation, a clearly named CLI subcommand, and confirmation
 guards. Never commit or persist credentials; Bitwarden CLI is the credential
 source.
 
+Risk priorities are P1 manual-review signals: very old core, abandoned plugin,
+vulnerable plugin, or PHP files under `wp-content/uploads`. With
+`MISE_PLESK_ENABLE_VULNS=1`, the audit performs opt-in lookups against the
+WPVulnerability API; otherwise it performs no vulnerability API requests.
+
 ## Skills
 
 Use the globally installed skills: `/setup-mise-en-plesk`,

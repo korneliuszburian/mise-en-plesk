@@ -1,5 +1,6 @@
 {
   "reportsDirectory": "reports",
   "hosts": ["master", "dev"],
-  "allowSshConfigSnippet": false
+  "allowSshConfigSnippet": false,
+  "maxVulnerabilityLookupsPerHost": 25
 }
