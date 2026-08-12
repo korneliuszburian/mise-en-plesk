@@ -21,7 +21,8 @@ async function main(): Promise<void> {
   if (command === "scan" && target) {
     const inventory = await readInventory(inventoryPath);
     if (!inventory[target]) {
-      throw new Error(`Unknown inventory target: ${target}`);
+      console.error(`Unknown inventory target: ${target}`);
+      usage();
     }
     const scan = await scanPleskHost(inventory[target]);
     const wordpress = await Promise.all(scan.wordpress.map((installation) => auditWordPressInstallation(installation)));

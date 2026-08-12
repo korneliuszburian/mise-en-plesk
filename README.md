@@ -17,6 +17,7 @@ Bitwarden items must be searchable with `mise-en-plesk`, contain a login
 username and SSH URI, and use fields for optional metadata such as
 `identitySource`. The local `inventory.json` is a cache and is gitignored.
 
-The current `scan` command validates its target and reports a TODO. Plesk
-commands are intentionally read-only; this project does not delete anything,
-update plugins/themes, or change databases.
+The `scan <target>` command runs a read-only SSH/Plesk/WordPress scan and writes
+a Markdown report under `reports/`. Plesk commands are intentionally
+read-only; this project does not delete anything, update plugins/themes, or
+change databases.

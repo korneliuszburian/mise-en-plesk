@@ -25,4 +25,19 @@ describe("WordPress audit", () => {
       priorities: [],
     });
   });
+
+  it("keeps the host audit alive when one WordPress install is unreachable", async () => {
+    const runner: WpCommandRunner = async () => {
+      throw new Error("wp unavailable");
+    };
+
+    await expect(
+      auditWordPressInstallation({ path: "/var/www/vhosts/down.test/httpdocs", domain: "down.test" }, runner),
+    ).resolves.toMatchObject({
+      coreVersion: "unknown",
+      plugins: [],
+      health: { reachable: false },
+      priorities: ["installation is unreachable"],
+    });
+  });
 });

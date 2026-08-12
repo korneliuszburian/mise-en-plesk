@@ -36,21 +36,30 @@ export async function auditWordPressInstallation(
   installation: WordPressInstallation,
   runner: WpCommandRunner = defaultWpRunner,
 ): Promise<WordPressAudit> {
-  const coreVersion = (await runner(installation, "core version")).trim();
-  const pluginOutput = await runner(installation, "plugin list --format=json");
-  const rawPlugins: unknown = JSON.parse(pluginOutput);
-  if (!Array.isArray(rawPlugins)) throw new Error(`wp plugin list returned invalid JSON for ${installation.path}`);
-  const plugins = rawPlugins.map((plugin) => {
-    if (!plugin || typeof plugin !== "object") throw new Error("wp plugin list contained an invalid item");
-    const value = plugin as Record<string, unknown>;
-    return {
-      name: String(value.name ?? ""),
-      version: String(value.version ?? ""),
-      active: value.status === "active",
-    };
-  });
-  await runner(installation, "core verify-checksums");
-  return applyHeuristics({ installation, coreVersion, plugins, health: { reachable: true } });
+  try {
+    const coreVersion = (await runner(installation, "core version")).trim();
+    const pluginOutput = await runner(installation, "plugin list --format=json");
+    const rawPlugins: unknown = JSON.parse(pluginOutput);
+    if (!Array.isArray(rawPlugins)) throw new Error(`wp plugin list returned invalid JSON for ${installation.path}`);
+    const plugins = rawPlugins.map((plugin) => {
+      if (!plugin || typeof plugin !== "object") throw new Error("wp plugin list contained an invalid item");
+      const value = plugin as Record<string, unknown>;
+      return {
+        name: String(value.name ?? ""),
+        version: String(value.version ?? ""),
+        active: value.status === "active",
+      };
+    });
+    await runner(installation, "core verify-checksums");
+    return applyHeuristics({ installation, coreVersion, plugins, health: { reachable: true } });
+  } catch {
+    return applyHeuristics({
+      installation,
+      coreVersion: "unknown",
+      plugins: [],
+      health: { reachable: false },
+    });
+  }
 }
 
 export function applyHeuristics(audit: Omit<WordPressAudit, "priorities">): WordPressAudit {
