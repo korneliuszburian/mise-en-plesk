@@ -58,7 +58,7 @@ locations on `master`.
 These numbers prove the probes are useful, but also show that a full-fleet
 scan is too slow and too noisy to be the alerting unit by itself.
 
-## Current status and remaining work
+## Current status and final external gate
 
 ### Discovery quality
 
@@ -88,11 +88,13 @@ and its documented core/plugins/themes scope.
 
 ### Runtime
 
-The CLI remains an on-demand process driven by the scheduler script. Proactive
-alerting requires an
-always-on trusted runner with SSH access, a Bitwarden session/credential
-strategy, persistent state, and a WhatsApp sender. This is an operational
-deployment decision, not a reason to add a web framework to the scanner.
+The CLI remains an on-demand process driven by the scheduler script. The
+current checkout has completed two real scheduler cycles across `master-ssh`
+and `dev-ssh`, with independent cursor advancement and timestamped reports.
+Proactive alerting still requires an always-on trusted runner with SSH access,
+a Bitwarden session/credential strategy, persistent state, and an authorized
+WhatsApp sender. This is an operational deployment decision, not a reason to
+add a web framework to the scanner.
 
 ## Delivered implementation checkpoints
 
@@ -104,10 +106,11 @@ deployment decision, not a reason to add a web framework to the scanner.
 - per-chunk finding persistence and alert delivery, so a large host does not
   wait for the entire fleet before emitting a new P1.
 
-Remaining work is completion hardening: prove the scheduler on the real
-operator machine, validate full-fleet runtime behavior, review outbox
-concurrency/retention policy, and complete the final safety and operational
-audit. None of those items authorizes remote mutation.
+The code-level completion audit is green. The remaining external gate is to
+configure and observe one real approved WhatsApp delivery plus one recovery
+message; credentials and the approved template must come from the operator's
+WhatsApp Business account and never enter Git. None of this authorizes remote
+mutation.
 
 ## Explicit non-goals
 
