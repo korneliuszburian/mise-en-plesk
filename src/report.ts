@@ -6,6 +6,7 @@ export function auditMarkdown(result: AuditResult): string {
   const lines = [`# Plesk WordPress audit`, ``, `Generated: ${result.generatedAt}`, ``];
   for (const host of result.hosts) {
     lines.push(`## ${host.host}`, ``);
+    if (host.subscriptions) lines.push(`- Plesk subscriptions: ${host.subscriptions.length}`, ``);
     for (const warning of host.warnings ?? []) lines.push(`> Warning: ${warning}`, ``);
     if (host.hostFacts) {
       lines.push(`- Plesk: ${host.hostFacts.pleskVersion ?? "unknown"}`, `- PHP: ${host.hostFacts.phpVersion ?? "unknown"}`);

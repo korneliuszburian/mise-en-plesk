@@ -202,6 +202,7 @@ async function scanHost(
     return {
       report: {
         host: scan.host,
+        subscriptions: scan.subscriptions,
         wordpress,
         ...(scan.hostFacts ? { hostFacts: scan.hostFacts } : {}),
         ...(scan.warnings ? { warnings: scan.warnings } : {}),
@@ -349,10 +350,11 @@ async function main(): Promise<void> {
       const existing = hostsByAlias.get(execution.report.host);
       if (existing) {
         existing.wordpress.push(...execution.report.wordpress);
+        if (execution.report.subscriptions) existing.subscriptions = [...new Set([...(existing.subscriptions ?? []), ...execution.report.subscriptions])];
         if (!existing.hostFacts && execution.report.hostFacts) existing.hostFacts = execution.report.hostFacts;
         if (execution.report.warnings?.length) existing.warnings = [...new Set([...(existing.warnings ?? []), ...execution.report.warnings])];
       }
-      else hostsByAlias.set(execution.report.host, { ...execution.report, wordpress: [...execution.report.wordpress] });
+      else hostsByAlias.set(execution.report.host, { ...execution.report, subscriptions: execution.report.subscriptions ? [...execution.report.subscriptions] : undefined, wordpress: [...execution.report.wordpress] });
     }
     const hosts = [...hostsByAlias.values()];
     const preliminaryResult: AuditResult = {

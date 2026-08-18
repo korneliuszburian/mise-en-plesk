@@ -62,4 +62,12 @@ describe("audit reports", () => {
     expect(markdown).toContain("- Plesk: Plesk Obsidian 18.0.67");
     expect(markdown).toContain("- Disk: 65% used, 35000 KiB available on /dev/vda1");
   });
+
+  it("renders the discovered Plesk subscription count", () => {
+    const markdown = auditMarkdown({
+      ...result,
+      hosts: [{ host: "master-ssh", subscriptions: ["example.test", "shop.test"], wordpress: [] }],
+    });
+    expect(markdown).toContain("- Plesk subscriptions: 2");
+  });
 });
