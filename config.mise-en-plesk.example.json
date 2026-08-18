@@ -3,5 +3,6 @@
   "hosts": ["master-ssh", "dev-ssh"],
   "allowSshConfigSnippet": false,
   "maxVulnerabilityLookupsPerHost": 25,
-  "maxConcurrentSitesPerHost": 4
+  "maxConcurrentSitesPerHost": 4,
+  "maxSitesPerHost": 20
 }

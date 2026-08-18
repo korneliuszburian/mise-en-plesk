@@ -41,7 +41,12 @@ stderr so machine consumers can use the command without mixing progress into
 the report. Add `--json` to write the machine-readable report instead of
 Markdown. Set `maxVulnerabilityLookupsPerHost` in the config to cap opt-in
 WPVulnerability requests per host. Set `maxConcurrentSitesPerHost` to tune
-the number of simultaneous site batches per host; the default is 4.
+the number of simultaneous site batches per host; the default is 4. For large
+hosts, bound a run with `--max-sites=20 --offset=0` and repeat with the next
+offset. `maxSitesPerHost` in config provides the same default for every run;
+CLI flags take precedence. A bounded run only reconciles findings for the
+installations it actually scanned, and only the final chunk can resolve stale
+findings for the whole host.
 
 Online plugin vulnerability lookups are opt-in. Set
 `MISE_PLESK_ENABLE_VULNS=1` before running `scan` to query the public

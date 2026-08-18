@@ -20,6 +20,17 @@ export interface FindingEvent {
   occurredAt: string;
 }
 
+export interface FindingScope {
+  completeHosts?: ReadonlySet<string>;
+  installationPaths?: ReadonlySet<string>;
+}
+
+type ReconciliationScope = ReadonlySet<string> | FindingScope;
+
+function isFindingScope(scope: ReconciliationScope): scope is FindingScope {
+  return !("has" in scope);
+}
+
 export function emptyFindingState(): FindingState {
   return { version: 1, findings: {} };
 }
@@ -28,7 +39,7 @@ export function reconcileFindings(
   previous: FindingState,
   current: Finding[],
   now = new Date().toISOString(),
-  scopeHosts?: ReadonlySet<string>,
+  scope?: ReconciliationScope,
 ): { state: FindingState; events: FindingEvent[] } {
   const next: FindingState = { version: 1, findings: { ...previous.findings } };
   const events: FindingEvent[] = [];
@@ -57,7 +68,11 @@ export function reconcileFindings(
   }
 
   for (const existing of Object.values(previous.findings)) {
-    const inScope = scopeHosts === undefined || scopeHosts.has(existing.host);
+    const inScope = scope === undefined
+      || (!isFindingScope(scope)
+        ? scope.has(existing.host)
+        : scope.completeHosts?.has(existing.host) === true
+          || scope.installationPaths?.has(existing.installationPath) === true);
     if (existing.status === "open" && inScope && !currentIds.has(existing.id)) {
       const resolved: StoredFinding = { ...existing, status: "resolved", resolvedAt: now };
       next.findings[existing.id] = resolved;

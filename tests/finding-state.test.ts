@@ -58,4 +58,20 @@ describe("finding state transitions", () => {
     expect(result.state.findings["dev-finding"].status).toBe("open");
     expect(result.events.map((event) => event.finding.id)).toEqual(["master-finding"]);
   });
+
+  it("does not resolve installations omitted from a bounded host scan", () => {
+    const firstSite = finding("first-site");
+    const secondSite = { ...finding("second-site"), installationPath: "/srv/second-site" };
+    const initial = reconcileFindings(emptyFindingState(), [firstSite, secondSite], "2026-08-12T00:00:00.000Z").state;
+    const result = reconcileFindings(
+      initial,
+      [],
+      "2026-08-13T00:00:00.000Z",
+      { installationPaths: new Set([firstSite.installationPath]) },
+    );
+
+    expect(result.state.findings["first-site"].status).toBe("resolved");
+    expect(result.state.findings["second-site"].status).toBe("open");
+    expect(result.events.map((event) => event.finding.id)).toEqual(["first-site"]);
+  });
 });

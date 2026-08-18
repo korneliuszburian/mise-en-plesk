@@ -7,7 +7,7 @@ import { auditWordPressInstallation, createBatchedWpRunners, type AuditResult } 
 import { writeAuditReport } from "../src/report";
 import { lookupPluginVulnerabilities } from "../src/vulnerabilities";
 import { findingsFromAudits } from "../src/findings";
-import { readFindingState, reconcileFindings, writeFindingState } from "../src/finding-state";
+import { readFindingState, reconcileFindings, writeFindingState, type FindingScope } from "../src/finding-state";
 import { notifyFindingEvents } from "../src/notifications";
 import { notifyFindingEventsToWhatsApp } from "../src/whatsapp";
 import { runPreflight } from "../src/preflight";
@@ -20,12 +20,47 @@ interface MisePleskConfig {
   hosts?: string[];
   maxVulnerabilityLookupsPerHost?: number;
   maxConcurrentSitesPerHost?: number;
+  maxSitesPerHost?: number;
   findingsStatePath?: string;
 }
 
 function usage(): never {
-  console.error("Usage: mise-plesk-audit doctor [--json] | sync-ssh | scan <target|all> [--json]");
+  console.error("Usage: mise-plesk-audit doctor [--json] | sync-ssh | scan <target|all> [--json] [--max-sites=N] [--offset=N]");
   process.exit(1);
+}
+
+function parseNonNegativeInteger(value: string, flag: string): number {
+  if (!/^\d+$/.test(value)) throw new Error(`${flag} must be a non-negative integer.`);
+  const parsed = Number(value);
+  if (!Number.isSafeInteger(parsed)) throw new Error(`${flag} is too large.`);
+  return parsed;
+}
+
+function readScanRange(flags: string[], config: MisePleskConfig): { json: boolean; maxSites?: number; offset: number } {
+  let json = false;
+  let maxSites = config.maxSitesPerHost;
+  let offset = 0;
+  for (const flag of flags) {
+    if (flag === "--json") {
+      json = true;
+      continue;
+    }
+    const maxSitesMatch = /^--max-sites=(.+)$/.exec(flag);
+    if (maxSitesMatch) {
+      maxSites = parseNonNegativeInteger(maxSitesMatch[1], "--max-sites");
+      continue;
+    }
+    const offsetMatch = /^--offset=(.+)$/.exec(flag);
+    if (offsetMatch) {
+      offset = parseNonNegativeInteger(offsetMatch[1], "--offset");
+      continue;
+    }
+    usage();
+  }
+  if (maxSites !== undefined && (!Number.isInteger(maxSites) || maxSites < 1)) {
+    throw new Error("maxSitesPerHost/--max-sites must be a positive integer.");
+  }
+  return { json, maxSites, offset };
 }
 
 async function readConfig(): Promise<MisePleskConfig> {
@@ -54,7 +89,9 @@ async function scanHost(
   inventory: Awaited<ReturnType<typeof readInventory>>,
   maxVulnerabilityLookups?: number,
   maxConcurrentSites = 4,
-): Promise<AuditResult["hosts"][number]> {
+  maxSites?: number,
+  offset = 0,
+): Promise<{ report: AuditResult["hosts"][number]; scannedInstallationPaths: string[]; complete: boolean }> {
   const host = inventory[alias];
   const item = process.env.BW_SESSION ? await getInventoryHostItem(host) : null;
   const credentials = item ? extractSecureNoteSshCredentials(item) : null;
@@ -63,10 +100,14 @@ async function scanHost(
   try {
     const ssh = (command: string) => session.run(command);
     const scan = await scanPleskHost(host, (_host, command) => ssh(command));
+    const selectedWordPress = maxSites === undefined
+      ? scan.wordpress.slice(offset)
+      : scan.wordpress.slice(offset, offset + maxSites);
+    const scannedInstallationPaths = selectedWordPress.map((installation) => installation.path);
     let vulnerabilityLookups = 0;
     const wordpress = [];
-    for (let index = 0; index < scan.wordpress.length; index += maxConcurrentSites) {
-      const batch = scan.wordpress.slice(index, index + maxConcurrentSites);
+    for (let index = 0; index < selectedWordPress.length; index += maxConcurrentSites) {
+      const batch = selectedWordPress.slice(index, index + maxConcurrentSites);
       wordpress.push(...await Promise.all(batch.map(async (installation) => {
         const batched = createBatchedWpRunners(installation, ssh);
         return auditWordPressInstallation(installation, batched.runner, {
@@ -80,10 +121,14 @@ async function scanHost(
           suspiciousFileRunner: batched.suspiciousFileRunner,
         });
       })));
-      console.error(`[${alias}] audited ${Math.min(index + batch.length, scan.wordpress.length)}/${scan.wordpress.length} WordPress installation(s)`);
+      console.error(`[${alias}] audited ${Math.min(index + batch.length, selectedWordPress.length)}/${selectedWordPress.length} selected WordPress installation(s)`);
     }
-    console.error(`[${alias}] found ${scan.subscriptions.length} subscription(s), ${scan.wordpress.length} WordPress installation(s)`);
-    return { host: scan.host, wordpress };
+    console.error(`[${alias}] found ${scan.subscriptions.length} subscription(s), ${scan.wordpress.length} WordPress installation(s); selected ${selectedWordPress.length} at offset ${offset}`);
+    return {
+      report: { host: scan.host, wordpress },
+      scannedInstallationPaths,
+      complete: maxSites === undefined ? offset === 0 : offset < scan.wordpress.length && offset + selectedWordPress.length >= scan.wordpress.length,
+    };
   } finally {
     await session.close();
   }
@@ -92,7 +137,6 @@ async function scanHost(
 async function main(): Promise<void> {
   const [command, target, ...flags] = process.argv.slice(2);
   const json = flags.includes("--json");
-  if (flags.some((flag) => flag !== "--json")) usage();
   if (command === "doctor") {
     const result = await runPreflight({ inventoryPath, configPath });
     if (json) console.log(JSON.stringify(result, null, 2));
@@ -107,6 +151,7 @@ async function main(): Promise<void> {
   }
   if (command === "scan" && target) {
     const config = target === "all" ? await readConfig() : await readOptionalConfig();
+    const scanRange = readScanRange(flags, config);
     const inventory = await readInventory(inventoryPath);
     const aliases = target === "all" ? config.hosts ?? [] : [target];
     if (!aliases.length) throw new Error(`No hosts configured in ${configPath}.`);
@@ -121,8 +166,9 @@ async function main(): Promise<void> {
     if (!Number.isInteger(maxConcurrentSites) || maxConcurrentSites < 1) {
       throw new Error("maxConcurrentSitesPerHost must be a positive integer.");
     }
-    const hosts = [];
-    for (const alias of aliases) hosts.push(await scanHost(alias, inventory, maxLookups, maxConcurrentSites));
+    const executions = [];
+    for (const alias of aliases) executions.push(await scanHost(alias, inventory, maxLookups, maxConcurrentSites, scanRange.maxSites, scanRange.offset));
+    const hosts = executions.map((execution) => execution.report);
     const preliminaryResult: AuditResult = {
       generatedAt: new Date().toISOString(),
       hosts,
@@ -130,11 +176,15 @@ async function main(): Promise<void> {
     const currentFindings = findingsFromAudits(preliminaryResult.hosts);
     const findingStatePath = process.env.MISE_PLESK_FINDINGS ?? config.findingsStatePath ?? ".mise-en-plesk/findings.json";
     const findingState = await readFindingState(findingStatePath);
+    const findingScope: FindingScope = {
+      completeHosts: new Set(executions.filter((execution) => execution.complete).map((execution) => execution.report.host)),
+      installationPaths: new Set(executions.flatMap((execution) => execution.scannedInstallationPaths)),
+    };
     const transition = reconcileFindings(
       findingState,
       currentFindings,
       preliminaryResult.generatedAt,
-      new Set(preliminaryResult.hosts.map((host) => host.host)),
+      findingScope,
     );
     await writeFindingState(findingStatePath, transition.state);
     const notification = await notifyFindingEvents(transition.events, {
