@@ -152,11 +152,12 @@ so a stale monitor can still recover by starting the next scan.
 
 For a simple cron/systemd timer integration, run
 `scripts/run-scheduled-scan.sh`. It runs `doctor` first and then defaults to
-`scan all --json`, writes
+one bounded `scan <host> --json` chunk per configured host, writes
 0600 logs under `.mise-en-plesk/logs/`, and uses a process-backed `flock`. Set
 `MISE_PLESK_SCHEDULED_TARGET`, `MISE_PLESK_SCHEDULE_LOG_DIR`, or
 `MISE_PLESK_SCHEDULE_LOCK_FILE` to override the defaults. The scheduled runner
-uses bounded complete scans with 20 sites per chunk; override that with
-`MISE_PLESK_SCAN_CHUNK_SIZE`. Exit code `75` means
+uses a chunk size of 20 and persists per-host cursors; override that with
+`MISE_PLESK_SCAN_CHUNK_SIZE`. Set `MISE_PLESK_SCHEDULE_ALL_CHUNKS=1` for an
+explicit complete sweep. Exit code `75` means
 another scan is already running. The lock is process-backed via `flock` and is
 released automatically when the runner exits.
