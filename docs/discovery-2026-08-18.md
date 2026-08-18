@@ -78,10 +78,12 @@ was fixed.
 
 ### Vulnerability coverage
 
-The current online lookup is plugin-oriented and opt-in. The monitor should
-cover core, plugins, themes, and relevant runtime signals, cache lookups, and
-record the source and lookup timestamp. An API outage must degrade to
-`unknown`, never to `safe`.
+Online vulnerability lookup is opt-in and now covers core, plugins, and themes.
+The adapter records resource status and lookup timestamps, caches only known or
+empty responses, and treats API outages as `unavailable` rather than `safe`.
+Runtime and infrastructure enrichment remain separate signals.
+The resource coverage follows the provider's [API reference](https://docs.wpvulnerability.com/)
+and its documented core/plugins/themes scope.
 
 ### Runtime
 
@@ -113,8 +115,8 @@ deployment decision, not a reason to add a web framework to the scanner.
 ### Slice 3 — vulnerability engine
 
 - Enable WPVulnerability lookups in the monitor path with bounded concurrency,
-  timeout, cache, and explicit `unknown` results on API failure.
-- Add core/theme lookups only after the plugin path is stable.
+  timeout, TTL cache, and explicit `unavailable` results on API failure.
+- Cover core, plugins, and themes through one typed resource adapter.
 - Treat high/critical vulnerability records as P1 manual-review alerts.
 
 ### Slice 4 — WhatsApp notifier

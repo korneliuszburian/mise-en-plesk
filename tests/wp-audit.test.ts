@@ -208,4 +208,31 @@ describe("WordPress audit", () => {
     expect(audit.vulnerabilities[0].slug).toBe("sample-plugin");
     expect(audit.priorities).toContain("plugin sample-plugin/sample-plugin.php has known vulnerabilities (via WPVulnerability): high");
   });
+
+  it("enriches core and themes through the typed vulnerability resource lookup", async () => {
+    const requested: string[] = [];
+    const audit = await auditWordPressInstallation({ path: "/srv/site" }, async (_installation, command) => {
+      if (command === "core version") return "6.6.1";
+      if (command.startsWith("plugin list")) return "[]";
+      if (command.startsWith("theme list")) return JSON.stringify([{ name: "custom-theme", version: "1.0", status: "active", update: "none" }]);
+      return "ok";
+    }, {
+      enabled: true,
+      vulnerabilityResourceLookup: async (resource, identifier) => {
+        requested.push(`${resource}:${identifier}`);
+        if (resource === "core") return { status: "known", summary: { resource, identifier, vulnerabilities: [{ id: "CVE-2026-0005", title: "Core issue", cve: [], source: "WPVulnerability" }] } };
+        if (resource === "theme") return { status: "known", summary: { resource, identifier, vulnerabilities: [{ id: "CVE-2026-0006", title: "Theme issue", cve: [], source: "WPVulnerability" }] } };
+        return { status: "empty" };
+      },
+    });
+
+    expect(requested).toEqual(["theme:custom-theme", "core:6.6.1"]);
+    expect(audit.vulnerabilityStatus).toBe("complete");
+    expect(audit.coreVulnerabilities?.[0].id).toBe("CVE-2026-0005");
+    expect(audit.themes?.[0].vulnerabilities?.[0].id).toBe("CVE-2026-0006");
+    expect(audit.priorities).toEqual([
+      "theme custom-theme has known vulnerabilities (via WPVulnerability)",
+      "WordPress core has known vulnerabilities (via WPVulnerability)",
+    ]);
+  });
 });

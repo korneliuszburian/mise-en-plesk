@@ -14,7 +14,9 @@ export type FindingCode =
   | "core-checksum-failed"
   | "plugin-checksum-failed"
   | "suspicious-upload-php"
-  | "monitor-stale";
+  | "monitor-stale"
+  | "core-vulnerable"
+  | "theme-vulnerable";
 
 export type FindingSeverity = "P1" | "P2" | "info";
 
@@ -85,6 +87,17 @@ export function findingsFromAudits(hosts: AuditedHost[], now = new Date()): Find
       if (audit.coreUpdateAvailable) {
         findings.push(makeFinding(host, audit, "core-update", "P2", "WordPress core update available", "core-update"));
       }
+      for (const vulnerability of audit.coreVulnerabilities ?? []) {
+        findings.push(makeFinding(
+          host,
+          audit,
+          "core-vulnerable",
+          vulnerabilitySeverity(vulnerability.severity),
+          `WordPress core has known vulnerabilities (via WPVulnerability)${vulnerability.severity ? `: ${vulnerability.severity}` : ""}`,
+          `core:vulnerability:${vulnerability.id}`,
+          { vulnerabilityId: vulnerability.id, evidence: vulnerability.title },
+        ));
+      }
       for (const plugin of audit.plugins) {
         if (plugin.hasUpdate) {
           findings.push(makeFinding(host, audit, "plugin-update", "P2", `plugin ${plugin.name} has an update available`, `plugin:${plugin.name}:update`, { plugin: plugin.name }));
@@ -107,6 +120,17 @@ export function findingsFromAudits(hosts: AuditedHost[], now = new Date()): Find
       for (const theme of audit.themes ?? []) {
         if (theme.hasUpdate) {
           findings.push(makeFinding(host, audit, "theme-update", "P2", `theme ${theme.name} has an update available`, `theme:${theme.name}:update`, { evidence: theme.version }));
+        }
+        for (const vulnerability of theme.vulnerabilities ?? []) {
+          findings.push(makeFinding(
+            host,
+            audit,
+            "theme-vulnerable",
+            vulnerabilitySeverity(vulnerability.severity),
+            `theme ${theme.name} has known vulnerabilities (via WPVulnerability)${vulnerability.severity ? `: ${vulnerability.severity}` : ""}`,
+            `theme:${theme.name}:vulnerability:${vulnerability.id}`,
+            { vulnerabilityId: vulnerability.id, evidence: vulnerability.title },
+          ));
         }
       }
       if (audit.integrity?.coreChecksums === "failed") {

@@ -16,7 +16,11 @@ export function auditMarkdown(result: AuditResult): string {
       if (site.health.detail) lines.push(`- Health detail: ${site.health.detail}`);
       if (site.coreUpdateAvailable !== undefined) lines.push(`- Core update available: ${site.coreUpdateAvailable ? "yes" : "no"}`);
       const themeUpdateCount = (site.themes ?? []).filter((theme) => theme.hasUpdate).length;
-      if (site.themes) lines.push(`- Theme risk: ${themeUpdateCount} with updates`);
+      const themeVulnerabilityCount = (site.themes ?? []).filter((theme) => theme.vulnerabilities?.length).length;
+      if (site.themes) lines.push(`- Theme risk: ${themeUpdateCount} with updates, ${themeVulnerabilityCount} with known vulnerabilities`);
+      if (site.coreVulnerabilities?.length) lines.push(`- Core vulnerability risk: ${site.coreVulnerabilities.length} known vulnerability record(s)`);
+      if (site.vulnerabilityStatus) lines.push(`- Vulnerability lookup status: ${site.vulnerabilityStatus}`);
+      if (site.vulnerabilityCheckedAt) lines.push(`- Vulnerability data checked: ${site.vulnerabilityCheckedAt}`);
       if (site.integrity) lines.push(`- Integrity: core checksums ${site.integrity.coreChecksums}, plugin checksums ${site.integrity.pluginChecksums}`);
       const updateCount = site.plugins.filter((plugin) => plugin.hasUpdate).length;
       const abandonedCount = site.plugins.filter((plugin) => plugin.wporgStatus !== undefined && plugin.wporgStatus !== "active" || plugin.wporgLastUpdated !== undefined && Date.parse(plugin.wporgLastUpdated) < Date.now() - 365 * 24 * 60 * 60 * 1000).length;

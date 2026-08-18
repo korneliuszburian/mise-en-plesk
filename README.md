@@ -59,11 +59,16 @@ discovery until every installation is covered and writes one aggregate report:
 `scan all --json --max-sites=20 --all-chunks`. Starting `--all-chunks` at a
 non-zero offset intentionally does not resolve findings for the omitted prefix.
 
-Online plugin vulnerability lookups are opt-in. Set
+Online vulnerability lookups are opt-in. Set
 `MISE_PLESK_ENABLE_VULNS=1` before running `scan` to query the public
 WPVulnerability API. With the variable unset (or any value other than `1`),
-the scanner performs no external vulnerability API requests. API failures are
-reported as missing vulnerability data and never trigger remediation.
+the scanner performs no external vulnerability API requests. The opt-in lookup
+covers plugins, themes, and core. API failures are reported as `unavailable`,
+never treated as safe, and never trigger remediation. Known and empty responses
+are cached locally for 12 hours by default in the ignored
+`.mise-en-plesk/vulnerabilities.json`; configure `vulnerabilityCachePath` or
+`vulnerabilityCacheTtlHours` to change this. Lookup budgets also include core
+and theme resources, and a budget-exhausted result is reported as `partial`.
 
 The following findings are P1 manual-review signals, not automatic repairs:
 very old core, abandoned plugins, known-vulnerable plugins, and PHP files under

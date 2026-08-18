@@ -4,6 +4,8 @@
   "sudoHosts": [],
   "allowSshConfigSnippet": false,
   "maxVulnerabilityLookupsPerHost": 25,
+  "vulnerabilityCachePath": ".mise-en-plesk/vulnerabilities.json",
+  "vulnerabilityCacheTtlHours": 12,
   "maxConcurrentSitesPerHost": 4,
   "maxSitesPerHost": 20,
   "heartbeatPath": ".mise-en-plesk/heartbeat.json",

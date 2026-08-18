@@ -1,5 +1,13 @@
 import type { WordPressInstallation } from "./plesk-scan";
-import { lookupPluginVulnerabilities, type PluginVulnerabilitySummary, type VulnerabilityLookupOptions } from "./vulnerabilities";
+import {
+  lookupPluginVulnerabilities,
+  lookupVulnerabilities,
+  type PluginVulnerability,
+  type PluginVulnerabilitySummary,
+  type VulnerabilityLookupOptions,
+  type VulnerabilityLookupStatus,
+  type VulnerabilityResource,
+} from "./vulnerabilities";
 import type { Finding } from "./findings";
 import type { FindingEvent } from "./finding-state";
 
@@ -18,6 +26,7 @@ export interface ThemeInfo {
   version: string;
   active: boolean;
   hasUpdate: boolean;
+  vulnerabilities?: PluginVulnerability[];
 }
 
 export type ChecksumStatus = "verified" | "failed";
@@ -29,6 +38,9 @@ export interface WordPressAudit {
   plugins: PluginInfo[];
   themes?: ThemeInfo[];
   vulnerabilities: PluginVulnerabilitySummary[];
+  coreVulnerabilities?: PluginVulnerability[];
+  vulnerabilityStatus?: "disabled" | "complete" | "partial" | "unavailable";
+  vulnerabilityCheckedAt?: string;
   suspiciousFiles: string[];
   integrity?: {
     coreChecksums: ChecksumStatus;
@@ -122,6 +134,7 @@ export interface WordPressAuditOptions extends VulnerabilityLookupOptions {
   abandonmentDays?: number;
   now?: Date;
   vulnerabilityLookup?: typeof lookupPluginVulnerabilities;
+  vulnerabilityResourceLookup?: typeof lookupVulnerabilities;
   suspiciousFileRunner?: SuspiciousFileRunner;
 }
 
@@ -138,6 +151,17 @@ export function pluginSlug(name: string): string {
   return slug || name;
 }
 
+function vulnerabilityApiEnabled(options: VulnerabilityLookupOptions): boolean {
+  return options.enabled ?? process.env.MISE_PLESK_ENABLE_VULNS === "1";
+}
+
+function summarizeVulnerabilityStatus(statuses: VulnerabilityLookupStatus[]): WordPressAudit["vulnerabilityStatus"] {
+  if (!statuses.length || statuses.every((status) => status === "disabled")) return "disabled";
+  if (statuses.some((status) => status === "unavailable")) return "unavailable";
+  if (statuses.some((status) => status === "skipped")) return "partial";
+  return "complete";
+}
+
 export async function auditWordPressInstallation(
   installation: WordPressInstallation,
   runner: WpCommandRunner,
@@ -146,6 +170,15 @@ export async function auditWordPressInstallation(
   let coreVersion = "unknown";
   try {
     coreVersion = (await runner(installation, "core version")).trim();
+    const vulnerabilityStatuses: VulnerabilityLookupStatus[] = [];
+    const vulnerabilityCheckedAt: string[] = [];
+    const lookupResource = options.vulnerabilityResourceLookup ?? lookupVulnerabilities;
+    const resourceResult = async (resource: VulnerabilityResource, identifier: string) => {
+      const result = await lookupResource(resource, identifier, options);
+      vulnerabilityStatuses.push(result.status);
+      if (result.checkedAt) vulnerabilityCheckedAt.push(result.checkedAt);
+      return result;
+    };
     let coreUpdateAvailable: boolean | undefined;
     try {
       coreUpdateAvailable = parseCoreUpdateAvailable(await runner(installation, "core check-update --minor --format=json"));
@@ -159,7 +192,14 @@ export async function auditWordPressInstallation(
       if (!plugin || typeof plugin !== "object") throw new Error("wp plugin list contained an invalid item");
       const value = plugin as Record<string, unknown>;
       const name = String(value.name ?? "");
-      const vulnerabilitySummary = await (options.vulnerabilityLookup ?? lookupPluginVulnerabilities)(pluginSlug(name), options);
+      let vulnerabilitySummary: PluginVulnerabilitySummary | null = null;
+      if (options.vulnerabilityLookup) {
+        vulnerabilitySummary = await options.vulnerabilityLookup(pluginSlug(name), options);
+        vulnerabilityStatuses.push(vulnerabilitySummary ? "known" : vulnerabilityApiEnabled(options) ? "unavailable" : "disabled");
+      } else {
+        const result = await resourceResult("plugin", pluginSlug(name));
+        vulnerabilitySummary = result.summary ? { slug: pluginSlug(name), vulnerabilities: result.summary.vulnerabilities } : null;
+      }
       return {
         name,
         version: String(value.version ?? ""),
@@ -186,19 +226,23 @@ export async function auditWordPressInstallation(
     try {
       const rawThemes: unknown = JSON.parse(await runner(installation, "theme list --format=json --fields=name,status,version,update,update_version,auto_update"));
       if (!Array.isArray(rawThemes)) throw new Error("wp theme list returned invalid JSON");
-      themes = rawThemes.map((theme) => {
+      themes = await Promise.all(rawThemes.map(async (theme) => {
         if (!theme || typeof theme !== "object") throw new Error("wp theme list contained an invalid item");
         const value = theme as Record<string, unknown>;
+        const name = String(value.name ?? "");
+        const vulnerabilityResult = await resourceResult("theme", name);
         return {
-          name: String(value.name ?? ""),
+          name,
           version: String(value.version ?? ""),
           active: value.status === "active",
           hasUpdate: value.update === "available" || Boolean(value.update_version),
+          ...(vulnerabilityResult.summary?.vulnerabilities.length ? { vulnerabilities: vulnerabilityResult.summary.vulnerabilities } : {}),
         };
-      });
+      }));
     } catch {
       themes = undefined;
     }
+    const coreVulnerabilityResult = await resourceResult("core", coreVersion);
     let suspiciousFiles: string[] = [];
     if (options.suspiciousFileRunner) {
       try {
@@ -214,7 +258,21 @@ export async function auditWordPressInstallation(
       const summary = plugin.vulnerabilities;
       return summary.length ? [{ slug: pluginSlug(plugin.name), vulnerabilities: summary }] : [];
     });
-    return applyHeuristics({ installation, coreVersion, coreUpdateAvailable, plugins, themes, vulnerabilities, suspiciousFiles, integrity: { coreChecksums, pluginChecksums }, health: { reachable: true } }, options);
+    const vulnerabilityStatus = summarizeVulnerabilityStatus(vulnerabilityStatuses);
+    return applyHeuristics({
+      installation,
+      coreVersion,
+      coreUpdateAvailable,
+      plugins,
+      themes,
+      vulnerabilities,
+      ...(coreVulnerabilityResult.summary?.vulnerabilities.length ? { coreVulnerabilities: coreVulnerabilityResult.summary.vulnerabilities } : {}),
+      ...(vulnerabilityStatus !== "disabled" ? { vulnerabilityStatus } : {}),
+      ...(vulnerabilityCheckedAt.length ? { vulnerabilityCheckedAt: vulnerabilityCheckedAt.sort().at(-1) } : {}),
+      suspiciousFiles,
+      integrity: { coreChecksums, pluginChecksums },
+      health: { reachable: true },
+    }, options);
   } catch (error: unknown) {
     const health = classifyAuditError(error);
     return applyHeuristics({
@@ -294,7 +352,9 @@ export function applyHeuristics(
   }
   for (const theme of audit.themes ?? []) {
     if (theme.hasUpdate) priorities.push(`theme ${theme.name} has an update available`);
+    if (theme.vulnerabilities?.length) priorities.push(`theme ${theme.name} has known vulnerabilities (via WPVulnerability)`);
   }
+  if (audit.coreVulnerabilities?.length) priorities.push("WordPress core has known vulnerabilities (via WPVulnerability)");
   if (audit.integrity?.coreChecksums === "failed") priorities.push("WordPress core checksum verification failed");
   if (audit.integrity?.pluginChecksums === "failed") priorities.push("WordPress plugin checksum verification needs manual review");
   if (audit.suspiciousFiles.length) priorities.push("PHP files found in uploads (possible backdoors)");

@@ -5,7 +5,7 @@ import { extractSecureNoteSshCredentials } from "../src/bitwarden";
 import { createSshSession, scanPleskHost } from "../src/plesk-scan";
 import { auditWordPressInstallation, createBatchedWpRunners, type AuditResult } from "../src/wp-audit";
 import { writeAuditReport } from "../src/report";
-import { lookupPluginVulnerabilities } from "../src/vulnerabilities";
+import { createFileVulnerabilityCache, lookupVulnerabilities, type VulnerabilityCache } from "../src/vulnerabilities";
 import { findingsFromAudits } from "../src/findings";
 import { readFindingState, reconcileFindings, writeFindingState, type FindingScope } from "../src/finding-state";
 import { notifyFindingEvents } from "../src/notifications";
@@ -22,6 +22,8 @@ interface MisePleskConfig {
   hosts?: string[];
   sudoHosts?: string[];
   maxVulnerabilityLookupsPerHost?: number;
+  vulnerabilityCachePath?: string;
+  vulnerabilityCacheTtlHours?: number;
   maxConcurrentSitesPerHost?: number;
   maxSitesPerHost?: number;
   findingsStatePath?: string;
@@ -119,6 +121,7 @@ async function scanHost(
   offset = 0,
   vulnerabilityBudget: VulnerabilityLookupBudget = { used: 0 },
   useSudo = false,
+  vulnerabilityCache?: VulnerabilityCache,
 ): Promise<{ report: AuditResult["hosts"][number]; scannedInstallationPaths: string[]; complete: boolean }> {
   const host = inventory[alias];
   const item = process.env.BW_SESSION ? await getInventoryHostItem(host) : null;
@@ -143,11 +146,11 @@ async function scanHost(
         const batched = createBatchedWpRunners(installation, ssh, { useSudo: effectiveSudo });
         return auditWordPressInstallation(installation, batched.runner, {
           enabled: process.env.MISE_PLESK_ENABLE_VULNS === "1",
-          vulnerabilityLookup: async (slug, options) => {
-            if (process.env.MISE_PLESK_ENABLE_VULNS !== "1") return null;
-            if (maxVulnerabilityLookups !== undefined && vulnerabilityBudget.used >= maxVulnerabilityLookups) return null;
+          vulnerabilityResourceLookup: async (resource, identifier, options) => {
+            if (process.env.MISE_PLESK_ENABLE_VULNS !== "1") return { status: "disabled" };
+            if (maxVulnerabilityLookups !== undefined && vulnerabilityBudget.used >= maxVulnerabilityLookups) return { status: "skipped" };
             vulnerabilityBudget.used += 1;
-            return lookupPluginVulnerabilities(slug, options);
+            return lookupVulnerabilities(resource, identifier, { ...options, enabled: true, cache: vulnerabilityCache });
           },
           suspiciousFileRunner: batched.suspiciousFileRunner,
         });
@@ -244,6 +247,13 @@ async function main(): Promise<void> {
     if (maxLookups !== undefined && (!Number.isInteger(maxLookups) || maxLookups < 0)) {
       throw new Error("maxVulnerabilityLookupsPerHost must be a non-negative integer.");
     }
+    if (config.vulnerabilityCacheTtlHours !== undefined && (!Number.isFinite(config.vulnerabilityCacheTtlHours) || config.vulnerabilityCacheTtlHours <= 0)) {
+      throw new Error("vulnerabilityCacheTtlHours must be a positive number.");
+    }
+    const vulnerabilityCache = createFileVulnerabilityCache(
+      process.env.MISE_PLESK_VULN_CACHE ?? config.vulnerabilityCachePath ?? ".mise-en-plesk/vulnerabilities.json",
+      (config.vulnerabilityCacheTtlHours ?? 12) * 60 * 60 * 1000,
+    );
     const maxConcurrentSites = config.maxConcurrentSitesPerHost ?? 4;
     if (!Number.isInteger(maxConcurrentSites) || maxConcurrentSites < 1) {
       throw new Error("maxConcurrentSitesPerHost must be a positive integer.");
@@ -254,7 +264,7 @@ async function main(): Promise<void> {
       const vulnerabilityBudget = { used: 0 };
       const useSudo = config.sudoHosts?.includes(alias) ?? false;
       while (true) {
-        const execution = await scanHost(alias, inventory, maxLookups, maxConcurrentSites, scanRange.maxSites, offset, vulnerabilityBudget, useSudo);
+        const execution = await scanHost(alias, inventory, maxLookups, maxConcurrentSites, scanRange.maxSites, offset, vulnerabilityBudget, useSudo, vulnerabilityCache);
         executions.push(execution);
         if (!scanRange.allChunks || execution.complete) break;
         if (!execution.scannedInstallationPaths.length) throw new Error(`[${alias}] bounded scan made no progress at offset ${offset}.`);

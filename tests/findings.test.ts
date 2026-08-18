@@ -20,7 +20,8 @@ describe("structured findings", () => {
       wordpress: [baseAudit({
         coreVersion: "5.9.0",
         coreUpdateAvailable: true,
-        themes: [{ name: "old-theme", version: "1.0", active: true, hasUpdate: true }],
+        coreVulnerabilities: [{ id: "CVE-2026-0005", title: "Core issue", severity: "critical", cve: [], source: "WPVulnerability" }],
+        themes: [{ name: "old-theme", version: "1.0", active: true, hasUpdate: true, vulnerabilities: [{ id: "CVE-2026-0006", title: "Theme issue", severity: "high", cve: [], source: "WPVulnerability" }] }],
         integrity: { coreChecksums: "failed", pluginChecksums: "failed" },
         plugins: [{
           name: "old-plugin",
@@ -44,23 +45,25 @@ describe("structured findings", () => {
     expect(findings.map((finding) => finding.code)).toEqual([
       "core-outdated",
       "core-update",
+      "core-vulnerable",
       "plugin-update",
       "plugin-abandoned",
       "plugin-vulnerable",
       "theme-update",
+      "theme-vulnerable",
       "core-checksum-failed",
       "plugin-checksum-failed",
       "suspicious-upload-php",
     ]);
-    expect(findings[2]).toMatchObject({
+    expect(findings.find((finding) => finding.code === "plugin-update")).toMatchObject({
       severity: "P2",
       host: "master-ssh",
       installationPath: "/var/www/vhosts/example.test/httpdocs",
       plugin: "old-plugin",
       message: "plugin old-plugin has an update available",
     });
-    expect(findings[4]).toMatchObject({ severity: "P1", vulnerabilityId: "CVE-2026-0001" });
-    expect(findings[2].id).toBe(findingsFromAudits([{
+    expect(findings.find((finding) => finding.code === "plugin-vulnerable")).toMatchObject({ severity: "P1", vulnerabilityId: "CVE-2026-0001" });
+    expect(findings.find((finding) => finding.code === "plugin-update")?.id).toBe(findingsFromAudits([{
       host: "master-ssh",
       wordpress: [baseAudit({ plugins: [{
         name: "old-plugin", version: "1.0", active: true, hasUpdate: true,
