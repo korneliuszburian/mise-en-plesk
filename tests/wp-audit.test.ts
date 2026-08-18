@@ -1,7 +1,11 @@
 import { describe, expect, it } from "vitest";
-import { applyHeuristics, auditWordPressInstallation, buildWpAuditBatchCommand, buildWpCliCommand, createBatchedWpRunners, type WpCommandRunner } from "../src/wp-audit";
+import { applyHeuristics, auditWordPressInstallation, buildWpAuditBatchCommand, buildWpCliCommand, createBatchedWpRunners, pluginSlug, type WpCommandRunner } from "../src/wp-audit";
 
 describe("WordPress audit", () => {
+  it("normalizes WP-CLI plugin filenames to vulnerability API slugs", () => {
+    expect(pluginSlug("akismet/akismet.php")).toBe("akismet");
+    expect(pluginSlug("hello.php")).toBe("hello.php");
+  });
   it("builds a read-only WP-CLI command for a remote SSH shell", () => {
     expect(buildWpCliCommand({ path: "/var/www/vhosts/example.test/httpdocs" }, "core version"))
       .toBe("wp core version --path='/var/www/vhosts/example.test/httpdocs' --allow-root");
@@ -159,20 +163,24 @@ describe("WordPress audit", () => {
   });
 
   it("attaches vulnerability summaries from an injected lookup", async () => {
-    const runner: WpCommandRunner = async (_installation, command) => {
+    let requestedSlug = "";
+    const audit = await auditWordPressInstallation({ path: "/srv/site" }, async (_installation, command) => {
       if (command.includes("core version")) return "6.6.1";
-      if (command.includes("plugin list")) return JSON.stringify([{ name: "sample-plugin", version: "1.0", status: "active", update: "none" }]);
+      if (command.includes("plugin list")) return JSON.stringify([{ name: "sample-plugin/sample-plugin.php", version: "1.0", status: "active", update: "none" }]);
       return "ok";
-    };
-    const audit = await auditWordPressInstallation({ path: "/srv/site" }, runner, {
-      vulnerabilityLookup: async () => ({
+    }, {
+      vulnerabilityLookup: async (slug) => {
+        requestedSlug = slug;
+        return {
         slug: "sample-plugin",
         vulnerabilities: [{ id: "CVE-2026-0001", title: "Example issue", severity: "high", cve: ["CVE-2026-0001"], source: "WPVulnerability" }],
-      }),
+        };
+      },
     });
 
+    expect(requestedSlug).toBe("sample-plugin");
     expect(audit.plugins[0].vulnerabilities[0].cve).toEqual(["CVE-2026-0001"]);
     expect(audit.vulnerabilities[0].slug).toBe("sample-plugin");
-    expect(audit.priorities).toContain("plugin sample-plugin has known vulnerabilities (via WPVulnerability): high");
+    expect(audit.priorities).toContain("plugin sample-plugin/sample-plugin.php has known vulnerabilities (via WPVulnerability): high");
   });
 });

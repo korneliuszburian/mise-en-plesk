@@ -131,6 +131,11 @@ export function buildWpCliCommand(installation: WordPressInstallation, command: 
   return `wp ${command} --path=${shellQuote(installation.path)} --allow-root`;
 }
 
+export function pluginSlug(name: string): string {
+  const [slug] = name.split("/", 1);
+  return slug || name;
+}
+
 export async function auditWordPressInstallation(
   installation: WordPressInstallation,
   runner: WpCommandRunner,
@@ -152,7 +157,7 @@ export async function auditWordPressInstallation(
       if (!plugin || typeof plugin !== "object") throw new Error("wp plugin list contained an invalid item");
       const value = plugin as Record<string, unknown>;
       const name = String(value.name ?? "");
-      const vulnerabilitySummary = await (options.vulnerabilityLookup ?? lookupPluginVulnerabilities)(name, options);
+      const vulnerabilitySummary = await (options.vulnerabilityLookup ?? lookupPluginVulnerabilities)(pluginSlug(name), options);
       return {
         name,
         version: String(value.version ?? ""),
@@ -205,7 +210,7 @@ export async function auditWordPressInstallation(
     }
     const vulnerabilities = plugins.flatMap((plugin) => {
       const summary = plugin.vulnerabilities;
-      return summary.length ? [{ slug: plugin.name, vulnerabilities: summary }] : [];
+      return summary.length ? [{ slug: pluginSlug(plugin.name), vulnerabilities: summary }] : [];
     });
     return applyHeuristics({ installation, coreVersion, coreUpdateAvailable, plugins, themes, vulnerabilities, suspiciousFiles, integrity: { coreChecksums, pluginChecksums }, health: { reachable: true } }, options);
   } catch (error: unknown) {
