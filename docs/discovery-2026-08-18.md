@@ -4,7 +4,7 @@ Date: 2026-08-18
 
 ## Product direction
 
-The Markdown report is a V1 inspection artifact. The useful product is a
+The Markdown report is an inspection artifact. The useful product is a
 read-only security monitor that detects new WordPress risk before a client
 reports it, keeps the finding open/resolved state, and sends a concise alert.
 
@@ -58,7 +58,7 @@ locations on `master`.
 These numbers prove the probes are useful, but also show that a full-fleet
 scan is too slow and too noisy to be the alerting unit by itself.
 
-## Important gaps
+## Current status and remaining work
 
 ### Discovery quality
 
@@ -69,17 +69,13 @@ classification (`production`, `staging`, `backup`, or `unknown`) with a reason.
 Standard `httpdocs`/`public_html` paths become production only when no staging
 or backup marker is present; ambiguous paths remain unknown.
 
-### Finding model
+### Findings and delivery
 
-Priorities are currently strings inside `WordPressAudit`. Alerting needs typed
-findings with a stable ID, severity, code, site identity, evidence, first seen,
-last seen, and resolution state.
-
-### Historical state
-
-There is no durable comparison between two scans. Without state, WhatsApp
-would either spam the same finding or fail to tell the operator that a finding
-was fixed.
+Typed findings, stable IDs, first/last seen state, resolved/reopened
+transitions, and a local atomic notification outbox are implemented. P1 events
+are retried with bounded backoff and remain pending after a provider outage;
+delivered entries are compacted. The outbox is deliberately local and does not
+pretend to provide a distributed delivery guarantee.
 
 ### Vulnerability coverage
 
@@ -92,59 +88,26 @@ and its documented core/plugins/themes scope.
 
 ### Runtime
 
-The CLI is currently an on-demand process. Proactive alerting requires an
+The CLI remains an on-demand process driven by the scheduler script. Proactive
+alerting requires an
 always-on trusted runner with SSH access, a Bitwarden session/credential
 strategy, persistent state, and a WhatsApp sender. This is an operational
 deployment decision, not a reason to add a web framework to the scanner.
 
-## Proposed implementation plan
+## Delivered implementation checkpoints
 
-### Slice 1 — findings core
+- typed findings with stable IDs and scoped reconciliation;
+- local finding state with resolved/reopened transitions;
+- core/plugin/theme vulnerability enrichment with bounded lookups and cache;
+- webhook and WhatsApp adapters with bounded retry and persistent outbox;
+- stale-monitor health check and scheduler-friendly bounded scans;
+- per-chunk finding persistence and alert delivery, so a large host does not
+  wait for the entire fleet before emitting a new P1.
 
-- Add typed `Finding` and `FindingSnapshot` models.
-- Map current heuristics and vulnerability results to finding codes:
-  `runtime-incompatible`, `wp-cli-error`, `core-outdated`,
-  `plugin-update`, `plugin-abandoned`, `plugin-vulnerable`,
-  `suspicious-upload-php`, and `unreachable`.
-- Derive a stable finding ID from host alias, installation path, code, plugin,
-  and vulnerability ID where available.
-- Keep Markdown/JSON output additive; do not redesign the report.
-
-### Slice 2 — state and deduplication
-
-- Persist a local, gitignored findings state file.
-- Emit `new`, `still-open`, `resolved`, and `reopened` transitions.
-- Add cooldowns so one unchanged P1 produces one alert, not one alert per scan.
-- Use atomic local writes and never persist credentials.
-
-### Slice 3 — vulnerability engine
-
-- Enable WPVulnerability lookups in the monitor path with bounded concurrency,
-  timeout, TTL cache, and explicit `unavailable` results on API failure.
-- Cover core, plugins, and themes through one typed resource adapter.
-- Treat high/critical vulnerability records as P1 manual-review alerts.
-
-### Slice 4 — WhatsApp notifier
-
-- Define a small `Notifier` interface and test it with a fake notifier first.
-- Send only finding transitions and compact evidence.
-- Keep provider credentials outside the repository, preferably in Bitwarden.
-- Add retry/backoff and a delivery log without putting secrets into logs.
-
-### Slice 5 — monitor runner
-
-- Add a scheduler-friendly command with explicit target and interval policy.
-- Shard or incrementally rotate the fleet so 377 installations do not have to
-  finish before every alert can be emitted.
-- Run it on an always-on trusted machine with the required SSH and Bitwarden
-  access; keep Plesk access strictly read-only.
-
-### Slice 6 — operational hardening
-
-- Health check for the monitor itself: last successful scan, last alert,
-  vulnerability API availability, and stale inventory.
-- Alert when the monitor is stale, not only when a WordPress site is risky.
-- Review the alert vocabulary with the operator and add runbook links.
+Remaining work is completion hardening: prove the scheduler on the real
+operator machine, validate full-fleet runtime behavior, review outbox
+concurrency/retention policy, and complete the final safety and operational
+audit. None of those items authorizes remote mutation.
 
 ## Explicit non-goals
 
@@ -275,14 +238,12 @@ This gives early alerts without opening hundreds of new SSH connections or
 waiting for every low-risk backup path to finish. A stale monitor alert is a
 first-class finding because silence from a dead scanner is not safety.
 
-## Revised implementation order
+## Completion gate
 
-1. `feat: add typed findings and state transitions`.
-2. `feat: add production-path classification and scan queue`.
-3. `feat: add core, theme, and checksum evidence`.
-4. `feat: add vulnerability cache and severity normalization`.
-5. `feat: add notifier interface and WhatsApp adapter`.
-6. `feat: add scheduled monitor and stale-monitor alert`.
+The tool is complete only after a requirement-by-requirement audit proves the
+read-only command allowlist, credential handling, bounded scan behavior,
+finding persistence, alert retry/outbox behavior, scheduler recovery, test
+coverage, CI, and bounded runtime scans on the in-scope hosts.
 
 The first production milestone is not a dashboard. It is: a new P1 appears,
 one useful WhatsApp message arrives, the same P1 does not spam, and a resolved

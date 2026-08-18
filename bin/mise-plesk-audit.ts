@@ -3,12 +3,11 @@ import { readFile } from "node:fs/promises";
 import { getInventoryHostItem, readInventory, syncFromBitwarden } from "../src/ssh-inventory";
 import { extractSecureNoteSshCredentials } from "../src/bitwarden";
 import { createSshSession, scanPleskHost } from "../src/plesk-scan";
-import { auditWordPressInstallation, createBatchedWpRunners, type AuditResult } from "../src/wp-audit";
+import { auditWordPressInstallation, createBatchedWpRunners, type AuditResult, type WordPressAudit } from "../src/wp-audit";
 import { writeAuditReport } from "../src/report";
 import { createFileVulnerabilityCache, lookupVulnerabilities, type VulnerabilityCache } from "../src/vulnerabilities";
 import { findingsFromAudits } from "../src/findings";
-import { readFindingState, reconcileFindings, writeFindingState, type FindingScope } from "../src/finding-state";
-import type { FindingEvent } from "../src/finding-state";
+import { readFindingState, reconcileFindings, writeFindingState, type FindingScope, type FindingEvent } from "../src/finding-state";
 import { notifyFindingEvents } from "../src/notifications";
 import { notifyFindingEventsToWhatsApp } from "../src/whatsapp";
 import {
@@ -153,6 +152,25 @@ async function deliverNotifications(
   if (whatsapp.sent) outbox = markNotificationChannelSent(outbox, "whatsapp", pendingWhatsApp);
   await writeNotificationOutbox(outboxPath, compactNotificationOutbox(outbox));
   return { webhookSent: notification.sent, whatsappSent: whatsapp.sent };
+}
+
+async function persistFindingBatch(
+  hosts: AuditResult["hosts"],
+  findingState: Awaited<ReturnType<typeof readFindingState>>,
+  findingStatePath: string,
+  scope: FindingScope,
+  occurredAt: string,
+  config: MisePleskConfig,
+): Promise<{ state: Awaited<ReturnType<typeof readFindingState>>; events: FindingEvent[]; notificationSent: boolean; whatsappSent: boolean }> {
+  const transition = reconcileFindings(findingState, findingsFromAudits(hosts), occurredAt, scope);
+  await writeFindingState(findingStatePath, transition.state);
+  const delivery = await deliverNotifications(transition.events, config);
+  return {
+    state: transition.state,
+    events: transition.events,
+    notificationSent: delivery.webhookSent,
+    whatsappSent: delivery.whatsappSent,
+  };
 }
 
 async function scanHost(
@@ -306,16 +324,50 @@ async function main(): Promise<void> {
       throw new Error("maxConcurrentSitesPerHost must be a positive integer.");
     }
     const executions = [];
+    const findingStatePath = process.env.MISE_PLESK_FINDINGS ?? config.findingsStatePath ?? ".mise-en-plesk/findings.json";
+    let findingState = await readFindingState(findingStatePath);
+    const findingEvents: FindingEvent[] = [];
+    let alertSent = false;
+    let whatsappSent = false;
     for (const alias of aliases) {
       let offset = scanRange.offset;
       const vulnerabilityBudget = { used: 0 };
       const useSudo = config.sudoHosts?.includes(alias) ?? false;
+      const hostWordPress: WordPressAudit[] = [];
       while (true) {
         const execution = await scanHost(alias, inventory, maxLookups, maxConcurrentSites, scanRange.maxSites, offset, vulnerabilityBudget, useSudo, vulnerabilityCache);
         executions.push(execution);
+        hostWordPress.push(...execution.report.wordpress);
+        const batchTransition = await persistFindingBatch(
+          [execution.report],
+          findingState,
+          findingStatePath,
+          { installationPaths: new Set(execution.scannedInstallationPaths) },
+          new Date().toISOString(),
+          config,
+        );
+        findingState = batchTransition.state;
+        findingEvents.push(...batchTransition.events);
+        alertSent ||= batchTransition.notificationSent;
+        whatsappSent ||= batchTransition.whatsappSent;
         if (!scanRange.allChunks || execution.complete) break;
         if (!execution.scannedInstallationPaths.length) throw new Error(`[${alias}] bounded scan made no progress at offset ${offset}.`);
         offset += execution.scannedInstallationPaths.length;
+      }
+      if (scanRange.offset === 0 && executions.at(-1)?.complete) {
+        const finalExecution = executions.at(-1)!;
+        const completeTransition = await persistFindingBatch(
+          [{ ...finalExecution.report, wordpress: hostWordPress }],
+          findingState,
+          findingStatePath,
+          { completeHosts: new Set([finalExecution.report.host]) },
+          new Date().toISOString(),
+          config,
+        );
+        findingState = completeTransition.state;
+        findingEvents.push(...completeTransition.events);
+        alertSent ||= completeTransition.notificationSent;
+        whatsappSent ||= completeTransition.whatsappSent;
       }
     }
     const hostsByAlias = new Map<string, AuditResult["hosts"][number]>();
@@ -334,32 +386,16 @@ async function main(): Promise<void> {
       hosts,
     };
     const currentFindings = findingsFromAudits(preliminaryResult.hosts);
-    const findingStatePath = process.env.MISE_PLESK_FINDINGS ?? config.findingsStatePath ?? ".mise-en-plesk/findings.json";
-    const findingState = await readFindingState(findingStatePath);
-    const findingScope: FindingScope = {
-      completeHosts: new Set(executions
-        .filter((execution) => execution.complete && scanRange.offset === 0)
-        .map((execution) => execution.report.host)),
-      installationPaths: new Set(executions.flatMap((execution) => execution.scannedInstallationPaths)),
-    };
-    const transition = reconcileFindings(
-      findingState,
-      currentFindings,
-      preliminaryResult.generatedAt,
-      findingScope,
-    );
-    await writeFindingState(findingStatePath, transition.state);
-    const notification = await deliverNotifications(transition.events, config);
-    const result: AuditResult = { ...preliminaryResult, findings: currentFindings, findingEvents: transition.events };
+    const result: AuditResult = { ...preliminaryResult, findings: currentFindings, findingEvents };
     const reportPath = await writeAuditReport(result, process.env.MISE_PLESK_REPORTS ?? config.reportsDirectory ?? "reports", json);
     await writeHeartbeat(heartbeatPath, { version: 1, target, startedAt, completedAt: new Date().toISOString(), reportPath });
-    const eventSummary = transition.events.length
-      ? ` ${transition.events.length} finding state change(s): ${transition.events.map((event) => event.type).join(", ")}.`
+    const eventSummary = findingEvents.length
+      ? ` ${findingEvents.length} finding state change(s): ${findingEvents.map((event) => event.type).join(", ")}.`
       : " No finding state changes.";
     console.log(`Read-only scan complete. Report written to ${reportPath}.`);
     console.log(`Open findings: ${currentFindings.length}.${eventSummary}`);
-    if (notification.webhookSent) console.log("Sent pending P1 alert(s).");
-    if (notification.whatsappSent) console.log("Sent pending P1 WhatsApp alert(s).");
+    if (alertSent) console.log("Sent pending P1 alert(s).");
+    if (whatsappSent) console.log("Sent pending P1 WhatsApp alert(s).");
     return;
   }
   usage();
