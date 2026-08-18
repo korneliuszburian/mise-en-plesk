@@ -11,6 +11,7 @@ import { appendScanCycleFindings, completeScanCycle, prepareScanCycle, readScanC
 import type { Finding } from "../src/findings";
 import { notifyFindingEvents } from "../src/notifications";
 import { notifyFindingEventsToWhatsApp } from "../src/whatsapp";
+import { sendFindingEventsViaHermes, sendHermesText } from "../src/hermes";
 import {
   enqueueNotificationEvents,
   compactNotificationOutbox,
@@ -35,7 +36,7 @@ interface VulnerabilityLookupBudget {
 }
 
 function usage(): never {
-  console.error("Usage: mise-plesk-audit doctor [--json] | monitor-health [--json] [--max-age-hours=N] | sync-ssh | whatsapp-test --confirm=<recipient> | scan <target|all> [--json] [--max-sites=N] [--offset=N] [--all-chunks]");
+  console.error("Usage: mise-plesk-audit doctor [--json] | monitor-health [--json] [--max-age-hours=N] | sync-ssh | whatsapp-test --confirm=<recipient> | hermes-test --confirm=<target> | scan <target|all> [--json] [--max-sites=N] [--offset=N] [--all-chunks]");
   process.exit(1);
 }
 
@@ -112,7 +113,7 @@ async function queueNotificationEvents(events: FindingEvent[], config: MisePlesk
 
 async function deliverNotifications(
   config: MisePleskConfig,
-): Promise<{ webhookSent: boolean; whatsappSent: boolean }> {
+): Promise<{ webhookSent: boolean; whatsappSent: boolean; hermesSent: boolean }> {
   const outboxPath = notificationOutboxPath(config);
   let outbox = await readNotificationOutbox(outboxPath);
 
@@ -148,8 +149,19 @@ async function deliverNotifications(
     : { sent: false, eligibleEvents: pendingWhatsApp.length, sentEvents: [] };
   if (whatsapp.sentEvents.length) outbox = markNotificationChannelSent(outbox, "whatsapp", whatsapp.sentEvents);
   else if (!whatsappConfigured) outbox = markNotificationChannelSent(outbox, "whatsapp", pendingWhatsApp);
+  const hermesConfigured = Boolean(process.env.MISE_PLESK_HERMES_WHATSAPP_TARGET?.trim());
+  const pendingHermes = pendingNotificationEvents(outbox, "hermes");
+  const hermes = hermesConfigured
+    ? await sendFindingEventsViaHermes(pendingHermes, {
+      target: process.env.MISE_PLESK_HERMES_WHATSAPP_TARGET,
+      binary: process.env.MISE_PLESK_HERMES_BIN,
+      debug: (message) => console.error(message),
+    })
+    : { sent: false, eligibleEvents: pendingHermes.length, sentEvents: [] };
+  if (hermes.sentEvents.length) outbox = markNotificationChannelSent(outbox, "hermes", hermes.sentEvents);
+  else if (!hermesConfigured) outbox = markNotificationChannelSent(outbox, "hermes", pendingHermes);
   await writeNotificationOutbox(outboxPath, compactNotificationOutbox(outbox));
-  return { webhookSent: notification.sent, whatsappSent: whatsapp.sent };
+  return { webhookSent: notification.sent, whatsappSent: whatsapp.sent, hermesSent: hermes.sent };
 }
 
 async function persistFindingList(
@@ -159,7 +171,7 @@ async function persistFindingList(
   scope: FindingScope,
   occurredAt: string,
   config: MisePleskConfig,
-): Promise<{ state: Awaited<ReturnType<typeof readFindingState>>; events: FindingEvent[]; notificationSent: boolean; whatsappSent: boolean }> {
+): Promise<{ state: Awaited<ReturnType<typeof readFindingState>>; events: FindingEvent[]; notificationSent: boolean; whatsappSent: boolean; hermesSent: boolean }> {
   const transition = reconcileFindings(findingState, findings, occurredAt, scope);
   await queueNotificationEvents(transition.events, config);
   await writeFindingState(findingStatePath, transition.state);
@@ -169,6 +181,7 @@ async function persistFindingList(
     events: transition.events,
     notificationSent: delivery.webhookSent,
     whatsappSent: delivery.whatsappSent,
+    hermesSent: delivery.hermesSent,
   };
 }
 
@@ -302,6 +315,17 @@ async function main(): Promise<void> {
     console.log("WhatsApp test message delivered.");
     return;
   }
+  if (command === "hermes-test") {
+    const target = process.env.MISE_PLESK_HERMES_WHATSAPP_TARGET;
+    if (!target) throw new Error("MISE_PLESK_HERMES_WHATSAPP_TARGET is not configured.");
+    if (!flags.includes(`--confirm=${target}`)) throw new Error("Refusing Hermes delivery: pass --confirm=<exact configured target>.");
+    await sendHermesText("mise-en-plesk Hermes alert channel test (read-only scanner)", {
+      target,
+      binary: process.env.MISE_PLESK_HERMES_BIN,
+    });
+    console.log("Hermes test message delivered.");
+    return;
+  }
   if (command === "monitor-health") {
     const config = await readOptionalConfig();
     let jsonOutput = false;
@@ -337,6 +361,7 @@ async function main(): Promise<void> {
     else console.log(staleFinding ? `Monitor is stale: ${heartbeatPath}` : `Monitor is healthy: ${heartbeat?.completedAt ?? "unknown"}`);
     if (notification.webhookSent) console.error("Sent pending monitor webhook alert(s).");
     if (notification.whatsappSent) console.error("Sent pending monitor WhatsApp alert(s).");
+    if (notification.hermesSent) console.error("Sent pending monitor Hermes alert(s).");
     return;
   }
   if (command === "scan" && target) {
@@ -379,6 +404,7 @@ async function main(): Promise<void> {
     const findingEvents: FindingEvent[] = [];
     let alertSent = false;
     let whatsappSent = false;
+    let hermesSent = false;
     for (const alias of aliases) {
       let offset = scanRange.offset;
       const vulnerabilityBudget = { used: 0 };
@@ -407,6 +433,7 @@ async function main(): Promise<void> {
         findingEvents.push(...batchTransition.events);
         alertSent ||= batchTransition.notificationSent;
         whatsappSent ||= batchTransition.whatsappSent;
+        hermesSent ||= batchTransition.hermesSent;
         if (!scanRange.allChunks || execution.complete) break;
         if (!execution.scannedInstallationPaths.length) throw new Error(`[${alias}] bounded scan made no progress at offset ${offset}.`);
         offset += execution.scannedInstallationPaths.length;
@@ -429,6 +456,7 @@ async function main(): Promise<void> {
           findingEvents.push(...completeTransition.events);
           alertSent ||= completeTransition.notificationSent;
           whatsappSent ||= completeTransition.whatsappSent;
+          hermesSent ||= completeTransition.hermesSent;
         }
       }
     }
@@ -459,7 +487,7 @@ async function main(): Promise<void> {
     const result: AuditResult = { ...preliminaryResult, findings: currentFindings, findingEvents };
     const reportPath = await writeAuditReport(result, process.env.MISE_PLESK_REPORTS ?? config.reportsDirectory ?? "reports", json, process.env.MISE_PLESK_REPORT_SUFFIX ?? "");
     await writeHeartbeat(heartbeatPath, { version: 1, target, startedAt, completedAt: new Date().toISOString(), reportPath });
-    console.log(formatScanOutput(result, { reportPath, json, alertSent, whatsappSent }));
+    console.log(formatScanOutput(result, { reportPath, json, alertSent, whatsappSent, hermesSent }));
     return;
   }
     usage();

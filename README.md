@@ -143,6 +143,17 @@ backlog; configure a channel before the scan if it must receive the event.
 Notification failures are logged briefly and never fail the read-only scan. The
 URL is read at runtime and is never written to reports or inventory.
 
+For an operator-owned Hermes Agent setup, alerts can be delivered through
+Hermes without copying its WhatsApp credentials into this repository. Set
+`MISE_PLESK_HERMES_WHATSAPP_TARGET` to an explicit Hermes target such as
+`whatsapp:<chat-id>` and optionally `MISE_PLESK_HERMES_BIN` if `hermes` is not
+on `PATH`. The scanner invokes `hermes send --to <target> <message>` only when
+the target is configured. Verify it with the guarded command
+`pnpm run mise-plesk-audit hermes-test --confirm=<exact-target>`. The Hermes
+channel is independent in the crash-safe outbox; a failed delivery is retried
+on the next run. No Hermes or WhatsApp process activity occurs when the target
+is unset.
+
 Direct WhatsApp Business Cloud API delivery is also opt-in. Set
 `MISE_PLESK_WHATSAPP_ACCESS_TOKEN`, `MISE_PLESK_WHATSAPP_PHONE_NUMBER_ID`,
 `MISE_PLESK_WHATSAPP_RECIPIENT`, and

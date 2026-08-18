@@ -8,6 +8,7 @@ export interface NotificationOutboxEntry {
   createdAt: string;
   webhookSent: boolean;
   whatsappSent: boolean;
+  hermesSent: boolean;
 }
 
 export interface NotificationOutbox {
@@ -35,13 +36,13 @@ export function enqueueNotificationEvents(
   outbox: NotificationOutbox,
   events: FindingEvent[],
 ): NotificationOutbox {
-  const entries = outbox.entries.filter((entry) => !(entry.webhookSent && entry.whatsappSent));
+  const entries = outbox.entries.filter((entry) => !(entry.webhookSent && entry.whatsappSent && entry.hermesSent));
   const known = new Set(entries.flatMap((entry) => [entry.id, eventId(entry.event), legacyEventId(entry.event)]));
   for (const event of events) {
     if (!actionable(event)) continue;
     const id = eventId(event);
     if (known.has(id) || known.has(legacyEventId(event))) continue;
-    entries.push({ id, event, createdAt: event.occurredAt, webhookSent: false, whatsappSent: false });
+    entries.push({ id, event, createdAt: event.occurredAt, webhookSent: false, whatsappSent: false, hermesSent: false });
     known.add(id);
   }
   return { version: 1, entries };
@@ -50,22 +51,22 @@ export function enqueueNotificationEvents(
 export function compactNotificationOutbox(outbox: NotificationOutbox): NotificationOutbox {
   return {
     version: 1,
-    entries: outbox.entries.filter((entry) => !(entry.webhookSent && entry.whatsappSent)),
+    entries: outbox.entries.filter((entry) => !(entry.webhookSent && entry.whatsappSent && entry.hermesSent)),
   };
 }
 
 export function pendingNotificationEvents(
   outbox: NotificationOutbox,
-  channel: "webhook" | "whatsapp",
+  channel: "webhook" | "whatsapp" | "hermes",
 ): FindingEvent[] {
   return outbox.entries
-    .filter((entry) => channel === "webhook" ? !entry.webhookSent : !entry.whatsappSent)
+    .filter((entry) => channel === "webhook" ? !entry.webhookSent : channel === "whatsapp" ? !entry.whatsappSent : !entry.hermesSent)
     .map((entry) => entry.event);
 }
 
 export function markNotificationChannelSent(
   outbox: NotificationOutbox,
-  channel: "webhook" | "whatsapp",
+  channel: "webhook" | "whatsapp" | "hermes",
   events: FindingEvent[],
 ): NotificationOutbox {
   const sent = new Set(events.flatMap((event) => [eventId(event), legacyEventId(event)]));
@@ -73,7 +74,11 @@ export function markNotificationChannelSent(
     version: 1,
     entries: outbox.entries.map((entry) => {
       if (!sent.has(entry.id) && !sent.has(eventId(entry.event)) && !sent.has(legacyEventId(entry.event))) return entry;
-      return channel === "webhook" ? { ...entry, webhookSent: true } : { ...entry, whatsappSent: true };
+      return channel === "webhook"
+        ? { ...entry, webhookSent: true }
+        : channel === "whatsapp"
+          ? { ...entry, whatsappSent: true }
+          : { ...entry, hermesSent: true };
     }),
   };
 }
@@ -92,7 +97,10 @@ export async function readNotificationOutbox(path: string): Promise<Notification
         && typeof item.whatsappSent === "boolean"
         && isFindingEvent(item.event);
     })) throw new Error(`Invalid notification outbox: ${path}`);
-    return value as NotificationOutbox;
+    return {
+      version: 1,
+      entries: (value as NotificationOutbox).entries.map((entry) => ({ ...entry, hermesSent: entry.hermesSent ?? false })),
+    };
   } catch (error: unknown) {
     if (error && typeof error === "object" && "code" in error && error.code === "ENOENT") return emptyNotificationOutbox();
     throw error;

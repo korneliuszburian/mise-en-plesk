@@ -133,5 +133,16 @@ export async function runPreflight(options: PreflightOptions = {}): Promise<Pref
       checks.push(check("monitor-heartbeat", false, error instanceof Error ? error.message : "invalid heartbeat", false));
     }
   }
+  const hermesTarget = env.MISE_PLESK_HERMES_WHATSAPP_TARGET?.trim();
+  if (hermesTarget) {
+    try {
+      const version = await commandRunner(env.MISE_PLESK_HERMES_BIN?.trim() || "hermes");
+      checks.push(check("hermes", true, `${version || "available"}; target configured`, false));
+    } catch {
+      checks.push(check("hermes", false, "target configured but hermes is not available on PATH", false));
+    }
+  } else {
+    checks.push(check("hermes", true, "disabled; set MISE_PLESK_HERMES_WHATSAPP_TARGET to enable", false));
+  }
   return { ok: checks.filter((item) => item.blocking).every((item) => item.ok), checks };
 }

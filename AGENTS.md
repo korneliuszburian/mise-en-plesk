@@ -29,6 +29,11 @@ they never trigger remote commands or remediation.
 outbound test message. Never run it without checking the configured recipient
 in the current task.
 
+Hermes WhatsApp delivery is optional and explicit. It uses the operator-owned
+Hermes CLI only when `MISE_PLESK_HERMES_WHATSAPP_TARGET` is configured; the
+guarded `hermes-test` command requires an exact target confirmation. Never add
+Hermes session data or WhatsApp credentials to this repository.
+
 ## Skills
 
 Use the globally installed skills: `/setup-mise-en-plesk`,

@@ -5,6 +5,7 @@ export interface ScanOutputOptions {
   json: boolean;
   alertSent?: boolean;
   whatsappSent?: boolean;
+  hermesSent?: boolean;
 }
 
 export function formatScanOutput(result: AuditResult, options: ScanOutputOptions): string {
@@ -19,5 +20,6 @@ export function formatScanOutput(result: AuditResult, options: ScanOutputOptions
   ];
   if (options.alertSent) lines.push("Sent pending P1 alert(s).");
   if (options.whatsappSent) lines.push("Sent pending P1 WhatsApp alert(s).");
+  if (options.hermesSent) lines.push("Sent pending P1 Hermes alert(s).");
   return lines.join("\n");
 }

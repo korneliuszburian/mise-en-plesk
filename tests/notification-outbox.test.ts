@@ -33,7 +33,7 @@ describe("notification outbox", () => {
     expect(pendingNotificationEvents(delivered, "webhook")).toHaveLength(0);
     expect(pendingNotificationEvents(delivered, "whatsapp")).toHaveLength(1);
 
-    const fullyDelivered = markNotificationChannelSent(delivered, "whatsapp", [event()]);
+    const fullyDelivered = markNotificationChannelSent(markNotificationChannelSent(delivered, "whatsapp", [event()]), "hermes", [event()]);
     expect(compactNotificationOutbox(fullyDelivered).entries).toHaveLength(0);
   });
 
@@ -50,7 +50,7 @@ describe("notification outbox", () => {
   it("allows disabled channels to be discarded without retaining an alert backlog", () => {
     const queued = enqueueNotificationEvents(emptyNotificationOutbox(), [event()]);
     const skippedWebhook = markNotificationChannelSent(queued, "webhook", [event()]);
-    const skippedBoth = markNotificationChannelSent(skippedWebhook, "whatsapp", [event()]);
+    const skippedBoth = markNotificationChannelSent(markNotificationChannelSent(skippedWebhook, "whatsapp", [event()]), "hermes", [event()]);
 
     expect(compactNotificationOutbox(skippedBoth).entries).toHaveLength(0);
   });
