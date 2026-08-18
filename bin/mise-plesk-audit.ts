@@ -125,13 +125,15 @@ async function scanHost(
       wordpressLimit: maxSites,
       useSudo,
     });
+    for (const warning of scan.warnings ?? []) console.error(`[${alias}] warning: ${warning}`);
+    const effectiveSudo = useSudo && !scan.warnings?.length;
     const selectedWordPress = maxSites === undefined ? scan.wordpress.slice(offset) : scan.wordpress;
     const scannedInstallationPaths = selectedWordPress.map((installation) => installation.path);
     const wordpress = [];
     for (let index = 0; index < selectedWordPress.length; index += maxConcurrentSites) {
       const batch = selectedWordPress.slice(index, index + maxConcurrentSites);
       wordpress.push(...await Promise.all(batch.map(async (installation) => {
-        const batched = createBatchedWpRunners(installation, ssh, { useSudo });
+        const batched = createBatchedWpRunners(installation, ssh, { useSudo: effectiveSudo });
         return auditWordPressInstallation(installation, batched.runner, {
           enabled: process.env.MISE_PLESK_ENABLE_VULNS === "1",
           vulnerabilityLookup: async (slug, options) => {
@@ -147,7 +149,7 @@ async function scanHost(
     }
     console.error(`[${alias}] found ${scan.subscriptions.length} subscription(s), ${scan.wordpress.length} WordPress installation(s); selected ${selectedWordPress.length} at offset ${offset}`);
     return {
-      report: { host: scan.host, wordpress },
+      report: { host: scan.host, wordpress, ...(scan.warnings ? { warnings: scan.warnings } : {}) },
       scannedInstallationPaths,
       complete: maxSites === undefined
         ? offset === 0

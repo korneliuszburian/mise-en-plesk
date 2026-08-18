@@ -97,4 +97,23 @@ describe("plesk scan", () => {
     expect(calls[0]).toBe("sudo -n -- plesk bin subscription --list");
     expect(calls[1]).toContain("sudo -n -- find /var/www/vhosts");
   });
+
+  it("falls back to non-root filesystem discovery when Plesk CLI is unavailable", async () => {
+    const calls: string[] = [];
+    const runner: SshCommandRunner = async (_host, command) => {
+      calls.push(command);
+      if (command.includes("plesk bin subscription")) throw new Error("must run as root");
+      return "/var/www/vhosts/example.test/httpdocs/wp-config.php\n";
+    };
+
+    await expect(scanPleskHost(host, runner, { useSudo: true })).resolves.toMatchObject({
+      subscriptions: [],
+      wordpress: [{ domain: "example.test" }],
+      warnings: [expect.stringContaining("filesystem discovery only")],
+    });
+    expect(calls).toEqual([
+      "sudo -n -- plesk bin subscription --list",
+      "find /var/www/vhosts -xdev -maxdepth 4 -type f -name wp-config.php -print",
+    ]);
+  });
 });

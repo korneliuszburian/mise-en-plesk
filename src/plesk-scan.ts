@@ -17,6 +17,7 @@ export interface PleskScanResult {
   subscriptions: string[];
   wordpress: WordPressInstallation[];
   wordpressHasMore?: boolean;
+  warnings?: string[];
 }
 
 export interface PleskScanOptions {
@@ -106,6 +107,11 @@ function wordpressPath(configPath: string): WordPressInstallation {
   return { path, domain };
 }
 
+function shortError(error: unknown): string {
+  const detail = error instanceof Error ? error.message : String(error);
+  return detail.replace(/\s+/g, " ").trim().slice(0, 200) || "command failed";
+}
+
 export async function scanPleskHost(
   host: HostConfig,
   runner: SshCommandRunner = runSshCommand,
@@ -117,8 +123,15 @@ export async function scanPleskHost(
   if (limit !== undefined && (!Number.isSafeInteger(limit) || limit < 1)) {
     throw new Error("wordpressLimit must be a positive safe integer.");
   }
-  const prefix = options.useSudo ? "sudo -n -- " : "";
-  const subscriptions = parseLineList(await runner(host, `${prefix}plesk bin subscription --list`));
+  let prefix = options.useSudo ? "sudo -n -- " : "";
+  const warnings: string[] = [];
+  let subscriptions: string[] = [];
+  try {
+    subscriptions = parseLineList(await runner(host, `${prefix}plesk bin subscription --list`));
+  } catch (error: unknown) {
+    warnings.push(`Plesk CLI subscription discovery unavailable; using filesystem discovery only: ${shortError(error)}`);
+    prefix = "";
+  }
   const discoveryCommand = limit === undefined
     ? `${prefix}find /var/www/vhosts -xdev -maxdepth 4 -type f -name wp-config.php -print`
     : `${prefix}find /var/www/vhosts -xdev -maxdepth 4 -type f -name wp-config.php -print | sort | awk 'NR > ${offset} && NR <= ${offset + limit + 1} { print }'`;
@@ -131,5 +144,6 @@ export async function scanPleskHost(
     subscriptions,
     wordpress: (wordpressHasMore ? configPaths.slice(0, limit) : configPaths).map(wordpressPath),
     ...(limit === undefined ? {} : { wordpressHasMore }),
+    ...(warnings.length ? { warnings } : {}),
   };
 }

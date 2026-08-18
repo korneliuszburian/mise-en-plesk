@@ -45,7 +45,7 @@ export interface WordPressAudit {
 
 export interface AuditResult {
   generatedAt: string;
-  hosts: Array<{ host: string; wordpress: WordPressAudit[] }>;
+  hosts: Array<{ host: string; wordpress: WordPressAudit[]; warnings?: string[] }>;
   findings?: Finding[];
   findingEvents?: FindingEvent[];
 }

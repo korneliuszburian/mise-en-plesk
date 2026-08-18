@@ -35,4 +35,13 @@ describe("audit reports", () => {
     await expect(readFile(path, "utf8")).resolves.toContain('"generatedAt": "2026-08-12T00:00:00.000Z"');
     expect(path).toMatch(/plesk-wp-audit-\d{8}\.json$/);
   });
+
+  it("renders host capability warnings", () => {
+    const markdown = auditMarkdown({
+      ...result,
+      hosts: [{ ...result.hosts[0], warnings: ["Plesk CLI unavailable; filesystem discovery only"] }],
+    });
+
+    expect(markdown).toContain("> Warning: Plesk CLI unavailable; filesystem discovery only");
+  });
 });

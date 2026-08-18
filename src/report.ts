@@ -6,6 +6,7 @@ export function auditMarkdown(result: AuditResult): string {
   const lines = [`# Plesk WordPress audit`, ``, `Generated: ${result.generatedAt}`, ``];
   for (const host of result.hosts) {
     lines.push(`## ${host.host}`, ``);
+    for (const warning of host.warnings ?? []) lines.push(`> Warning: ${warning}`, ``);
     for (const site of host.wordpress) {
       lines.push(`### ${site.installation.domain ?? site.installation.path}`, ``, `- Core: ${site.coreVersion}`, `- Reachable: ${site.health.reachable ? "yes" : "no"}`);
       if (site.health.status) lines.push(`- Health status: ${site.health.status}`);
