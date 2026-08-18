@@ -1,6 +1,6 @@
 import { mkdir, readFile, rename, writeFile } from "node:fs/promises";
 import { dirname } from "node:path";
-import type { Finding } from "./findings";
+import { isFindingCode, type Finding } from "./findings";
 
 export interface StoredFinding extends Finding {
   status: "open" | "resolved";
@@ -23,6 +23,36 @@ export interface FindingEvent {
 export interface FindingScope {
   completeHosts?: ReadonlySet<string>;
   installationPaths?: ReadonlySet<string>;
+}
+
+function isRecord(value: unknown): value is Record<string, unknown> {
+  return Boolean(value) && typeof value === "object" && !Array.isArray(value);
+}
+
+function optionalString(value: unknown): boolean {
+  return value === undefined || typeof value === "string";
+}
+
+function isStoredFindingValue(value: unknown): value is StoredFinding {
+  if (!isRecord(value)) return false;
+  return typeof value.id === "string" && value.id.length > 0
+    && isFindingCode(value.code)
+    && (value.severity === "P1" || value.severity === "P2" || value.severity === "info")
+    && typeof value.host === "string" && value.host.length > 0
+    && typeof value.installationPath === "string" && value.installationPath.length > 0
+    && optionalString(value.domain) && optionalString(value.plugin) && optionalString(value.vulnerabilityId)
+    && typeof value.message === "string" && value.message.length > 0
+    && optionalString(value.evidence)
+    && (value.status === "open" || value.status === "resolved")
+    && typeof value.firstSeen === "string" && typeof value.lastSeen === "string"
+    && optionalString(value.resolvedAt);
+}
+
+export function isFindingEvent(value: unknown): value is FindingEvent {
+  if (!isRecord(value)) return false;
+  return (value.type === "opened" || value.type === "reopened" || value.type === "resolved")
+    && typeof value.occurredAt === "string"
+    && isStoredFindingValue(value.finding);
 }
 
 type ReconciliationScope = ReadonlySet<string> | FindingScope;
@@ -87,7 +117,8 @@ export async function readFindingState(path: string): Promise<FindingState> {
     const parsed: unknown = JSON.parse(await readFile(path, "utf8"));
     if (!parsed || typeof parsed !== "object" || Array.isArray(parsed)) throw new Error(`Invalid finding state: ${path}`);
     const value = parsed as Partial<FindingState>;
-    if (value.version !== 1 || !value.findings || typeof value.findings !== "object" || Array.isArray(value.findings)) {
+    if (value.version !== 1 || !value.findings || typeof value.findings !== "object" || Array.isArray(value.findings)
+      || !Object.values(value.findings).every(isStoredFindingValue)) {
       throw new Error(`Invalid finding state: ${path}`);
     }
     return value as FindingState;

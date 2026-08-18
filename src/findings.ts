@@ -20,6 +20,17 @@ export type FindingCode =
 
 export type FindingSeverity = "P1" | "P2" | "info";
 
+const findingCodes = new Set<FindingCode>([
+  "unreachable", "runtime-incompatible", "wp-cli-error", "core-outdated", "core-update",
+  "plugin-update", "plugin-abandoned", "plugin-vulnerable", "theme-update",
+  "core-checksum-failed", "plugin-checksum-failed", "suspicious-upload-php",
+  "monitor-stale", "core-vulnerable", "theme-vulnerable",
+]);
+
+export function isFindingCode(value: unknown): value is FindingCode {
+  return typeof value === "string" && findingCodes.has(value as FindingCode);
+}
+
 export interface Finding {
   id: string;
   code: FindingCode;

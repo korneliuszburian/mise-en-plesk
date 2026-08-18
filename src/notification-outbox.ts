@@ -1,6 +1,6 @@
 import { mkdir, readFile, rename, writeFile } from "node:fs/promises";
 import { dirname } from "node:path";
-import type { FindingEvent } from "./finding-state";
+import { isFindingEvent, type FindingEvent } from "./finding-state";
 
 export interface NotificationOutboxEntry {
   id: string;
@@ -79,7 +79,15 @@ export async function readNotificationOutbox(path: string): Promise<Notification
     const parsed: unknown = JSON.parse(await readFile(path, "utf8"));
     if (!parsed || typeof parsed !== "object" || Array.isArray(parsed)) throw new Error(`Invalid notification outbox: ${path}`);
     const value = parsed as Partial<NotificationOutbox>;
-    if (value.version !== 1 || !Array.isArray(value.entries)) throw new Error(`Invalid notification outbox: ${path}`);
+    if (value.version !== 1 || !Array.isArray(value.entries) || !value.entries.every((entry) => {
+      if (!entry || typeof entry !== "object" || Array.isArray(entry)) return false;
+      const item = entry as Partial<NotificationOutboxEntry>;
+      return typeof item.id === "string" && item.id.length > 0
+        && typeof item.createdAt === "string"
+        && typeof item.webhookSent === "boolean"
+        && typeof item.whatsappSent === "boolean"
+        && isFindingEvent(item.event);
+    })) throw new Error(`Invalid notification outbox: ${path}`);
     return value as NotificationOutbox;
   } catch (error: unknown) {
     if (error && typeof error === "object" && "code" in error && error.code === "ENOENT") return emptyNotificationOutbox();

@@ -1,4 +1,4 @@
-import { mkdtemp } from "node:fs/promises";
+import { mkdtemp, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { describe, expect, it } from "vitest";
@@ -43,5 +43,12 @@ describe("notification outbox", () => {
     const outbox = enqueueNotificationEvents(emptyNotificationOutbox(), [event()]);
     await writeNotificationOutbox(path, outbox);
     await expect(readNotificationOutbox(path)).resolves.toEqual(outbox);
+  });
+
+  it("rejects an outbox entry without a valid finding event", async () => {
+    const directory = await mkdtemp(join(tmpdir(), "mise-en-plesk-outbox-invalid-"));
+    const path = join(directory, "outbox.json");
+    await writeFile(path, JSON.stringify({ version: 1, entries: [{ id: "broken", webhookSent: false, whatsappSent: false, event: {} }] }));
+    await expect(readNotificationOutbox(path)).rejects.toThrow("Invalid notification outbox");
   });
 });

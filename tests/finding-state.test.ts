@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { mkdtemp, readFile } from "node:fs/promises";
+import { mkdtemp, readFile, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { reconcileFindings, emptyFindingState, readFindingState, writeFindingState, type FindingState } from "../src/finding-state";
@@ -46,6 +46,13 @@ describe("finding state transitions", () => {
     await writeFindingState(path, state);
     await expect(readFindingState(path)).resolves.toEqual(state);
     await expect(readFile(path, "utf8")).resolves.toContain('"version": 1');
+  });
+
+  it("rejects a state file with a malformed finding entry", async () => {
+    const directory = await mkdtemp(join(tmpdir(), "mise-en-plesk-findings-invalid-"));
+    const path = join(directory, "findings.json");
+    await writeFile(path, JSON.stringify({ version: 1, findings: { broken: { id: "broken" } } }));
+    await expect(readFindingState(path)).rejects.toThrow("Invalid finding state");
   });
 
   it("does not resolve findings belonging to hosts outside the scan scope", () => {
