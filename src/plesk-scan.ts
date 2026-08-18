@@ -16,6 +16,12 @@ export interface PleskScanResult {
   host: string;
   subscriptions: string[];
   wordpress: WordPressInstallation[];
+  wordpressHasMore?: boolean;
+}
+
+export interface PleskScanOptions {
+  wordpressOffset?: number;
+  wordpressLimit?: number;
 }
 
 export type SshCommandRunner = (host: HostConfig, command: string) => Promise<string>;
@@ -102,10 +108,22 @@ function wordpressPath(configPath: string): WordPressInstallation {
 export async function scanPleskHost(
   host: HostConfig,
   runner: SshCommandRunner = runSshCommand,
+  options: PleskScanOptions = {},
 ): Promise<PleskScanResult> {
   const subscriptions = parseLineList(await runner(host, "plesk bin subscription --list"));
+  const offset = options.wordpressOffset ?? 0;
+  const limit = options.wordpressLimit;
+  const discoveryCommand = limit === undefined
+    ? "find /var/www/vhosts -xdev -maxdepth 4 -type f -name wp-config.php -print"
+    : `find /var/www/vhosts -xdev -maxdepth 4 -type f -name wp-config.php -print | awk 'NR > ${offset} && NR <= ${offset + limit + 1} { print }'`;
   const configPaths = parseLineList(
-    await runner(host, "find /var/www/vhosts -xdev -maxdepth 4 -type f -name wp-config.php -print"),
+    await runner(host, discoveryCommand),
   );
-  return { host: host.alias, subscriptions, wordpress: configPaths.map(wordpressPath) };
+  const wordpressHasMore = limit === undefined ? undefined : configPaths.length > limit;
+  return {
+    host: host.alias,
+    subscriptions,
+    wordpress: (wordpressHasMore ? configPaths.slice(0, limit) : configPaths).map(wordpressPath),
+    ...(limit === undefined ? {} : { wordpressHasMore }),
+  };
 }

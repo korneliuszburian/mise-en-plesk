@@ -57,4 +57,24 @@ describe("plesk scan", () => {
       "find /var/www/vhosts -xdev -maxdepth 4 -type f -name wp-config.php -print",
     ]);
   });
+
+  it("bounds remote WordPress discovery for a chunk", async () => {
+    const calls: string[] = [];
+    const runner: SshCommandRunner = async (_host, command) => {
+      calls.push(command);
+      if (command.startsWith("plesk bin subscription")) return "example.test\n";
+      if (command.includes("awk 'NR > 2")) return "/var/www/vhosts/three.test/httpdocs/wp-config.php\n";
+      return [
+        "/var/www/vhosts/one.test/httpdocs/wp-config.php",
+        "/var/www/vhosts/two.test/httpdocs/wp-config.php",
+        "/var/www/vhosts/three.test/httpdocs/wp-config.php",
+      ].join("\n");
+    };
+
+    await expect(scanPleskHost(host, runner, { wordpressOffset: 2, wordpressLimit: 2 })).resolves.toMatchObject({
+      wordpress: [{ domain: "three.test" }],
+      wordpressHasMore: false,
+    });
+    expect(calls[1]).toContain("awk 'NR > 2 && NR <= 5");
+  });
 });

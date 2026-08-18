@@ -60,6 +60,9 @@ function readScanRange(flags: string[], config: MisePleskConfig): { json: boolea
   if (maxSites !== undefined && (!Number.isInteger(maxSites) || maxSites < 1)) {
     throw new Error("maxSitesPerHost/--max-sites must be a positive integer.");
   }
+  if (offset > 0 && maxSites === undefined) {
+    throw new Error("--offset requires --max-sites or maxSitesPerHost in config.");
+  }
   return { json, maxSites, offset };
 }
 
@@ -99,10 +102,11 @@ async function scanHost(
   const session = await createSshSession(host, credentials?.password);
   try {
     const ssh = (command: string) => session.run(command);
-    const scan = await scanPleskHost(host, (_host, command) => ssh(command));
-    const selectedWordPress = maxSites === undefined
-      ? scan.wordpress.slice(offset)
-      : scan.wordpress.slice(offset, offset + maxSites);
+    const scan = await scanPleskHost(host, (_host, command) => ssh(command), {
+      wordpressOffset: offset,
+      wordpressLimit: maxSites,
+    });
+    const selectedWordPress = maxSites === undefined ? scan.wordpress.slice(offset) : scan.wordpress;
     const scannedInstallationPaths = selectedWordPress.map((installation) => installation.path);
     let vulnerabilityLookups = 0;
     const wordpress = [];
@@ -127,7 +131,9 @@ async function scanHost(
     return {
       report: { host: scan.host, wordpress },
       scannedInstallationPaths,
-      complete: maxSites === undefined ? offset === 0 : offset < scan.wordpress.length && offset + selectedWordPress.length >= scan.wordpress.length,
+      complete: maxSites === undefined
+        ? offset === 0
+        : scan.wordpressHasMore === false && (offset === 0 || selectedWordPress.length > 0),
     };
   } finally {
     await session.close();
