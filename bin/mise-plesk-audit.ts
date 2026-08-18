@@ -22,6 +22,7 @@ import { acquireLocalLock, type LocalLock } from "../src/local-lock";
 import { createWhatsAppTestEvent, requireWhatsAppTestConfirmation } from "../src/notification-test";
 import { formatScanOutput } from "../src/cli-output";
 import { isCompleteScanPage, nextScanOffset } from "../src/scan-lifecycle";
+import { shouldContinueScanChunks } from "../src/scan-budget";
 
 const inventoryPath = process.env.MISE_PLESK_INVENTORY ?? "inventory.json";
 const configPath = process.env.MISE_PLESK_CONFIG ?? "config.mise-en-plesk.json";
@@ -31,6 +32,7 @@ interface VulnerabilityLookupBudget {
 }
 
 function usage(): never {
+  console.error("Scan options: [--max-sites=N] [--offset=N] [--max-chunks=N] [--all-chunks]");
   console.error("Usage: mise-plesk-audit doctor [--json] | monitor-health [--json] [--max-age-hours=N] | sync-ssh | whatsapp-test --confirm=<recipient> | hermes-test --confirm=<target> | scan <target|all> [--json] [--max-sites=N] [--offset=N] [--all-chunks]");
   process.exit(1);
 }
@@ -42,10 +44,11 @@ function parseNonNegativeInteger(value: string, flag: string): number {
   return parsed;
 }
 
-function readScanRange(flags: string[], config: MisePleskConfig): { json: boolean; maxSites?: number; offset: number; allChunks: boolean } {
+function readScanRange(flags: string[], config: MisePleskConfig): { json: boolean; maxSites?: number; offset: number; maxChunks: number; allChunks: boolean } {
   let json = false;
   let maxSites = config.maxSitesPerHost;
   let offset = 0;
+  let maxChunks = config.maxScanChunksPerHost ?? 100;
   let allChunks = false;
   for (const flag of flags) {
     if (flag === "--json") {
@@ -66,6 +69,11 @@ function readScanRange(flags: string[], config: MisePleskConfig): { json: boolea
       offset = parseNonNegativeInteger(offsetMatch[1], "--offset");
       continue;
     }
+    const maxChunksMatch = /^--max-chunks=(.+)$/.exec(flag);
+    if (maxChunksMatch) {
+      maxChunks = parseNonNegativeInteger(maxChunksMatch[1], "--max-chunks");
+      continue;
+    }
     usage();
   }
   if (maxSites !== undefined && (!Number.isInteger(maxSites) || maxSites < 1)) {
@@ -77,7 +85,8 @@ function readScanRange(flags: string[], config: MisePleskConfig): { json: boolea
   if (allChunks && maxSites === undefined) {
     throw new Error("--all-chunks requires --max-sites or maxSitesPerHost in config.");
   }
-  return { json, maxSites, offset, allChunks };
+  if (maxChunks < 1) throw new Error("maxScanChunksPerHost/--max-chunks must be a positive integer.");
+  return { json, maxSites, offset, maxChunks, allChunks };
 }
 
 async function readConfig(): Promise<MisePleskConfig> {
@@ -369,12 +378,14 @@ async function main(): Promise<void> {
       const useSudo = config.sudoHosts?.includes(alias) ?? false;
       const hostWordPress: WordPressAudit[] = [];
       const hostExecutions: Array<Awaited<ReturnType<typeof scanHost>>> = [];
+      let chunksProcessed = 0;
       scanCycleState = prepareScanCycle(scanCycleState, alias, scanRange.offset, startedAt);
       await writeScanCycleState(scanCycleStatePath, scanCycleState);
       while (true) {
         const execution = await scanHost(alias, inventory, maxLookups, maxConcurrentSites, scanRange.maxSites, offset, vulnerabilityBudget, useSudo, vulnerabilityCache, config.sshCommandTimeoutMs ?? DEFAULT_SSH_COMMAND_TIMEOUT_MS);
         executions.push(execution);
         hostExecutions.push(execution);
+        chunksProcessed += 1;
         hostWordPress.push(...execution.report.wordpress);
         const batchFindings = findingsFromAudits([execution.report]);
         scanCycleState = appendScanCycleFindings(scanCycleState, alias, batchFindings);
@@ -392,7 +403,12 @@ async function main(): Promise<void> {
         alertSent ||= batchTransition.notificationSent;
         whatsappSent ||= batchTransition.whatsappSent;
         hermesSent ||= batchTransition.hermesSent;
-        if (!scanRange.allChunks || execution.complete) break;
+        if (!shouldContinueScanChunks(scanRange.allChunks, execution.complete, chunksProcessed, scanRange.maxChunks)) {
+          if (scanRange.allChunks && !execution.complete && chunksProcessed >= scanRange.maxChunks) {
+            console.error(`[${alias}] scan chunk budget reached (${scanRange.maxChunks}); leaving cycle incomplete.`);
+          }
+          break;
+        }
         offset = nextScanOffset(offset, execution.scannedInstallationPaths.length);
       }
       const finalExecution = hostExecutions.at(-1);

@@ -8,6 +8,7 @@
   "vulnerabilityCacheTtlHours": 12,
   "maxConcurrentSitesPerHost": 4,
   "maxSitesPerHost": 20,
+  "maxScanChunksPerHost": 100,
   "scanCycleStatePath": ".mise-en-plesk/scan-cycles.json",
   "notificationHistoryPath": ".mise-en-plesk/notification-history.json",
   "notificationCooldownHours": 24,

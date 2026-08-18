@@ -76,10 +76,13 @@ limit. This changes only the local wait bound, never the remote command set.
 `.mise-en-plesk/scan.lock` (override with `MISE_PLESK_RUN_LOCK`) so concurrent
 processes cannot overwrite finding state or the notification outbox. The
 scheduler owns that same lock and passes ownership to its child commands.
-For an unattended complete run, use `--all-chunks`; it repeats bounded
-discovery until every installation is covered and writes one aggregate report:
-`scan all --json --max-sites=20 --all-chunks`. Starting `--all-chunks` at a
-non-zero offset intentionally does not resolve findings for the omitted prefix.
+For an unattended sweep, use `--all-chunks`; it repeats bounded discovery up
+to `maxScanChunksPerHost` (default 100, override with `--max-chunks=N`) and
+writes one aggregate report. A budget-exhausted sweep remains incomplete and
+does not resolve findings for the omitted suffix:
+`scan all --json --max-sites=20 --all-chunks --max-chunks=100`. Starting
+`--all-chunks` at a non-zero offset also intentionally does not resolve findings
+for the omitted prefix.
 
 `scripts/run-scheduled-scan.sh` uses incremental rotation by default: one
 bounded chunk per configured host per cycle, with offsets persisted in the

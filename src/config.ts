@@ -9,6 +9,7 @@ export interface MisePleskConfig {
   vulnerabilityCacheTtlHours?: number;
   maxConcurrentSitesPerHost?: number;
   maxSitesPerHost?: number;
+  maxScanChunksPerHost?: number;
   findingsStatePath?: string;
   scanCycleStatePath?: string;
   notificationOutboxPath?: string;
@@ -64,6 +65,7 @@ export function validateConfig(value: unknown, source = "config.mise-en-plesk.js
     vulnerabilityCacheTtlHours: numberValue(value.vulnerabilityCacheTtlHours, "vulnerabilityCacheTtlHours", source, Number.MIN_VALUE),
     maxConcurrentSitesPerHost: integerValue(value.maxConcurrentSitesPerHost, "maxConcurrentSitesPerHost", source, 1),
     maxSitesPerHost: integerValue(value.maxSitesPerHost, "maxSitesPerHost", source, 1),
+    maxScanChunksPerHost: integerValue(value.maxScanChunksPerHost, "maxScanChunksPerHost", source, 1),
     findingsStatePath: pathValue(value.findingsStatePath, "findingsStatePath", source),
     scanCycleStatePath: pathValue(value.scanCycleStatePath, "scanCycleStatePath", source),
     notificationOutboxPath: pathValue(value.notificationOutboxPath, "notificationOutboxPath", source),
