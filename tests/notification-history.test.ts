@@ -27,6 +27,15 @@ describe("notification cooldown history", () => {
     expect(partitionByCooldown([event], "hermes", sent, new Date("2026-08-19T00:00:01.000Z"), 24 * 60 * 60 * 1000).deliverable).toEqual([event]);
   });
 
+  it("never suppresses recovery or reopened transitions", () => {
+    const history = markNotificationsSent(emptyNotificationHistory(), "hermes", [event], new Date("2026-08-18T00:00:00.000Z"));
+    const resolved = { ...event, type: "resolved" } satisfies FindingEvent;
+    const reopened = { ...event, type: "reopened" } satisfies FindingEvent;
+    const result = partitionByCooldown([resolved, reopened], "hermes", history, new Date("2026-08-18T01:00:00.000Z"), 24 * 60 * 60 * 1000);
+    expect(result.deliverable).toEqual([resolved, reopened]);
+    expect(result.suppressed).toEqual([]);
+  });
+
   it("round-trips mode-600 history atomically", async () => {
     const directory = await mkdtemp(join(tmpdir(), "mise-en-plesk-history-"));
     const path = join(directory, "history.json");

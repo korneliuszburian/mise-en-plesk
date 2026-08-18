@@ -27,6 +27,10 @@ export function partitionByCooldown(
   const deliverable: FindingEvent[] = [];
   const suppressed: FindingEvent[] = [];
   for (const event of events) {
+    if (event.type === "resolved" || event.type === "reopened") {
+      deliverable.push(event);
+      continue;
+    }
     const lastSent = Date.parse(history.sentAt[historyKey(channel, event)] ?? "");
     if (Number.isFinite(lastSent) && now.getTime() - lastSent < cooldownMs) suppressed.push(event);
     else deliverable.push(event);

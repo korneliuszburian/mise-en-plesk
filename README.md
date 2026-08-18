@@ -132,7 +132,8 @@ JSON report as `findingEvents`. This state is local bookkeeping only; it never
 changes a remote host.
 
 Optional alerts use `MISE_PLESK_ALERT_WEBHOOK_URL`. The scanner POSTs only new
-or reopened P1 findings; unchanged, resolved, and P2 findings are not sent.
+or reopened P1 findings; unchanged and P2 findings are not sent. Resolved P1
+findings produce recovery notifications.
 The webhook is provider-neutral so it can target an internal bridge, n8n, or a
 WhatsApp Business adapter. Transient timeout/408/429/5xx failures receive a
 bounded retry with backoff; permanent 4xx failures are not retried. Pending P1
