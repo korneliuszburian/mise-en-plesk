@@ -21,6 +21,7 @@ describe("monitor heartbeat", () => {
       target: "dev-ssh",
       startedAt: "2026-08-18T11:00:00.000Z",
       completedAt: "2026-08-18T11:05:00.000Z",
+      scanComplete: false,
       reportPath: "reports/plesk-wp-audit-20260818.json",
     };
 

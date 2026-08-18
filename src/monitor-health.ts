@@ -7,6 +7,7 @@ export interface MonitorHeartbeat {
   target: string;
   startedAt: string;
   completedAt?: string;
+  scanComplete?: boolean;
   failedAt?: string;
   reportPath?: string;
 }
@@ -56,6 +57,9 @@ export async function readHeartbeat(path: string): Promise<MonitorHeartbeat | un
     }
     for (const timestamp of [heartbeat.completedAt, heartbeat.failedAt]) {
       if (timestamp !== undefined && !isIsoDate(timestamp)) throw new Error(`Invalid monitor heartbeat: ${path}`);
+    }
+    if (heartbeat.scanComplete !== undefined && typeof heartbeat.scanComplete !== "boolean") {
+      throw new Error(`Invalid monitor heartbeat: ${path}`);
     }
     return heartbeat as MonitorHeartbeat;
   } catch (error: unknown) {

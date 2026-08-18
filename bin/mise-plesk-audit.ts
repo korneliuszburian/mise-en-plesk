@@ -21,7 +21,7 @@ import { readConfigFile, type MisePleskConfig } from "../src/config";
 import { acquireLocalLock, type LocalLock } from "../src/local-lock";
 import { createWhatsAppTestEvent, requireWhatsAppTestConfirmation } from "../src/notification-test";
 import { formatScanOutput } from "../src/cli-output";
-import { isCompleteScanPage, nextScanOffset } from "../src/scan-lifecycle";
+import { isCompleteScanCycle, isCompleteScanPage, nextScanOffset } from "../src/scan-lifecycle";
 import { shouldContinueScanChunks } from "../src/scan-budget";
 
 const inventoryPath = process.env.MISE_PLESK_INVENTORY ?? "inventory.json";
@@ -446,6 +446,10 @@ async function main(): Promise<void> {
       else hostsByAlias.set(execution.report.host, { ...execution.report, subscriptions: execution.report.subscriptions ? [...execution.report.subscriptions] : undefined, wordpress: [...execution.report.wordpress] });
     }
     const hosts = [...hostsByAlias.values()];
+    const scanComplete = isCompleteScanCycle(
+      scanRange.offset,
+      aliases.map((alias) => executions.filter((execution) => execution.report.host === alias).at(-1)?.complete === true),
+    );
     const preliminaryResult: AuditResult = {
       generatedAt: new Date().toISOString(),
       hosts,
@@ -459,7 +463,7 @@ async function main(): Promise<void> {
     const currentFindings = findingsFromAudits(preliminaryResult.hosts);
     const result: AuditResult = { ...preliminaryResult, findings: currentFindings, findingEvents };
     const reportPath = await writeAuditReport(result, process.env.MISE_PLESK_REPORTS ?? config.reportsDirectory ?? "reports", json, process.env.MISE_PLESK_REPORT_SUFFIX ?? "");
-    await writeHeartbeat(heartbeatPath, { version: 1, target, startedAt, completedAt: new Date().toISOString(), reportPath });
+    await writeHeartbeat(heartbeatPath, { version: 1, target, startedAt, completedAt: new Date().toISOString(), scanComplete, reportPath });
     console.log(formatScanOutput(result, { reportPath, json, alertSent, whatsappSent, hermesSent }));
     return;
   }

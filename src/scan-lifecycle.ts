@@ -26,3 +26,7 @@ export function nextScanOffset(offset: number, scannedInstallationCount: number)
   if (offset > Number.MAX_SAFE_INTEGER - scannedInstallationCount) throw new Error("scan offset exceeded safe integer range");
   return offset + scannedInstallationCount;
 }
+
+export function isCompleteScanCycle(startOffset: number, hostPagesComplete: readonly boolean[]): boolean {
+  return startOffset === 0 && hostPagesComplete.length > 0 && hostPagesComplete.every(Boolean);
+}
