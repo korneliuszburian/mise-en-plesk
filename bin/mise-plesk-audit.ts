@@ -6,6 +6,8 @@ import { createSshSession, scanPleskHost } from "../src/plesk-scan";
 import { auditWordPressInstallation, createBatchedWpRunners, type AuditResult } from "../src/wp-audit";
 import { writeAuditReport } from "../src/report";
 import { lookupPluginVulnerabilities } from "../src/vulnerabilities";
+import { findingsFromAudits } from "../src/findings";
+import { readFindingState, reconcileFindings, writeFindingState } from "../src/finding-state";
 
 const inventoryPath = process.env.MISE_PLESK_INVENTORY ?? "inventory.json";
 const configPath = process.env.MISE_PLESK_CONFIG ?? "config.mise-en-plesk.json";
@@ -14,6 +16,7 @@ interface MisePleskConfig {
   reportsDirectory?: string;
   hosts?: string[];
   maxVulnerabilityLookupsPerHost?: number;
+  findingsStatePath?: string;
 }
 
 function usage(): never {
@@ -103,12 +106,22 @@ async function main(): Promise<void> {
     }
     const hosts = [];
     for (const alias of aliases) hosts.push(await scanHost(alias, inventory, maxLookups));
-    const result: AuditResult = {
+    const preliminaryResult: AuditResult = {
       generatedAt: new Date().toISOString(),
       hosts,
     };
+    const currentFindings = findingsFromAudits(preliminaryResult.hosts);
+    const findingStatePath = process.env.MISE_PLESK_FINDINGS ?? config.findingsStatePath ?? ".mise-en-plesk/findings.json";
+    const findingState = await readFindingState(findingStatePath);
+    const transition = reconcileFindings(findingState, currentFindings, preliminaryResult.generatedAt);
+    await writeFindingState(findingStatePath, transition.state);
+    const result: AuditResult = { ...preliminaryResult, findings: currentFindings, findingEvents: transition.events };
     const reportPath = await writeAuditReport(result, process.env.MISE_PLESK_REPORTS ?? config.reportsDirectory ?? "reports", json);
+    const eventSummary = transition.events.length
+      ? ` ${transition.events.length} finding state change(s): ${transition.events.map((event) => event.type).join(", ")}.`
+      : " No finding state changes.";
     console.log(`Read-only scan complete. Report written to ${reportPath}.`);
+    console.log(`Open findings: ${currentFindings.length}.${eventSummary}`);
     return;
   }
   usage();

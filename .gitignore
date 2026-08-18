@@ -7,6 +7,7 @@ reports/*.json
 reports/*.md
 config.mise-en-plesk.json
 .mise-en-plesk/
+findings.json
 *.local
 ssh-config.d/
 .DS_Store

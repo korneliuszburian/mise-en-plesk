@@ -1,5 +1,7 @@
 import type { WordPressInstallation } from "./plesk-scan";
 import { lookupPluginVulnerabilities, type PluginVulnerabilitySummary, type VulnerabilityLookupOptions } from "./vulnerabilities";
+import type { Finding } from "./findings";
+import type { FindingEvent } from "./finding-state";
 
 export interface PluginInfo {
   name: string;
@@ -29,6 +31,8 @@ export interface WordPressAudit {
 export interface AuditResult {
   generatedAt: string;
   hosts: Array<{ host: string; wordpress: WordPressAudit[] }>;
+  findings?: Finding[];
+  findingEvents?: FindingEvent[];
 }
 
 export type WpCommandRunner = (installation: WordPressInstallation, command: string) => Promise<string>;
@@ -194,23 +198,19 @@ export function applyHeuristics(
   options: Pick<WordPressAuditOptions, "abandonmentDays" | "now"> = {},
 ): WordPressAudit {
   const priorities: string[] = [];
-  if (/^(4|5)\./.test(audit.coreVersion)) priorities.push("core is very old");
+  if (isVeryOldCore(audit.coreVersion)) priorities.push("core is very old");
   if (!audit.health.reachable) priorities.push("installation is unreachable");
   if (audit.health.status === "runtime-incompatible") {
     priorities.push("WordPress runtime is incompatible with the installed PHP version");
   } else if (audit.health.status === "wp-cli-error") {
     priorities.push("WP-CLI audit failed; manual review required");
   }
-  const now = (options.now ?? new Date()).getTime();
+  const now = options.now ?? new Date();
   const abandonmentDays = options.abandonmentDays ?? 365;
-  const abandonmentMs = abandonmentDays * 24 * 60 * 60 * 1000;
   const abandonmentMonths = Math.round(abandonmentDays / 30);
   for (const plugin of audit.plugins) {
     if (plugin.hasUpdate) priorities.push(`plugin ${plugin.name} has an update available`);
-    const lastUpdated = plugin.wporgLastUpdated ? Date.parse(plugin.wporgLastUpdated) : Number.NaN;
-    const abandoned = plugin.wporgStatus !== undefined && plugin.wporgStatus !== "active"
-      || !Number.isNaN(lastUpdated) && now - lastUpdated > abandonmentMs;
-    if (abandoned) priorities.push(`plugin ${plugin.name} appears abandoned (no wp.org updates in > ${abandonmentMonths} months)`);
+    if (isPluginAbandoned(plugin, now, abandonmentDays)) priorities.push(`plugin ${plugin.name} appears abandoned (no wp.org updates in > ${abandonmentMonths} months)`);
     if (plugin.vulnerabilities.length) {
       const severe = plugin.vulnerabilities.find((item) => ["high", "critical"].includes(item.severity?.toLowerCase() ?? ""));
       priorities.push(`plugin ${plugin.name} has known vulnerabilities (via WPVulnerability)${severe?.severity ? `: ${severe.severity}` : ""}`);
@@ -218,4 +218,18 @@ export function applyHeuristics(
   }
   if (audit.suspiciousFiles.length) priorities.push("PHP files found in uploads (possible backdoors)");
   return { ...audit, priorities };
+}
+
+export function isVeryOldCore(coreVersion: string): boolean {
+  return /^(4|5)\./.test(coreVersion);
+}
+
+export function isPluginAbandoned(
+  plugin: Pick<PluginInfo, "wporgStatus" | "wporgLastUpdated">,
+  now = new Date(),
+  abandonmentDays = 365,
+): boolean {
+  const lastUpdated = plugin.wporgLastUpdated ? Date.parse(plugin.wporgLastUpdated) : Number.NaN;
+  return (plugin.wporgStatus !== undefined && plugin.wporgStatus !== "active")
+    || !Number.isNaN(lastUpdated) && now.getTime() - lastUpdated > abandonmentDays * 24 * 60 * 60 * 1000;
 }

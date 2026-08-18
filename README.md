@@ -46,3 +46,10 @@ reported as missing vulnerability data and never trigger remediation.
 The following findings are P1 manual-review signals, not automatic repairs:
 very old core, abandoned plugins, known-vulnerable plugins, and PHP files under
 `wp-content/uploads`.
+
+Each scan also writes a local, gitignored finding state file at
+`.mise-en-plesk/findings.json` (override with `MISE_PLESK_FINDINGS` or
+`findingsStatePath`). Finding IDs are stable per host/site/signal, so unchanged
+risks are suppressed while new, resolved, and reopened risks are emitted in the
+JSON report as `findingEvents`. This state is local bookkeeping only; it never
+changes a remote host.
