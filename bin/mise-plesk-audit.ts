@@ -323,7 +323,7 @@ async function main(): Promise<void> {
     if (!Number.isInteger(maxConcurrentSites) || maxConcurrentSites < 1) {
       throw new Error("maxConcurrentSitesPerHost must be a positive integer.");
     }
-    const executions = [];
+    const executions: Array<Awaited<ReturnType<typeof scanHost>>> = [];
     const findingStatePath = process.env.MISE_PLESK_FINDINGS ?? config.findingsStatePath ?? ".mise-en-plesk/findings.json";
     let findingState = await readFindingState(findingStatePath);
     const findingEvents: FindingEvent[] = [];
@@ -334,9 +334,11 @@ async function main(): Promise<void> {
       const vulnerabilityBudget = { used: 0 };
       const useSudo = config.sudoHosts?.includes(alias) ?? false;
       const hostWordPress: WordPressAudit[] = [];
+      const hostExecutions: Array<Awaited<ReturnType<typeof scanHost>>> = [];
       while (true) {
         const execution = await scanHost(alias, inventory, maxLookups, maxConcurrentSites, scanRange.maxSites, offset, vulnerabilityBudget, useSudo, vulnerabilityCache);
         executions.push(execution);
+        hostExecutions.push(execution);
         hostWordPress.push(...execution.report.wordpress);
         const batchTransition = await persistFindingBatch(
           [execution.report],
@@ -354,8 +356,8 @@ async function main(): Promise<void> {
         if (!execution.scannedInstallationPaths.length) throw new Error(`[${alias}] bounded scan made no progress at offset ${offset}.`);
         offset += execution.scannedInstallationPaths.length;
       }
-      if (scanRange.offset === 0 && executions.at(-1)?.complete) {
-        const finalExecution = executions.at(-1)!;
+      const finalExecution = hostExecutions.at(-1);
+      if (scanRange.offset === 0 && finalExecution?.complete) {
         const completeTransition = await persistFindingBatch(
           [{ ...finalExecution.report, wordpress: hostWordPress }],
           findingState,
