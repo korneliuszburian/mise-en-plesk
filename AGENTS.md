@@ -12,7 +12,9 @@ Plesk access is read-only by default. The initial tool runs inventory and audit
 commands only. Any mutating command needs an explicit request from Korneliusz
 in the current conversation, a clearly named CLI subcommand, and confirmation
 guards. Never commit or persist credentials; Bitwarden CLI is the credential
-source.
+source. `sudoHosts` is an explicit exception only for the fixed read-only
+Plesk/WP/find commands; its short-lived Secure Note password is sent through
+stdin, never argv/logs/files. Never add arbitrary sudo command execution.
 
 Risk priorities are P1 manual-review signals: very old core, abandoned plugin,
 vulnerable plugin, or PHP files under `wp-content/uploads`. With
