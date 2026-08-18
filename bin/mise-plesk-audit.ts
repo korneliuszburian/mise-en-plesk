@@ -148,6 +148,12 @@ async function scanHost(
           enabled: process.env.MISE_PLESK_ENABLE_VULNS === "1",
           vulnerabilityResourceLookup: async (resource, identifier, options) => {
             if (process.env.MISE_PLESK_ENABLE_VULNS !== "1") return { status: "disabled" };
+            try {
+              const cached = await vulnerabilityCache?.get(resource, identifier);
+              if (cached) return cached;
+            } catch (error: unknown) {
+              options?.debug?.(`vulnerability cache ignored: ${error instanceof Error ? error.message : "cache read failed"}`);
+            }
             if (maxVulnerabilityLookups !== undefined && vulnerabilityBudget.used >= maxVulnerabilityLookups) return { status: "skipped" };
             vulnerabilityBudget.used += 1;
             return lookupVulnerabilities(resource, identifier, { ...options, enabled: true, cache: vulnerabilityCache });
