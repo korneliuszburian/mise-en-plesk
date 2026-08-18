@@ -82,7 +82,7 @@ export function buildWpAuditBatchCommand(installation: WordPressInstallation, op
   const prefix = options.useSudo ? "sudo -S -p '' -- " : "";
   const commands = {
     core: buildWpCliCommand(installation, "core version", options),
-    coreUpdate: buildWpCliCommand(installation, "core check-update --minor --format=json", options),
+    coreUpdate: buildWpCliCommand(installation, "core check-update --format=json", options),
     plugins: buildWpCliCommand(installation, "plugin list --format=json --fields=name,status,update,version,update_version,wporg_status,wporg_last_updated", options),
     pluginChecksums: buildWpCliCommand(installation, "plugin verify-checksums --all --strict", options),
     themes: buildWpCliCommand(installation, "theme list --format=json --fields=name,status,version,update,update_version,auto_update", options),
@@ -127,7 +127,7 @@ export function createBatchedWpRunners(
   return {
     runner: async (_installation, command) => {
       if (command === "core version") return read("core");
-      if (command === "core check-update --minor --format=json") return read("core_update");
+      if (command === "core check-update --format=json") return read("core_update");
       if (command.startsWith("plugin list")) return read("plugins");
       if (command.startsWith("plugin verify-checksums")) return read("plugin_checksums");
       if (command.startsWith("theme list")) return read("themes");
@@ -189,7 +189,7 @@ export async function auditWordPressInstallation(
     };
     let coreUpdateAvailable: boolean | undefined;
     try {
-      coreUpdateAvailable = parseCoreUpdateAvailable(await runner(installation, "core check-update --minor --format=json"));
+      coreUpdateAvailable = parseCoreUpdateAvailable(await runner(installation, "core check-update --format=json"));
     } catch {
       coreUpdateAvailable = undefined;
     }

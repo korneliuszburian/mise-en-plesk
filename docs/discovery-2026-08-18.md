@@ -142,7 +142,7 @@ scraping HTML or installing a plugin on customer sites.
 
 ### Build now
 
-- `wp core check-update --minor --format=json` for an explicit core update
+- `wp core check-update --format=json` for an explicit full core update
   signal. WP-CLI documents `core check-update` as a Version Check API lookup
   and `core verify-checksums` as checksum verification:
   [WP-CLI core commands](https://developer.wordpress.org/cli/commands/core/).

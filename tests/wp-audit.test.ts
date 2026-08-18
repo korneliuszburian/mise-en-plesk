@@ -22,7 +22,7 @@ describe("WordPress audit", () => {
     const command = buildWpAuditBatchCommand({ path: "/srv/site" });
 
     expect(command).toContain("__MISE_CORE_BEGIN__");
-    expect(command).toContain("core check-update --minor --format=json");
+    expect(command).toContain("core check-update --format=json");
     expect(command).toContain("__MISE_PLUGINS_BEGIN__");
     expect(command).toContain("plugin verify-checksums --all --strict");
     expect(command).toContain("theme list --format=json");
@@ -84,7 +84,7 @@ describe("WordPress audit", () => {
       priorities: [],
     });
     expect(calls).toContain("plugin list --format=json --fields=name,status,update,version,update_version,wporg_status,wporg_last_updated");
-    expect(calls).toContain("core check-update --minor --format=json");
+    expect(calls).toContain("core check-update --format=json");
     expect(calls.some((call) => call.startsWith("theme list --format=json"))).toBe(true);
     expect(calls).toContain("plugin verify-checksums --all --strict");
   });
