@@ -9,7 +9,7 @@ cursor_file="${MISE_PLESK_SCAN_CURSOR:-$repo_root/.mise-en-plesk/scan-cursor.jso
 runner_bin="${MISE_PLESK_RUNNER_BIN:-pnpm}"
 chunk_size="${MISE_PLESK_SCAN_CHUNK_SIZE:-20}"
 runner_args=("$runner_bin")
-if [[ "$runner_bin" == "pnpm" ]]; then
+if [[ "$(basename "$runner_bin")" == "pnpm" ]]; then
   runner_args+=(run)
 fi
 
@@ -44,7 +44,13 @@ else
     exit 1
   fi
   report_dir="${MISE_PLESK_REPORTS:-$repo_root/reports}"
-  cursor_runner=(pnpm exec tsx "$repo_root/scripts/scan-cursor.ts")
+  cursor_runner=("$runner_bin")
+  if [[ "$(basename "$runner_bin")" == "pnpm" ]]; then
+    cursor_runner+=(exec tsx)
+  else
+    cursor_runner+=(tsx)
+  fi
+  cursor_runner+=("$repo_root/scripts/scan-cursor.ts")
   for scheduled_target in "${scheduled_targets[@]}"; do
     offset="$("${cursor_runner[@]}" read "$cursor_file" "$scheduled_target")"
     run_stamp="$(date -u +%Y%m%dT%H%M%SZ)"

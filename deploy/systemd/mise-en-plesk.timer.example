@@ -1,0 +1,11 @@
+[Unit]
+Description=Run mise-en-plesk read-only scan every 15 minutes
+
+[Timer]
+OnCalendar=*:0/15
+Persistent=true
+RandomizedDelaySec=30
+Unit=mise-en-plesk.service
+
+[Install]
+WantedBy=timers.target

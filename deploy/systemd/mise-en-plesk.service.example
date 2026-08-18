@@ -1,0 +1,31 @@
+[Unit]
+Description=mise-en-plesk read-only Plesk and WordPress scan
+Wants=network-online.target
+After=network-online.target
+
+[Service]
+Type=oneshot
+# Create the service account before installing this unit:
+# useradd --system --home-dir /var/lib/mise-en-plesk --create-home --shell /usr/sbin/nologin mise-en-plesk
+# Copy this file to /etc/systemd/system/ and replace /opt/mise-en-plesk
+# with the absolute checkout path used by that account.
+User=mise-en-plesk
+Group=mise-en-plesk
+WorkingDirectory=/opt/mise-en-plesk
+Environment=MISE_PLESK_SCHEDULED_TARGET=all
+Environment=MISE_PLESK_SCAN_CHUNK_SIZE=20
+Environment=PATH=/usr/local/bin:/usr/bin:/bin
+# Install pnpm system-wide at this path, or change this explicit runner path.
+Environment=MISE_PLESK_RUNNER_BIN=/usr/local/bin/pnpm
+LoadCredentialEncrypted=BW_SESSION:/etc/mise-en-plesk/bw-session.cred
+UMask=0077
+NoNewPrivileges=yes
+PrivateTmp=yes
+PrivateDevices=yes
+ProtectSystem=strict
+ProtectKernelTunables=yes
+ProtectKernelModules=yes
+ProtectControlGroups=yes
+ReadWritePaths=/opt/mise-en-plesk/.mise-en-plesk /opt/mise-en-plesk/reports
+ExecStartPre=/usr/bin/test -x /usr/local/bin/pnpm
+ExecStart=/usr/bin/bash /opt/mise-en-plesk/scripts/run-scheduled-scan-systemd.sh
