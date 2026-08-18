@@ -34,7 +34,7 @@ the implementation, automated check, and operational evidence agree.
 | Master and dev real-host proof | done | current checkout completed bounded read-only scans: `master-ssh` reported 216 subscriptions/1 candidate and classified the site as runtime-incompatible, `dev-ssh` reported 92 subscriptions/1 candidate and classified the site as WP-CLI-broken; no credentials were written to reports |
 | WhatsApp production delivery proof | partial | adapter, fake-client tests, and recipient-bound `whatsapp-test --confirm=<recipient>` are implemented; approved template and runtime env are operator-owned |
 | Full-fleet rotation proof | done | current checkout completed two scheduler cycles across both configured hosts; each host advanced independently from offset `0` to `2`, with four unique timestamped reports and persistent findings/outbox state |
-| CI on supported Node versions | done | `.github/workflows/ci.yml`, Node 20/22 matrix; CI run `32129869838` passed both jobs |
+| CI on supported Node versions | done | `.github/workflows/ci.yml`, Node 20/22 matrix; CI run `32130269174` passed both jobs |
 | Public repository / review trail | done | GitHub remote, semantic commit history, two-axis review required per major slice |
 | Remote mutation safety audit | done | `tests/read-only-safety.test.ts` checks generated Plesk/WP commands against the forbidden mutation set |
 
