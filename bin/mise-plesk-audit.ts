@@ -8,6 +8,7 @@ import { writeAuditReport } from "../src/report";
 import { lookupPluginVulnerabilities } from "../src/vulnerabilities";
 import { findingsFromAudits } from "../src/findings";
 import { readFindingState, reconcileFindings, writeFindingState } from "../src/finding-state";
+import { notifyFindingEvents } from "../src/notifications";
 
 const inventoryPath = process.env.MISE_PLESK_INVENTORY ?? "inventory.json";
 const configPath = process.env.MISE_PLESK_CONFIG ?? "config.mise-en-plesk.json";
@@ -120,6 +121,10 @@ async function main(): Promise<void> {
       new Set(preliminaryResult.hosts.map((host) => host.host)),
     );
     await writeFindingState(findingStatePath, transition.state);
+    const notification = await notifyFindingEvents(transition.events, {
+      webhookUrl: process.env.MISE_PLESK_ALERT_WEBHOOK_URL,
+      debug: (message) => console.error(message),
+    });
     const result: AuditResult = { ...preliminaryResult, findings: currentFindings, findingEvents: transition.events };
     const reportPath = await writeAuditReport(result, process.env.MISE_PLESK_REPORTS ?? config.reportsDirectory ?? "reports", json);
     const eventSummary = transition.events.length
@@ -127,6 +132,7 @@ async function main(): Promise<void> {
       : " No finding state changes.";
     console.log(`Read-only scan complete. Report written to ${reportPath}.`);
     console.log(`Open findings: ${currentFindings.length}.${eventSummary}`);
+    if (notification.sent) console.log(`Sent ${notification.eligibleEvents} P1 alert(s).`);
     return;
   }
   usage();
