@@ -126,7 +126,8 @@ describe("WordPress audit", () => {
     const cases = [
       ["wp: command not found", "wp-cli-missing"],
       ["sudo: a password is required", "wp-cli-permission-denied"],
-      ["/usr/local/bin/wp: 1: 404: not found", "wp-cli-broken"],
+      ["/usr/local/bin/wp: 1: 404: not found", "wp-cli-missing"],
+      ["/usr/local/bin/wp: 404 not found", "wp-cli-missing"],
     ] as const;
 
     for (const [message, status] of cases) {
@@ -161,7 +162,7 @@ describe("WordPress audit", () => {
       },
     );
 
-    expect(result.health).toMatchObject({ reachable: true, status: "wp-cli-broken" });
+    expect(result.health).toMatchObject({ reachable: true, status: "wp-cli-missing" });
     expect(result.suspiciousFiles).toEqual([
       "/var/www/vhosts/broken.test/httpdocs/wp-content/uploads/backdoor.php",
     ]);

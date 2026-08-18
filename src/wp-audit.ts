@@ -280,7 +280,7 @@ function classifyAuditError(error: unknown): WordPressAudit["health"] {
   if (/connection refused|connection reset|connection closed|permission denied|timed out|could not resolve|kex_exchange|wp unavailable|no route to host/i.test(detail)) {
     return { reachable: false, status: "unreachable", detail: shortDetail };
   }
-  if (/command not found|no such file or directory/i.test(detail)) {
+  if (/command not found|no such file or directory|\b404(?::)?\s*not found/i.test(detail)) {
     return { reachable: true, status: "wp-cli-missing", detail: shortDetail };
   }
   if (/404.*not found|parse error|syntax error|fatal error|unexpected token/i.test(detail)) {
