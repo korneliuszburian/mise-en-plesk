@@ -44,10 +44,10 @@ export function auditMarkdown(result: AuditResult): string {
   return `${lines.join("\n")}\n`;
 }
 
-export async function writeAuditReport(result: AuditResult, directory = "reports", json = false): Promise<string> {
+export async function writeAuditReport(result: AuditResult, directory = "reports", json = false, filenameSuffix = ""): Promise<string> {
   await mkdir(directory, { recursive: true });
   const date = new Date().toISOString().slice(0, 10).replaceAll("-", "");
-  const path = join(directory, `plesk-wp-audit-${date}.${json ? "json" : "md"}`);
+  const path = join(directory, `plesk-wp-audit-${date}${filenameSuffix}.${json ? "json" : "md"}`);
   await writeFile(path, json ? `${JSON.stringify(result, null, 2)}\n` : auditMarkdown(result), "utf8");
   return path;
 }

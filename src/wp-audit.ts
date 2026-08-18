@@ -58,8 +58,16 @@ export interface WordPressAudit {
 export interface AuditResult {
   generatedAt: string;
   hosts: Array<{ host: string; subscriptions?: string[]; wordpress: WordPressAudit[]; hostFacts?: HostFacts; warnings?: string[] }>;
+  scanProgress?: ScanProgress[];
   findings?: Finding[];
   findingEvents?: FindingEvent[];
+}
+
+export interface ScanProgress {
+  host: string;
+  offset: number;
+  scanned: number;
+  complete: boolean;
 }
 
 export type WpCommandRunner = (installation: WordPressInstallation, command: string) => Promise<string>;

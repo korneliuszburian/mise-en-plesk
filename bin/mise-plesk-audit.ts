@@ -2,7 +2,7 @@
 import { getInventoryHostItem, readInventory, syncFromBitwarden } from "../src/ssh-inventory";
 import { extractSecureNoteSshCredentials } from "../src/bitwarden";
 import { createSshSession, scanPleskHost, DEFAULT_SSH_COMMAND_TIMEOUT_MS } from "../src/plesk-scan";
-import { auditWordPressInstallation, createBatchedWpRunners, type AuditResult, type WordPressAudit } from "../src/wp-audit";
+import { auditWordPressInstallation, createBatchedWpRunners, type AuditResult, type WordPressAudit, type ScanProgress } from "../src/wp-audit";
 import { writeAuditReport } from "../src/report";
 import { createFileVulnerabilityCache, lookupVulnerabilities, type VulnerabilityCache } from "../src/vulnerabilities";
 import { findingsFromAudits } from "../src/findings";
@@ -156,7 +156,7 @@ async function scanHost(
   useSudo = false,
   vulnerabilityCache?: VulnerabilityCache,
   commandTimeoutMs = DEFAULT_SSH_COMMAND_TIMEOUT_MS,
-): Promise<{ report: AuditResult["hosts"][number]; scannedInstallationPaths: string[]; complete: boolean }> {
+): Promise<{ report: AuditResult["hosts"][number]; scannedInstallationPaths: string[]; complete: boolean; offset: number }> {
   const host = inventory[alias];
   const item = process.env.BW_SESSION ? await getInventoryHostItem(host) : null;
   const credentials = item ? extractSecureNoteSshCredentials(item) : null;
@@ -211,7 +211,8 @@ async function scanHost(
       scannedInstallationPaths,
       complete: maxSites === undefined
         ? offset === 0
-        : scan.wordpressHasMore === false && (offset === 0 || selectedWordPress.length > 0),
+        : scan.wordpressHasMore === false,
+      offset,
     };
   } finally {
     await session.close();
@@ -366,10 +367,16 @@ async function main(): Promise<void> {
     const preliminaryResult: AuditResult = {
       generatedAt: new Date().toISOString(),
       hosts,
+      scanProgress: executions.map((execution): ScanProgress => ({
+        host: execution.report.host,
+        offset: execution.offset,
+        scanned: execution.scannedInstallationPaths.length,
+        complete: execution.complete,
+      })),
     };
     const currentFindings = findingsFromAudits(preliminaryResult.hosts);
     const result: AuditResult = { ...preliminaryResult, findings: currentFindings, findingEvents };
-    const reportPath = await writeAuditReport(result, process.env.MISE_PLESK_REPORTS ?? config.reportsDirectory ?? "reports", json);
+    const reportPath = await writeAuditReport(result, process.env.MISE_PLESK_REPORTS ?? config.reportsDirectory ?? "reports", json, process.env.MISE_PLESK_REPORT_SUFFIX ?? "");
     await writeHeartbeat(heartbeatPath, { version: 1, target, startedAt, completedAt: new Date().toISOString(), reportPath });
     const eventSummary = findingEvents.length
       ? ` ${findingEvents.length} finding state change(s): ${findingEvents.map((event) => event.type).join(", ")}.`

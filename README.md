@@ -66,6 +66,13 @@ discovery until every installation is covered and writes one aggregate report:
 `scan all --json --max-sites=20 --all-chunks`. Starting `--all-chunks` at a
 non-zero offset intentionally does not resolve findings for the omitted prefix.
 
+`scripts/run-scheduled-scan.sh` uses incremental rotation by default: one
+bounded chunk per configured host per cycle, with offsets persisted in the
+gitignored `.mise-en-plesk/scan-cursor.json`. Override it with
+`MISE_PLESK_SCAN_CURSOR`, or set `MISE_PLESK_SCHEDULE_ALL_CHUNKS=1` for an
+explicit full sweep. Rotated JSON reports receive host and UTC-run suffixes so
+successive cycles do not overwrite one another.
+
 Online vulnerability lookups are opt-in. Set
 `MISE_PLESK_ENABLE_VULNS=1` before running `scan` to query the public
 WPVulnerability API. With the variable unset (or any value other than `1`),

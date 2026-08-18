@@ -41,6 +41,12 @@ describe("audit reports", () => {
     expect(path).toMatch(/plesk-wp-audit-\d{8}\.json$/);
   });
 
+  it("supports a suffix for rotated per-host reports", async () => {
+    const directory = await mkdtemp(join(tmpdir(), "mise-en-plesk-report-suffix-"));
+    const path = await writeAuditReport(result, directory, true, "-dev-ssh");
+    expect(path).toMatch(/plesk-wp-audit-\d{8}-dev-ssh\.json$/);
+  });
+
   it("renders host capability warnings", () => {
     const markdown = auditMarkdown({
       ...result,

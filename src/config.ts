@@ -22,8 +22,8 @@ function isRecord(value: unknown): value is Record<string, unknown> {
 
 function aliases(value: unknown, name: string, source: string): string[] | undefined {
   if (value === undefined) return undefined;
-  if (!Array.isArray(value) || value.some((item) => typeof item !== "string" || !item.trim() || /\s/.test(item))) {
-    throw new Error(`${name} must contain non-empty aliases without whitespace: ${source}`);
+  if (!Array.isArray(value) || value.some((item) => typeof item !== "string" || !/^[A-Za-z0-9][A-Za-z0-9._-]*$/.test(item))) {
+    throw new Error(`${name} must contain safe aliases using letters, numbers, dot, underscore, or dash: ${source}`);
   }
   const result = value as string[];
   if (new Set(result).size !== result.length) throw new Error(`${name} must not contain duplicate aliases: ${source}`);

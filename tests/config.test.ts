@@ -18,6 +18,7 @@ describe("mise-en-plesk config", () => {
   it("rejects invalid numeric limits and duplicate aliases", () => {
     expect(() => validateConfig({ maxConcurrentSitesPerHost: 0 })).toThrow("maxConcurrentSitesPerHost");
     expect(() => validateConfig({ hosts: ["master-ssh", "master-ssh"] })).toThrow("duplicate aliases");
+    expect(() => validateConfig({ hosts: ["../reports"] })).toThrow("safe aliases");
     expect(() => validateConfig({ sshCommandTimeoutMs: 999 })).toThrow("sshCommandTimeoutMs");
   });
 });
