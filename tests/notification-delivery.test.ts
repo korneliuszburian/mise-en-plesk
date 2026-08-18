@@ -57,6 +57,32 @@ describe("notification delivery module", () => {
     expect(outbox.entries[0]).toMatchObject({ webhookSent: true, hermesSent: false });
   });
 
+  it("delivers recovery transitions despite the normal cooldown", async () => {
+    const filePaths = await paths();
+    const sentTypes: FindingEvent["type"][] = [];
+    const delivery = createNotificationDelivery({
+      ...filePaths,
+      cooldownMs: 24 * 60 * 60 * 1000,
+      adapters: [adapter("hermes", async (events) => {
+        sentTypes.push(...events.map((item) => item.type));
+        return { sent: true, sentEvents: events };
+      })],
+      now: () => new Date("2026-08-18T01:00:00.000Z"),
+    });
+
+    await delivery.enqueue([event("one")]);
+    const first = await delivery.flush();
+    await delivery.enqueue([event("one", "resolved")]);
+    const second = await delivery.flush();
+    await delivery.enqueue([event("one", "reopened")]);
+    const third = await delivery.flush();
+
+    expect(sentTypes).toEqual(["opened", "resolved", "reopened"]);
+    expect(first.channels.hermes).toMatchObject({ acknowledged: 1, pending: 0, failed: false });
+    expect(second.hermesSent).toBe(true);
+    expect(third.hermesSent).toBe(true);
+  });
+
   it("keeps partial acknowledgements and provider failures pending", async () => {
     const filePaths = await paths();
     const first = event("one");
@@ -78,6 +104,21 @@ describe("notification delivery module", () => {
     expect(outbox.entries).toHaveLength(2);
     expect(outbox.entries.find((entry) => entry.event.finding.id === "one")).toMatchObject({ hermesSent: true, whatsappSent: false });
     expect(outbox.entries.find((entry) => entry.event.finding.id === "two")).toMatchObject({ hermesSent: false, whatsappSent: false });
+  });
+
+  it("does not claim delivery when a provider acknowledges nothing", async () => {
+    const filePaths = await paths();
+    const delivery = createNotificationDelivery({
+      ...filePaths,
+      cooldownMs: 0,
+      adapters: [adapter("hermes", async () => ({ sent: true, sentEvents: [] }))],
+    });
+
+    await delivery.enqueue([event("one")]);
+    const result = await delivery.flush();
+
+    expect(result.hermesSent).toBe(false);
+    expect(result.channels.hermes).toMatchObject({ acknowledged: 0, pending: 1, failed: true });
   });
 
   it("checkpoints an earlier channel before a later channel fails", async () => {
