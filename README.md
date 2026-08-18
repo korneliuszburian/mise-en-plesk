@@ -11,7 +11,7 @@ pnpm test
 pnpm mise-plesk-audit doctor
 source scripts/setup-bw-session.sh
 pnpm mise-plesk-audit sync-ssh
-pnpm mise-plesk-audit scan master
+pnpm mise-plesk-audit scan master-ssh
 pnpm mise-plesk-audit scan all --json
 ```
 
@@ -31,7 +31,8 @@ a Markdown report under `reports/`. Plesk commands are intentionally
 read-only; this project does not delete anything, update plugins/themes, or
 change databases.
 
-`scan all` reads the selected aliases from `config.mise-en-plesk.json`, scans
+`scan all` reads the selected aliases from `config.mise-en-plesk.json` (the
+example uses `master-ssh` and `dev-ssh`), scans
 them sequentially, and writes one aggregate report. Progress is written to
 stderr so machine consumers can use the command without mixing progress into
 the report. Add `--json` to write the machine-readable report instead of

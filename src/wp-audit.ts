@@ -131,20 +131,9 @@ export function buildWpCliCommand(installation: WordPressInstallation, command: 
   return `wp ${command} --path=${shellQuote(installation.path)} --allow-root`;
 }
 
-const defaultWpRunner: WpCommandRunner = async (installation, command) => {
-  const { execFile } = await import("node:child_process");
-  const { promisify } = await import("node:util");
-  const result = await promisify(execFile)("wp", [
-    ...command.split(/\s+/),
-    `--path=${installation.path}`,
-    "--allow-root",
-  ]);
-  return result.stdout;
-};
-
 export async function auditWordPressInstallation(
   installation: WordPressInstallation,
-  runner: WpCommandRunner = defaultWpRunner,
+  runner: WpCommandRunner,
   options: WordPressAuditOptions = {},
 ): Promise<WordPressAudit> {
   let coreVersion = "unknown";
