@@ -1,7 +1,7 @@
 #!/usr/bin/env node
 import { getInventoryHostItem, readInventory, syncFromBitwarden } from "../src/ssh-inventory";
 import { extractSecureNoteSshCredentials } from "../src/bitwarden";
-import { createSshSession, scanPleskHost } from "../src/plesk-scan";
+import { createSshSession, scanPleskHost, DEFAULT_SSH_COMMAND_TIMEOUT_MS } from "../src/plesk-scan";
 import { auditWordPressInstallation, createBatchedWpRunners, type AuditResult, type WordPressAudit } from "../src/wp-audit";
 import { writeAuditReport } from "../src/report";
 import { createFileVulnerabilityCache, lookupVulnerabilities, type VulnerabilityCache } from "../src/vulnerabilities";
@@ -154,12 +154,13 @@ async function scanHost(
   vulnerabilityBudget: VulnerabilityLookupBudget = { used: 0 },
   useSudo = false,
   vulnerabilityCache?: VulnerabilityCache,
+  commandTimeoutMs = DEFAULT_SSH_COMMAND_TIMEOUT_MS,
 ): Promise<{ report: AuditResult["hosts"][number]; scannedInstallationPaths: string[]; complete: boolean }> {
   const host = inventory[alias];
   const item = process.env.BW_SESSION ? await getInventoryHostItem(host) : null;
   const credentials = item ? extractSecureNoteSshCredentials(item) : null;
   console.error(`[${alias}] scanning Plesk host ${host.host}`);
-  const session = await createSshSession(host, credentials?.password, useSudo ? credentials?.password : undefined);
+  const session = await createSshSession(host, credentials?.password, useSudo ? credentials?.password : undefined, commandTimeoutMs);
   try {
     const ssh = (command: string) => session.run(command);
     const scan = await scanPleskHost(host, (_host, command) => ssh(command), {
@@ -307,7 +308,7 @@ async function main(): Promise<void> {
       const hostWordPress: WordPressAudit[] = [];
       const hostExecutions: Array<Awaited<ReturnType<typeof scanHost>>> = [];
       while (true) {
-        const execution = await scanHost(alias, inventory, maxLookups, maxConcurrentSites, scanRange.maxSites, offset, vulnerabilityBudget, useSudo, vulnerabilityCache);
+        const execution = await scanHost(alias, inventory, maxLookups, maxConcurrentSites, scanRange.maxSites, offset, vulnerabilityBudget, useSudo, vulnerabilityCache, config.sshCommandTimeoutMs ?? DEFAULT_SSH_COMMAND_TIMEOUT_MS);
         executions.push(execution);
         hostExecutions.push(execution);
         hostWordPress.push(...execution.report.wordpress);

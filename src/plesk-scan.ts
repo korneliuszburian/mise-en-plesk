@@ -75,7 +75,10 @@ export type SshCommandRunner = (host: HostConfig, command: string) => Promise<st
 interface SshInvocationOptions {
   controlPath?: string;
   stdin?: string;
+  timeoutMs?: number;
 }
+
+export const DEFAULT_SSH_COMMAND_TIMEOUT_MS = 60_000;
 
 export function buildSshInvocation(host: HostConfig, password?: string, options: SshInvocationOptions = {}): {
   executable: "ssh" | "sshpass";
@@ -99,7 +102,7 @@ export async function runSshCommand(host: HostConfig, command: string, password?
   try {
     const result = await execFileWithInput(invocation.executable, [...invocation.args, command], {
       env: invocation.env,
-      timeout: 20_000,
+      timeout: options.timeoutMs ?? DEFAULT_SSH_COMMAND_TIMEOUT_MS,
     }, options.stdin);
     return result.stdout;
   } catch (error: unknown) {
@@ -117,12 +120,13 @@ export interface SshSession {
   close(): Promise<void>;
 }
 
-export async function createSshSession(host: HostConfig, password?: string, sudoPassword?: string): Promise<SshSession> {
+export async function createSshSession(host: HostConfig, password?: string, sudoPassword?: string, commandTimeoutMs = DEFAULT_SSH_COMMAND_TIMEOUT_MS): Promise<SshSession> {
   const directory = await mkdtemp(`${tmpdir()}/mise-en-plesk-`);
   const controlPath = `${directory}/control`;
   const run = (command: string) => runSshCommand(host, command, password, {
     controlPath,
     stdin: sudoPassword === undefined ? undefined : `${sudoPassword}\n`,
+    timeoutMs: commandTimeoutMs,
   });
   await run(":");
 

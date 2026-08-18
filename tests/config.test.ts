@@ -10,12 +10,14 @@ describe("mise-en-plesk config", () => {
       maxSitesPerHost: 20,
       maxVulnerabilityLookupsPerHost: 10,
       vulnerabilityCacheTtlHours: 12,
+      sshCommandTimeoutMs: 60000,
       findingsStatePath: ".mise-en-plesk/findings.json",
-    })).toMatchObject({ hosts: ["master-ssh", "dev-ssh"], maxConcurrentSitesPerHost: 4 });
+    })).toMatchObject({ hosts: ["master-ssh", "dev-ssh"], maxConcurrentSitesPerHost: 4, sshCommandTimeoutMs: 60000 });
   });
 
   it("rejects invalid numeric limits and duplicate aliases", () => {
     expect(() => validateConfig({ maxConcurrentSitesPerHost: 0 })).toThrow("maxConcurrentSitesPerHost");
     expect(() => validateConfig({ hosts: ["master-ssh", "master-ssh"] })).toThrow("duplicate aliases");
+    expect(() => validateConfig({ sshCommandTimeoutMs: 999 })).toThrow("sshCommandTimeoutMs");
   });
 });

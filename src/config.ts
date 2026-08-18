@@ -13,6 +13,7 @@ export interface MisePleskConfig {
   notificationOutboxPath?: string;
   heartbeatPath?: string;
   monitorMaxAgeHours?: number;
+  sshCommandTimeoutMs?: number;
 }
 
 function isRecord(value: unknown): value is Record<string, unknown> {
@@ -64,6 +65,7 @@ export function validateConfig(value: unknown, source = "config.mise-en-plesk.js
     notificationOutboxPath: pathValue(value.notificationOutboxPath, "notificationOutboxPath", source),
     heartbeatPath: pathValue(value.heartbeatPath, "heartbeatPath", source),
     monitorMaxAgeHours: numberValue(value.monitorMaxAgeHours, "monitorMaxAgeHours", source, Number.MIN_VALUE),
+    sshCommandTimeoutMs: integerValue(value.sshCommandTimeoutMs, "sshCommandTimeoutMs", source, 1_000),
   };
 }
 

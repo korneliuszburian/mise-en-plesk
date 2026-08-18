@@ -54,6 +54,9 @@ offset. `maxSitesPerHost` in config provides the same default for every run;
 CLI flags take precedence. A bounded run only reconciles findings for the
 installations it actually scanned, and only the final chunk can resolve stale
 findings for the whole host.
+SSH commands have a bounded 60-second timeout by default; set
+`sshCommandTimeoutMs` when a large Plesk filesystem needs a different explicit
+limit. This changes only the local wait bound, never the remote command set.
 For an unattended complete run, use `--all-chunks`; it repeats bounded
 discovery until every installation is covered and writes one aggregate report:
 `scan all --json --max-sites=20 --all-chunks`. Starting `--all-chunks` at a
