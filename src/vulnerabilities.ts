@@ -33,6 +33,13 @@ function stringList(value: unknown): string[] {
 }
 
 function vulnerabilityRecords(payload: unknown): unknown[] {
+  if (Array.isArray(payload)) {
+    return payload.flatMap((entry) => {
+      if (!entry || typeof entry !== "object") return [];
+      const vulnerabilities = (entry as Record<string, unknown>).vulnerabilities;
+      return Array.isArray(vulnerabilities) ? vulnerabilities : [entry];
+    });
+  }
   if (!payload || typeof payload !== "object") return [];
   const root = payload as Record<string, unknown>;
   for (const key of ["vulnerabilities", "vulnerability"]) {
@@ -46,9 +53,15 @@ function mapVulnerability(value: unknown, index: number): PluginVulnerability | 
   if (!value || typeof value !== "object") return null;
   const record = value as Record<string, unknown>;
   const id = stringValue(record.id) ?? stringValue(record.slug) ?? `vulnerability-${index + 1}`;
-  const title = stringValue(record.title) ?? stringValue(record.description) ?? id;
-  const severityValue = record.severity ?? (record.cvss && typeof record.cvss === "object" ? (record.cvss as Record<string, unknown>).severity : undefined);
-  const cve = stringList(record.cve ?? record.cves);
+  const title = stringValue(record.title) ?? stringValue(record.description) ?? stringValue(record.name) ?? id;
+  const impact = record.impact && typeof record.impact === "object" ? record.impact as Record<string, unknown> : undefined;
+  const cvss = record.cvss && typeof record.cvss === "object" ? record.cvss as Record<string, unknown> : undefined;
+  const impactCvss = impact?.cvss && typeof impact.cvss === "object" ? impact.cvss as Record<string, unknown> : undefined;
+  const severityValue = record.severity ?? cvss?.severity ?? impactCvss?.severity;
+  const sourceIds = Array.isArray(record.source)
+    ? record.source.flatMap((source) => source && typeof source === "object" ? stringList((source as Record<string, unknown>).id) : [])
+    : [];
+  const cve = [...stringList(record.cve ?? record.cves), ...sourceIds.filter((source) => /^CVE-/i.test(source))];
   return { id, title, severity: stringValue(severityValue), cve, source: "WPVulnerability" };
 }
 
