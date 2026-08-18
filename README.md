@@ -34,6 +34,11 @@ a Markdown report under `reports/`. Plesk commands are intentionally
 read-only; this project does not delete anything, update plugins/themes, or
 change databases.
 
+Some non-root SSH accounts can read WordPress files but cannot invoke Plesk
+CLI. Add that alias to `sudoHosts` in the local config to enable `sudo -n --`
+for the fixed read-only Plesk/WP commands on that host. The flag is opt-in,
+never prompts for a password, and is not used for hosts absent from the list.
+
 `scan all` reads the selected aliases from `config.mise-en-plesk.json` (the
 example uses `master-ssh` and `dev-ssh`), scans
 them sequentially, and writes one aggregate report. Progress is written to

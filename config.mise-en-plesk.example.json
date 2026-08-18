@@ -1,6 +1,7 @@
 {
   "reportsDirectory": "reports",
   "hosts": ["master-ssh", "dev-ssh"],
+  "sudoHosts": [],
   "allowSshConfigSnippet": false,
   "maxVulnerabilityLookupsPerHost": 25,
   "maxConcurrentSitesPerHost": 4,

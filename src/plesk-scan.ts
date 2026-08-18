@@ -22,6 +22,7 @@ export interface PleskScanResult {
 export interface PleskScanOptions {
   wordpressOffset?: number;
   wordpressLimit?: number;
+  useSudo?: boolean;
 }
 
 export type SshCommandRunner = (host: HostConfig, command: string) => Promise<string>;
@@ -56,12 +57,12 @@ export async function runSshCommand(host: HostConfig, command: string, password?
     });
     return result.stdout;
   } catch (error: unknown) {
-    const failure = error as { stdout?: string; stderr?: string; message?: string };
+    const failure = error as { stdout?: string; stderr?: string; message?: string; code?: string | number };
     const detail = [failure.stdout, failure.stderr, failure.message]
       .filter((value): value is string => Boolean(value?.trim()))
       .map((value) => value.trim())
       .join("\n");
-    throw new Error(detail || "SSH command failed.");
+    throw new Error(detail || `SSH command failed${failure.code !== undefined ? ` (exit code ${failure.code})` : ""}.`);
   }
 }
 
@@ -116,10 +117,11 @@ export async function scanPleskHost(
   if (limit !== undefined && (!Number.isSafeInteger(limit) || limit < 1)) {
     throw new Error("wordpressLimit must be a positive safe integer.");
   }
-  const subscriptions = parseLineList(await runner(host, "plesk bin subscription --list"));
+  const prefix = options.useSudo ? "sudo -n -- " : "";
+  const subscriptions = parseLineList(await runner(host, `${prefix}plesk bin subscription --list`));
   const discoveryCommand = limit === undefined
-    ? "find /var/www/vhosts -xdev -maxdepth 4 -type f -name wp-config.php -print"
-    : `find /var/www/vhosts -xdev -maxdepth 4 -type f -name wp-config.php -print | sort | awk 'NR > ${offset} && NR <= ${offset + limit + 1} { print }'`;
+    ? `${prefix}find /var/www/vhosts -xdev -maxdepth 4 -type f -name wp-config.php -print`
+    : `${prefix}find /var/www/vhosts -xdev -maxdepth 4 -type f -name wp-config.php -print | sort | awk 'NR > ${offset} && NR <= ${offset + limit + 1} { print }'`;
   const configPaths = parseLineList(
     await runner(host, discoveryCommand),
   );

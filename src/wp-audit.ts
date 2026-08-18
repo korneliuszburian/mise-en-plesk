@@ -58,15 +58,16 @@ interface BatchSection {
   status: number;
 }
 
-export function buildWpAuditBatchCommand(installation: WordPressInstallation): string {
+export function buildWpAuditBatchCommand(installation: WordPressInstallation, options: { useSudo?: boolean } = {}): string {
+  const prefix = options.useSudo ? "sudo -n -- " : "";
   const commands = {
-    core: buildWpCliCommand(installation, "core version"),
-    coreUpdate: buildWpCliCommand(installation, "core check-update --minor --format=json"),
-    plugins: buildWpCliCommand(installation, "plugin list --format=json --fields=name,status,update,version,update_version,wporg_status,wporg_last_updated"),
-    pluginChecksums: buildWpCliCommand(installation, "plugin verify-checksums --all --strict"),
-    themes: buildWpCliCommand(installation, "theme list --format=json --fields=name,status,version,update,update_version,auto_update"),
-    checksums: buildWpCliCommand(installation, "core verify-checksums"),
-    uploads: `find ${shellQuote(`${installation.path}/wp-content/uploads`)} -type f -name '*.php' -print`,
+    core: buildWpCliCommand(installation, "core version", options),
+    coreUpdate: buildWpCliCommand(installation, "core check-update --minor --format=json", options),
+    plugins: buildWpCliCommand(installation, "plugin list --format=json --fields=name,status,update,version,update_version,wporg_status,wporg_last_updated", options),
+    pluginChecksums: buildWpCliCommand(installation, "plugin verify-checksums --all --strict", options),
+    themes: buildWpCliCommand(installation, "theme list --format=json --fields=name,status,version,update,update_version,auto_update", options),
+    checksums: buildWpCliCommand(installation, "core verify-checksums", options),
+    uploads: `${prefix}find ${shellQuote(`${installation.path}/wp-content/uploads`)} -type f -name '*.php' -print`,
   };
   return Object.entries(commands).map(([name, command]) => [
     `printf '%s\\n' '__MISE_${name.toUpperCase()}_BEGIN__'`,
@@ -90,10 +91,11 @@ function parseBatchSections(output: string): Map<string, BatchSection> {
 export function createBatchedWpRunners(
   installation: WordPressInstallation,
   remoteRunner: (command: string) => Promise<string>,
+  options: { useSudo?: boolean } = {},
 ): { runner: WpCommandRunner; suspiciousFileRunner: SuspiciousFileRunner } {
   let sectionsPromise: Promise<Map<string, BatchSection>> | undefined;
   const sections = async (): Promise<Map<string, BatchSection>> => {
-    sectionsPromise ??= remoteRunner(buildWpAuditBatchCommand(installation)).then(parseBatchSections);
+    sectionsPromise ??= remoteRunner(buildWpAuditBatchCommand(installation, options)).then(parseBatchSections);
     return sectionsPromise;
   };
   const read = async (name: string): Promise<string> => {
@@ -127,8 +129,8 @@ function shellQuote(value: string): string {
   return `'${value.replaceAll("'", "'\\''")}'`;
 }
 
-export function buildWpCliCommand(installation: WordPressInstallation, command: string): string {
-  return `wp ${command} --path=${shellQuote(installation.path)} --allow-root`;
+export function buildWpCliCommand(installation: WordPressInstallation, command: string, options: { useSudo?: boolean } = {}): string {
+  return `${options.useSudo ? "sudo -n -- " : ""}wp ${command} --path=${shellQuote(installation.path)} --allow-root`;
 }
 
 export function pluginSlug(name: string): string {

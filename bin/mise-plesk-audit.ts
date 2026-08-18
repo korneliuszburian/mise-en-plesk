@@ -18,6 +18,7 @@ const configPath = process.env.MISE_PLESK_CONFIG ?? "config.mise-en-plesk.json";
 interface MisePleskConfig {
   reportsDirectory?: string;
   hosts?: string[];
+  sudoHosts?: string[];
   maxVulnerabilityLookupsPerHost?: number;
   maxConcurrentSitesPerHost?: number;
   maxSitesPerHost?: number;
@@ -87,6 +88,9 @@ async function readConfig(): Promise<MisePleskConfig> {
   if (config.hosts && (!Array.isArray(config.hosts) || config.hosts.some((host) => typeof host !== "string"))) {
     throw new Error(`Config hosts must be an array of aliases: ${configPath}`);
   }
+  if (config.sudoHosts && (!Array.isArray(config.sudoHosts) || config.sudoHosts.some((host) => typeof host !== "string"))) {
+    throw new Error(`Config sudoHosts must be an array of aliases: ${configPath}`);
+  }
   return config;
 }
 
@@ -107,6 +111,7 @@ async function scanHost(
   maxSites?: number,
   offset = 0,
   vulnerabilityBudget: VulnerabilityLookupBudget = { used: 0 },
+  useSudo = false,
 ): Promise<{ report: AuditResult["hosts"][number]; scannedInstallationPaths: string[]; complete: boolean }> {
   const host = inventory[alias];
   const item = process.env.BW_SESSION ? await getInventoryHostItem(host) : null;
@@ -118,6 +123,7 @@ async function scanHost(
     const scan = await scanPleskHost(host, (_host, command) => ssh(command), {
       wordpressOffset: offset,
       wordpressLimit: maxSites,
+      useSudo,
     });
     const selectedWordPress = maxSites === undefined ? scan.wordpress.slice(offset) : scan.wordpress;
     const scannedInstallationPaths = selectedWordPress.map((installation) => installation.path);
@@ -125,7 +131,7 @@ async function scanHost(
     for (let index = 0; index < selectedWordPress.length; index += maxConcurrentSites) {
       const batch = selectedWordPress.slice(index, index + maxConcurrentSites);
       wordpress.push(...await Promise.all(batch.map(async (installation) => {
-        const batched = createBatchedWpRunners(installation, ssh);
+        const batched = createBatchedWpRunners(installation, ssh, { useSudo });
         return auditWordPressInstallation(installation, batched.runner, {
           enabled: process.env.MISE_PLESK_ENABLE_VULNS === "1",
           vulnerabilityLookup: async (slug, options) => {
@@ -188,8 +194,9 @@ async function main(): Promise<void> {
     for (const alias of aliases) {
       let offset = scanRange.offset;
       const vulnerabilityBudget = { used: 0 };
+      const useSudo = config.sudoHosts?.includes(alias) ?? false;
       while (true) {
-        const execution = await scanHost(alias, inventory, maxLookups, maxConcurrentSites, scanRange.maxSites, offset, vulnerabilityBudget);
+        const execution = await scanHost(alias, inventory, maxLookups, maxConcurrentSites, scanRange.maxSites, offset, vulnerabilityBudget, useSudo);
         executions.push(execution);
         if (!scanRange.allChunks || execution.complete) break;
         if (!execution.scannedInstallationPaths.length) throw new Error(`[${alias}] bounded scan made no progress at offset ${offset}.`);

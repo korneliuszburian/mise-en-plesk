@@ -84,4 +84,17 @@ describe("plesk scan", () => {
     await expect(scanPleskHost(host, runner, { wordpressOffset: -1 })).rejects.toThrow("wordpressOffset");
     await expect(scanPleskHost(host, runner, { wordpressLimit: 0 })).rejects.toThrow("wordpressLimit");
   });
+
+  it("uses non-interactive sudo only when explicitly enabled", async () => {
+    const calls: string[] = [];
+    const runner: SshCommandRunner = async (_host, command) => {
+      calls.push(command);
+      return command.startsWith("sudo") ? "/var/www/vhosts/example.test/httpdocs/wp-config.php\n" : "example.test\n";
+    };
+
+    await scanPleskHost(host, runner, { wordpressLimit: 1, useSudo: true });
+
+    expect(calls[0]).toBe("sudo -n -- plesk bin subscription --list");
+    expect(calls[1]).toContain("sudo -n -- find /var/www/vhosts");
+  });
 });
