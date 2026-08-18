@@ -251,17 +251,7 @@ export async function auditWordPressInstallation(
       themes = undefined;
     }
     const coreVulnerabilityResult = await resourceResult("core", coreVersion);
-    let suspiciousFiles: string[] = [];
-    if (options.suspiciousFileRunner) {
-      try {
-        suspiciousFiles = parseSuspiciousFiles(await options.suspiciousFileRunner(
-          installation,
-          `find ${shellQuote(`${installation.path}/wp-content/uploads`)} -type f -name '*.php' -print`,
-        ));
-      } catch {
-        suspiciousFiles = [];
-      }
-    }
+    const suspiciousFiles = await collectSuspiciousFiles(installation, options);
     const vulnerabilities = plugins.flatMap((plugin) => {
       const summary = plugin.vulnerabilities;
       return summary.length ? [{ slug: pluginSlug(plugin.name), vulnerabilities: summary }] : [];
@@ -283,13 +273,14 @@ export async function auditWordPressInstallation(
     }, options);
   } catch (error: unknown) {
     const health = classifyAuditError(error);
+    const suspiciousFiles = await collectSuspiciousFiles(installation, options);
     return applyHeuristics({
       installation,
       coreVersion,
       plugins: [],
       themes: [],
       vulnerabilities: [],
-      suspiciousFiles: [],
+      suspiciousFiles,
       health,
     }, options);
   }
@@ -325,6 +316,21 @@ function isWpCliFailure(status?: WordPressAudit["health"]["status"]): boolean {
 
 export function parseSuspiciousFiles(output: string): string[] {
   return output.split(/\r?\n/).map((line) => line.trim()).filter(Boolean);
+}
+
+async function collectSuspiciousFiles(
+  installation: WordPressInstallation,
+  options: WordPressAuditOptions,
+): Promise<string[]> {
+  if (!options.suspiciousFileRunner) return [];
+  try {
+    return parseSuspiciousFiles(await options.suspiciousFileRunner(
+      installation,
+      `find ${shellQuote(`${installation.path}/wp-content/uploads`)} -type f -name '*.php' -print`,
+    ));
+  } catch {
+    return [];
+  }
 }
 
 export function parseCoreUpdateAvailable(output: string): boolean {

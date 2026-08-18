@@ -151,6 +151,22 @@ describe("WordPress audit", () => {
     expect(result.priorities).toContain("WordPress runtime is incompatible with the installed PHP version");
   });
 
+  it("still scans uploads when WP-CLI fails", async () => {
+    const result = await auditWordPressInstallation(
+      { path: "/var/www/vhosts/broken.test/httpdocs" },
+      async () => { throw new Error("/usr/local/bin/wp: 1: 404: not found"); },
+      {
+        suspiciousFileRunner: async () => "/var/www/vhosts/broken.test/httpdocs/wp-content/uploads/backdoor.php\n",
+      },
+    );
+
+    expect(result.health).toMatchObject({ reachable: true, status: "wp-cli-broken" });
+    expect(result.suspiciousFiles).toEqual([
+      "/var/www/vhosts/broken.test/httpdocs/wp-content/uploads/backdoor.php",
+    ]);
+    expect(result.priorities).toContain("PHP files found in uploads (possible backdoors)");
+  });
+
   it("flags plugin updates and stale or inactive wp.org plugins", () => {
     const audit = applyHeuristics({
       installation: { path: "/srv/site" },
