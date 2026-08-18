@@ -58,6 +58,10 @@ the implementation, automated check, and operational evidence agree.
   persisted scan cycles pending as intended. The full master sweep was not
   repeated because the host exposes hundreds of filesystem candidates and the
   bounded scheduler path is the production-safe mode.
+- The current checkout also completed a fresh producer-path proof with
+  `--max-sites=1 --all-chunks --max-chunks=1`: both hosts were reachable, each
+  emitted one incomplete progress page, and the persisted heartbeat recorded
+  `scanComplete: false` while the invocation itself completed.
 - `systemctl is-system-running` reports `running` in this WSL, but
   `mise-en-plesk.timer` is `not-found`; the example units have not been
   installed or enabled on the actual runner.
