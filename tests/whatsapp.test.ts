@@ -45,4 +45,23 @@ describe("WhatsApp Cloud API notifier", () => {
       template: { name: "plesk_security_alert", language: { code: "pl" } },
     });
   });
+
+  it("retries transient Graph API failures", async () => {
+    let calls = 0;
+    const result = await notifyFindingEventsToWhatsApp([findingEvent], {
+      accessToken: "runtime-token",
+      phoneNumberId: "12345",
+      recipient: "48123123123",
+      templateName: "plesk_security_alert",
+      graphVersion: "v23.0",
+      retryDelayMs: 0,
+      fetchImpl: async () => {
+        calls += 1;
+        return calls === 1 ? new Response(null, { status: 429 }) : new Response(null, { status: 200 });
+      },
+    });
+
+    expect(result).toEqual({ sent: true, eligibleEvents: 1 });
+    expect(calls).toBe(2);
+  });
 });

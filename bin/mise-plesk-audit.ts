@@ -8,8 +8,17 @@ import { writeAuditReport } from "../src/report";
 import { createFileVulnerabilityCache, lookupVulnerabilities, type VulnerabilityCache } from "../src/vulnerabilities";
 import { findingsFromAudits } from "../src/findings";
 import { readFindingState, reconcileFindings, writeFindingState, type FindingScope } from "../src/finding-state";
+import type { FindingEvent } from "../src/finding-state";
 import { notifyFindingEvents } from "../src/notifications";
 import { notifyFindingEventsToWhatsApp } from "../src/whatsapp";
+import {
+  enqueueNotificationEvents,
+  compactNotificationOutbox,
+  markNotificationChannelSent,
+  pendingNotificationEvents,
+  readNotificationOutbox,
+  writeNotificationOutbox,
+} from "../src/notification-outbox";
 import { runPreflight } from "../src/preflight";
 import { createMonitorStaleFinding, readHeartbeat, writeHeartbeat } from "../src/monitor-health";
 import { parseCliArguments } from "../src/cli-args";
@@ -27,6 +36,7 @@ interface MisePleskConfig {
   maxConcurrentSitesPerHost?: number;
   maxSitesPerHost?: number;
   findingsStatePath?: string;
+  notificationOutboxPath?: string;
   heartbeatPath?: string;
   monitorMaxAgeHours?: number;
 }
@@ -110,6 +120,39 @@ async function readOptionalConfig(): Promise<MisePleskConfig> {
     if (error && typeof error === "object" && "code" in error && error.code === "ENOENT") return {};
     throw error;
   }
+}
+
+async function deliverNotifications(
+  events: FindingEvent[],
+  config: MisePleskConfig,
+): Promise<{ webhookSent: boolean; whatsappSent: boolean }> {
+  const outboxPath = process.env.MISE_PLESK_NOTIFICATION_OUTBOX
+    ?? config.notificationOutboxPath
+    ?? ".mise-en-plesk/notification-outbox.json";
+  let outbox = await readNotificationOutbox(outboxPath);
+  outbox = enqueueNotificationEvents(outbox, events);
+  await writeNotificationOutbox(outboxPath, outbox);
+
+  const pendingWebhook = pendingNotificationEvents(outbox, "webhook");
+  const notification = await notifyFindingEvents(pendingWebhook, {
+    webhookUrl: process.env.MISE_PLESK_ALERT_WEBHOOK_URL,
+    debug: (message) => console.error(message),
+  });
+  if (notification.sent) outbox = markNotificationChannelSent(outbox, "webhook", pendingWebhook);
+
+  const pendingWhatsApp = pendingNotificationEvents(outbox, "whatsapp");
+  const whatsapp = await notifyFindingEventsToWhatsApp(pendingWhatsApp, {
+    accessToken: process.env.MISE_PLESK_WHATSAPP_ACCESS_TOKEN,
+    phoneNumberId: process.env.MISE_PLESK_WHATSAPP_PHONE_NUMBER_ID,
+    recipient: process.env.MISE_PLESK_WHATSAPP_RECIPIENT,
+    templateName: process.env.MISE_PLESK_WHATSAPP_TEMPLATE_NAME,
+    templateLanguage: process.env.MISE_PLESK_WHATSAPP_TEMPLATE_LANGUAGE,
+    graphVersion: process.env.MISE_PLESK_WHATSAPP_GRAPH_VERSION,
+    debug: (message) => console.error(message),
+  });
+  if (whatsapp.sent) outbox = markNotificationChannelSent(outbox, "whatsapp", pendingWhatsApp);
+  await writeNotificationOutbox(outboxPath, compactNotificationOutbox(outbox));
+  return { webhookSent: notification.sent, whatsappSent: whatsapp.sent };
 }
 
 async function scanHost(
@@ -227,21 +270,12 @@ async function main(): Promise<void> {
       { installationPaths: new Set(["__monitor__"]) },
     );
     await writeFindingState(findingStatePath, transition.state);
-    const notification = await notifyFindingEvents(transition.events, { webhookUrl: process.env.MISE_PLESK_ALERT_WEBHOOK_URL, debug: (message) => console.error(message) });
-    const whatsapp = await notifyFindingEventsToWhatsApp(transition.events, {
-      accessToken: process.env.MISE_PLESK_WHATSAPP_ACCESS_TOKEN,
-      phoneNumberId: process.env.MISE_PLESK_WHATSAPP_PHONE_NUMBER_ID,
-      recipient: process.env.MISE_PLESK_WHATSAPP_RECIPIENT,
-      templateName: process.env.MISE_PLESK_WHATSAPP_TEMPLATE_NAME,
-      templateLanguage: process.env.MISE_PLESK_WHATSAPP_TEMPLATE_LANGUAGE,
-      graphVersion: process.env.MISE_PLESK_WHATSAPP_GRAPH_VERSION,
-      debug: (message) => console.error(message),
-    });
+    const notification = await deliverNotifications(transition.events, config);
     const result = { heartbeatPath, heartbeat, stale: Boolean(staleFinding), findingEvents: transition.events };
     if (jsonOutput) console.log(JSON.stringify(result, null, 2));
     else console.log(staleFinding ? `Monitor is stale: ${heartbeatPath}` : `Monitor is healthy: ${heartbeat?.completedAt ?? "unknown"}`);
-    if (notification.sent) console.error(`Sent ${notification.eligibleEvents} monitor alert(s).`);
-    if (whatsapp.sent) console.error(`Sent ${whatsapp.eligibleEvents} monitor WhatsApp alert(s).`);
+    if (notification.webhookSent) console.error("Sent pending monitor webhook alert(s).");
+    if (notification.whatsappSent) console.error("Sent pending monitor WhatsApp alert(s).");
     return;
   }
   if (command === "scan" && target) {
@@ -315,19 +349,7 @@ async function main(): Promise<void> {
       findingScope,
     );
     await writeFindingState(findingStatePath, transition.state);
-    const notification = await notifyFindingEvents(transition.events, {
-      webhookUrl: process.env.MISE_PLESK_ALERT_WEBHOOK_URL,
-      debug: (message) => console.error(message),
-    });
-    const whatsapp = await notifyFindingEventsToWhatsApp(transition.events, {
-      accessToken: process.env.MISE_PLESK_WHATSAPP_ACCESS_TOKEN,
-      phoneNumberId: process.env.MISE_PLESK_WHATSAPP_PHONE_NUMBER_ID,
-      recipient: process.env.MISE_PLESK_WHATSAPP_RECIPIENT,
-      templateName: process.env.MISE_PLESK_WHATSAPP_TEMPLATE_NAME,
-      templateLanguage: process.env.MISE_PLESK_WHATSAPP_TEMPLATE_LANGUAGE,
-      graphVersion: process.env.MISE_PLESK_WHATSAPP_GRAPH_VERSION,
-      debug: (message) => console.error(message),
-    });
+    const notification = await deliverNotifications(transition.events, config);
     const result: AuditResult = { ...preliminaryResult, findings: currentFindings, findingEvents: transition.events };
     const reportPath = await writeAuditReport(result, process.env.MISE_PLESK_REPORTS ?? config.reportsDirectory ?? "reports", json);
     await writeHeartbeat(heartbeatPath, { version: 1, target, startedAt, completedAt: new Date().toISOString(), reportPath });
@@ -336,8 +358,8 @@ async function main(): Promise<void> {
       : " No finding state changes.";
     console.log(`Read-only scan complete. Report written to ${reportPath}.`);
     console.log(`Open findings: ${currentFindings.length}.${eventSummary}`);
-    if (notification.sent) console.log(`Sent ${notification.eligibleEvents} P1 alert(s).`);
-    if (whatsapp.sent) console.log(`Sent ${whatsapp.eligibleEvents} P1 WhatsApp alert(s).`);
+    if (notification.webhookSent) console.log("Sent pending P1 alert(s).");
+    if (notification.whatsappSent) console.log("Sent pending P1 WhatsApp alert(s).");
     return;
   }
   usage();

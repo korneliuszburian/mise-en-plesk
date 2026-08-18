@@ -1,6 +1,7 @@
 import type { FindingEvent } from "./finding-state";
+import { fetchWithRetry, type RetryOptions } from "./retry";
 
-export interface WhatsAppOptions {
+export interface WhatsAppOptions extends RetryOptions {
   accessToken?: string;
   phoneNumberId?: string;
   recipient?: string;
@@ -39,10 +40,8 @@ export async function notifyFindingEventsToWhatsApp(
 
   const version = options.graphVersion!;
   const endpoint = `https://graph.facebook.com/${version}/${encodeURIComponent(options.phoneNumberId!)}/messages`;
-  const controller = new AbortController();
-  const timeout = setTimeout(() => controller.abort(), options.timeoutMs ?? 5000);
   try {
-    const response = await (options.fetchImpl ?? fetch)(endpoint, {
+    const response = await fetchWithRetry(options.fetchImpl ?? fetch, endpoint, {
       method: "POST",
       headers: {
         authorization: `Bearer ${options.accessToken}`,
@@ -58,14 +57,11 @@ export async function notifyFindingEventsToWhatsApp(
           components: [{ type: "body", parameters: [{ type: "text", text: messageText(selected) }] }],
         },
       }),
-      signal: controller.signal,
-    });
+    }, options.timeoutMs ?? 5000, options);
     if (!response.ok) throw new Error(`WhatsApp API returned HTTP ${response.status}`);
     return { sent: true, eligibleEvents: selected.length };
   } catch (error: unknown) {
     options.debug?.(`WhatsApp notification skipped: ${error instanceof Error ? error.message : "request failed"}`);
     return { sent: false, eligibleEvents: selected.length };
-  } finally {
-    clearTimeout(timeout);
   }
 }

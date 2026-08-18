@@ -1,6 +1,7 @@
 import type { FindingEvent } from "./finding-state";
+import { fetchWithRetry, type RetryOptions } from "./retry";
 
-export interface NotificationOptions {
+export interface NotificationOptions extends RetryOptions {
   webhookUrl?: string;
   timeoutMs?: number;
   fetchImpl?: typeof fetch;
@@ -29,11 +30,8 @@ export async function notifyFindingEvents(
   const eligible = actionableEvents(events);
   if (!options.webhookUrl || eligible.length === 0) return { sent: false, eligibleEvents: eligible.length };
 
-  const fetchImpl = options.fetchImpl ?? fetch;
-  const controller = new AbortController();
-  const timeout = setTimeout(() => controller.abort(), options.timeoutMs ?? 5000);
   try {
-    const response = await fetchImpl(options.webhookUrl, {
+    const response = await fetchWithRetry(options.fetchImpl ?? fetch, options.webhookUrl, {
       method: "POST",
       headers: { "content-type": "application/json", accept: "application/json" },
       body: JSON.stringify({
@@ -53,14 +51,11 @@ export async function notifyFindingEvents(
           },
         })),
       }),
-      signal: controller.signal,
-    });
+    }, options.timeoutMs ?? 5000, options);
     if (!response.ok) throw new Error(`alert webhook returned HTTP ${response.status}`);
     return { sent: true, eligibleEvents: eligible.length };
   } catch (error: unknown) {
     options.debug?.(`alert notification skipped: ${error instanceof Error ? error.message : "request failed"}`);
     return { sent: false, eligibleEvents: eligible.length };
-  } finally {
-    clearTimeout(timeout);
   }
 }

@@ -57,4 +57,33 @@ describe("finding notifications", () => {
     })).resolves.toEqual({ sent: false, eligibleEvents: 1 });
     expect(debug[0]).toContain("alert notification skipped");
   });
+
+  it("retries transient webhook failures but remains bounded", async () => {
+    let calls = 0;
+    const result = await notifyFindingEvents([event("P1", "opened")], {
+      webhookUrl: "https://alerts.example.test/hook",
+      retryDelayMs: 0,
+      fetchImpl: async () => {
+        calls += 1;
+        return calls === 1 ? new Response(null, { status: 503 }) : new Response(null, { status: 202 });
+      },
+    });
+
+    expect(result).toEqual({ sent: true, eligibleEvents: 1 });
+    expect(calls).toBe(2);
+  });
+
+  it("does not retry a non-transient webhook rejection", async () => {
+    let calls = 0;
+    await notifyFindingEvents([event("P1", "opened")], {
+      webhookUrl: "https://alerts.example.test/hook",
+      retryDelayMs: 0,
+      fetchImpl: async () => {
+        calls += 1;
+        return new Response(null, { status: 400 });
+      },
+    });
+
+    expect(calls).toBe(1);
+  });
 });

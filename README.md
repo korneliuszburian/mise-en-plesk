@@ -103,9 +103,12 @@ changes a remote host.
 Optional alerts use `MISE_PLESK_ALERT_WEBHOOK_URL`. The scanner POSTs only new
 or reopened P1 findings; unchanged, resolved, and P2 findings are not sent.
 The webhook is provider-neutral so it can target an internal bridge, n8n, or a
-WhatsApp Business adapter. Notification failures are logged briefly and never
-fail the read-only scan. The URL is read at runtime and is never written to
-reports or inventory.
+WhatsApp Business adapter. Transient timeout/408/429/5xx failures receive a
+bounded retry with backoff; permanent 4xx failures are not retried. Pending P1
+events are retained in the local gitignored notification outbox and retried on
+the next run, so a temporary alerting outage does not lose a finding. Notification
+failures are logged briefly and never fail the read-only scan. The URL is read at
+runtime and is never written to reports or inventory.
 
 Direct WhatsApp Business Cloud API delivery is also opt-in. Set
 `MISE_PLESK_WHATSAPP_ACCESS_TOKEN`, `MISE_PLESK_WHATSAPP_PHONE_NUMBER_ID`,
