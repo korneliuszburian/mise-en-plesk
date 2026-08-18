@@ -2,6 +2,7 @@ import { createHash } from "node:crypto";
 import { isPluginAbandoned, isVeryOldCore, type WordPressAudit } from "./wp-audit";
 
 export type FindingCode =
+  | "host-unreachable"
   | "unreachable"
   | "runtime-incompatible"
   | "wp-cli-error"
@@ -21,7 +22,7 @@ export type FindingCode =
 export type FindingSeverity = "P1" | "P2" | "info";
 
 const findingCodes = new Set<FindingCode>([
-  "unreachable", "runtime-incompatible", "wp-cli-error", "core-outdated", "core-update",
+  "host-unreachable", "unreachable", "runtime-incompatible", "wp-cli-error", "core-outdated", "core-update",
   "plugin-update", "plugin-abandoned", "plugin-vulnerable", "theme-update",
   "core-checksum-failed", "plugin-checksum-failed", "suspicious-upload-php",
   "monitor-stale", "core-vulnerable", "theme-vulnerable",
@@ -44,7 +45,7 @@ export interface Finding {
   evidence?: string;
 }
 
-type AuditedHost = { host: string; wordpress: WordPressAudit[] };
+type AuditedHost = { host: string; wordpress: WordPressAudit[]; health?: { reachable: boolean; detail?: string } };
 
 function stableId(parts: string[]): string {
   const input = parts.map((part) => part.trim()).join("\u001f");
@@ -81,7 +82,18 @@ function vulnerabilitySeverity(value?: string): FindingSeverity {
 
 export function findingsFromAudits(hosts: AuditedHost[], now = new Date()): Finding[] {
   const findings: Finding[] = [];
-  for (const { host, wordpress } of hosts) {
+  for (const { host, wordpress, health } of hosts) {
+    if (health && !health.reachable) {
+      findings.push({
+        id: stableId([host, "__host__", "host-unreachable"]),
+        code: "host-unreachable",
+        severity: "P1",
+        host,
+        installationPath: "__host__",
+        message: "Plesk host is unreachable; scan could not start",
+        evidence: health.detail,
+      });
+    }
     for (const audit of wordpress) {
       if (!audit.health.reachable) {
         findings.push(makeFinding(host, audit, "unreachable", "P1", "installation is unreachable", "installation", { evidence: audit.health.detail }));

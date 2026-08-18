@@ -161,7 +161,25 @@ async function scanHost(
   const item = process.env.BW_SESSION ? await getInventoryHostItem(host) : null;
   const credentials = item ? extractSecureNoteSshCredentials(item) : null;
   console.error(`[${alias}] scanning Plesk host ${host.host}`);
-  const session = await createSshSession(host, credentials?.password, useSudo ? credentials?.password : undefined, commandTimeoutMs);
+  let session: Awaited<ReturnType<typeof createSshSession>>;
+  try {
+    session = await createSshSession(host, credentials?.password, useSudo ? credentials?.password : undefined, commandTimeoutMs);
+  } catch (error: unknown) {
+    const detail = error instanceof Error ? error.message.replace(/\s+/g, " ").trim().slice(0, 240) : "SSH session could not be established";
+    console.error(`[${alias}] host unreachable: ${detail}`);
+    return {
+      report: {
+        host: alias,
+        subscriptions: [],
+        wordpress: [],
+        health: { reachable: false, detail },
+        warnings: [`SSH session could not be established: ${detail}`],
+      },
+      scannedInstallationPaths: [],
+      complete: false,
+      offset,
+    };
+  }
   try {
     const ssh = (command: string) => session.run(command);
     const scan = await scanPleskHost(host, (_host, command) => ssh(command), {
@@ -205,6 +223,7 @@ async function scanHost(
         host: scan.host,
         subscriptions: scan.subscriptions,
         wordpress,
+        ...(scan.health ? { health: scan.health } : {}),
         ...(scan.hostFacts ? { hostFacts: scan.hostFacts } : {}),
         ...(scan.warnings ? { warnings: scan.warnings } : {}),
       },
@@ -359,6 +378,7 @@ async function main(): Promise<void> {
         existing.wordpress.push(...execution.report.wordpress);
         if (execution.report.subscriptions) existing.subscriptions = [...new Set([...(existing.subscriptions ?? []), ...execution.report.subscriptions])];
         if (!existing.hostFacts && execution.report.hostFacts) existing.hostFacts = execution.report.hostFacts;
+        if (execution.report.health) existing.health = execution.report.health;
         if (execution.report.warnings?.length) existing.warnings = [...new Set([...(existing.warnings ?? []), ...execution.report.warnings])];
       }
       else hostsByAlias.set(execution.report.host, { ...execution.report, subscriptions: execution.report.subscriptions ? [...execution.report.subscriptions] : undefined, wordpress: [...execution.report.wordpress] });

@@ -1,0 +1,51 @@
+import { describe, expect, it } from "vitest";
+import { scanPleskHost, type SshCommandRunner } from "../src/plesk-scan";
+import { buildWpAuditBatchCommand } from "../src/wp-audit";
+
+const host = {
+  alias: "dev-ssh",
+  id: "dev",
+  name: "dev ssh",
+  host: "dev.example.test",
+  port: 22,
+  user: "operator",
+  identitySource: "bitwarden:dev",
+};
+
+const forbiddenRemoteMutation = /(?:^|[;&|`\n\s])(?:rm|rmdir|mv|cp|chmod|chown|truncate|mkfs|reboot|shutdown|poweroff|wp\s+(?:core|plugin|theme)\s+update|wp\s+db\b|wp\s+eval\b|plesk\s+(?:bin\s+)?(?:subscription|service-node|repair).*\b(?:-remove|-delete|-update)\b|(?:CREATE|ALTER|INSERT|UPDATE|DELETE|DROP)\b)/i;
+
+describe("remote read-only safety contract", () => {
+  it("keeps the generated WordPress audit batch free of mutation commands", () => {
+    const command = buildWpAuditBatchCommand({ path: "/var/www/vhosts/example.test/httpdocs" }, { useSudo: true });
+
+    expect(command).not.toMatch(forbiddenRemoteMutation);
+    expect(command).toContain("core check-update");
+    expect(command).toContain("core verify-checksums");
+    expect(command).toContain("plugin verify-checksums");
+  });
+
+  it("keeps Plesk discovery and host facts inside the fixed read-only command set", async () => {
+    const calls: string[] = [];
+    const runner: SshCommandRunner = async (_host, command) => {
+      calls.push(command);
+      if (command.includes("subscription --list")) return "example.test\n";
+      if (command.includes("find /var/www/vhosts")) return "/var/www/vhosts/example.test/httpdocs/wp-config.php\n";
+      if (command === "plesk version") return "Plesk Obsidian 18.0.67\n";
+      if (command === "php -v") return "PHP 8.2.0\n";
+      return "Filesystem 1024-blocks Used Available Capacity Mounted on\n/dev/vda 1 1 1 1% /var/www/vhosts\n";
+    };
+
+    await scanPleskHost(host, runner, { useSudo: true, collectHostFacts: true, includeAlternateWordPressDetection: true });
+
+    expect(calls.length).toBeGreaterThan(1);
+    for (const command of calls) {
+      expect(command).not.toMatch(forbiddenRemoteMutation);
+      const isAllowed = command === "sudo -S -p '' -- plesk bin subscription --list"
+        || command === "sudo -S -p '' -- plesk version"
+        || command === "sudo -S -p '' -- php -v"
+        || command === "sudo -S -p '' -- df -P -k /var/www/vhosts"
+        || command.startsWith("sudo -S -p '' -- find /var/www/vhosts ");
+      expect(isAllowed).toBe(true);
+    }
+  });
+});

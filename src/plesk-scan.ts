@@ -81,10 +81,16 @@ export interface PleskScanResult {
   host: string;
   subscriptions: string[];
   wordpress: WordPressInstallation[];
+  health?: HostHealth;
   wordpressHasMore?: boolean;
   hostFacts?: HostFacts;
   pleskCliAvailable?: boolean;
   warnings?: string[];
+}
+
+export interface HostHealth {
+  reachable: boolean;
+  detail?: string;
 }
 
 export interface HostFacts {
@@ -287,9 +293,20 @@ export async function scanPleskHost(
   const discoveryCommand = limit === undefined
     ? `${prefix}find /var/www/vhosts -xdev -maxdepth 4 -type f ${options.includeAlternateWordPressDetection ? "\\( -name wp-config.php -o -path '*/wp-includes/version.php' \\)" : "-name wp-config.php"} -print`
     : `${prefix}find /var/www/vhosts -xdev -maxdepth 4 -type f ${options.includeAlternateWordPressDetection ? "\\( -name wp-config.php -o -path '*/wp-includes/version.php' \\)" : "-name wp-config.php"} -print | sort | awk 'NR > ${offset} && NR <= ${offset + limit + 1} { print }'`;
-  const configPaths = parseLineList(
-    await runner(host, discoveryCommand),
-  );
+  let configPaths: string[];
+  try {
+    configPaths = parseLineList(await runner(host, discoveryCommand));
+  } catch (error: unknown) {
+    const detail = shortError(error);
+    return {
+      host: host.alias,
+      subscriptions,
+      wordpress: [],
+      health: { reachable: false, detail },
+      ...(pleskCliAvailable ? {} : { pleskCliAvailable: false }),
+      warnings: [...warnings, `WordPress filesystem discovery unavailable: ${detail}`],
+    };
+  }
   const wordpressHasMore = limit === undefined ? undefined : configPaths.length > limit;
   let hostFacts: HostFacts | undefined;
   if (options.collectHostFacts) {

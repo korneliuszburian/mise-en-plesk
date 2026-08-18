@@ -76,4 +76,20 @@ describe("audit reports", () => {
     });
     expect(markdown).toContain("- Plesk subscriptions: 2");
   });
+
+  it("renders a host-level unreachable result without inventing a WordPress site", () => {
+    const markdown = auditMarkdown({
+      generatedAt: "2026-08-18T00:00:00.000Z",
+      hosts: [{
+        host: "master-ssh",
+        subscriptions: [],
+        wordpress: [],
+        health: { reachable: false, detail: "Command failed (timeout)" },
+      }],
+    });
+
+    expect(markdown).toContain("- Host reachable: no");
+    expect(markdown).toContain("- Host health detail: Command failed (timeout)");
+    expect(markdown).not.toContain("### unknown");
+  });
 });

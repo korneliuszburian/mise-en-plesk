@@ -6,6 +6,11 @@ export function auditMarkdown(result: AuditResult): string {
   const lines = [`# Plesk WordPress audit`, ``, `Generated: ${result.generatedAt}`, ``];
   for (const host of result.hosts) {
     lines.push(`## ${host.host}`, ``);
+    if (host.health) {
+      lines.push(`- Host reachable: ${host.health.reachable ? "yes" : "no"}`);
+      if (host.health.detail) lines.push(`- Host health detail: ${host.health.detail}`);
+      lines.push("");
+    }
     if (host.subscriptions) lines.push(`- Plesk subscriptions: ${host.subscriptions.length}`, ``);
     for (const warning of host.warnings ?? []) lines.push(`> Warning: ${warning}`, ``);
     if (host.hostFacts) {

@@ -204,4 +204,18 @@ describe("plesk scan", () => {
       "find /var/www/vhosts -xdev -maxdepth 4 -type f -name wp-config.php -print",
     ]);
   });
+
+  it("returns host health when filesystem discovery loses the SSH connection", async () => {
+    const runner: SshCommandRunner = async (_host, command) => {
+      if (command.includes("plesk bin subscription")) return "example.test\n";
+      throw new Error("Command failed (timeout)");
+    };
+
+    await expect(scanPleskHost(host, runner)).resolves.toMatchObject({
+      host: "master",
+      health: { reachable: false, detail: "Command failed (timeout)" },
+      wordpress: [],
+      warnings: [expect.stringContaining("filesystem discovery unavailable")],
+    });
+  });
 });

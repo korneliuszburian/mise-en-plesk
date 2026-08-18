@@ -86,4 +86,22 @@ describe("structured findings", () => {
       expect.objectContaining({ code: "wp-cli-error", severity: "P1", message: "WP-CLI audit failed; manual review required" }),
     ]));
   });
+
+  it("creates a stable P1 finding when the SSH host cannot be reached", () => {
+    const hosts = [{
+      host: "master-ssh",
+      health: { reachable: false, detail: "Command failed (timeout)" },
+      wordpress: [],
+    }];
+
+    const findings = findingsFromAudits(hosts);
+    expect(findings).toEqual([expect.objectContaining({
+      code: "host-unreachable",
+      severity: "P1",
+      installationPath: "__host__",
+      message: "Plesk host is unreachable; scan could not start",
+      evidence: "Command failed (timeout)",
+    })]);
+    expect(findingsFromAudits(hosts)[0].id).toBe(findings[0].id);
+  });
 });
