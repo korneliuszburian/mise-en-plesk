@@ -25,12 +25,12 @@ export interface PreflightOptions {
 }
 
 export function versionArguments(command: string): string[] {
-  return command === "ssh" ? ["-V"] : ["--version"];
+  return command === "ssh" || command === "sshpass" ? ["-V"] : ["--version"];
 }
 
 async function defaultCommandRunner(command: string): Promise<string> {
   const result = await execFileAsync(command, versionArguments(command));
-  return (result.stdout || result.stderr).trim();
+  return (result.stdout || result.stderr).trim().split(/\r?\n/, 1)[0];
 }
 
 function check(name: string, ok: boolean, detail: string, blocking = true): PreflightCheck {
