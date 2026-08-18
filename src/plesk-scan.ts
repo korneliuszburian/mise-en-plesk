@@ -4,6 +4,7 @@ import { dirname } from "node:path";
 import { tmpdir } from "node:os";
 import { promisify } from "node:util";
 import type { HostConfig } from "./ssh-inventory";
+import { renderReadOnlyCommand, type ReadOnlyCommand } from "./ssh-transport";
 
 const execFileAsync = promisify(execFile);
 
@@ -127,7 +128,13 @@ export interface PleskScanOptions {
   includeAlternateWordPressDetection?: boolean;
 }
 
-export type SshCommandRunner = (host: HostConfig, command: string) => Promise<string>;
+export type SshCommandRunner = (host: HostConfig, command: ReadOnlyCommand) => Promise<string>;
+
+export type LegacySshCommandRunner = (host: HostConfig, command: string) => Promise<string>;
+
+export function adaptLegacySshRunner(runner: LegacySshCommandRunner): SshCommandRunner {
+  return (host, command) => runner(host, renderReadOnlyCommand(command));
+}
 
 interface SshInvocationOptions {
   controlPath?: string;
@@ -155,10 +162,10 @@ export function buildSshInvocation(host: HostConfig, password?: string, options:
   };
 }
 
-export async function runSshCommand(host: HostConfig, command: string, password?: string, options: SshInvocationOptions = {}): Promise<string> {
+export async function runSshCommand(host: HostConfig, command: ReadOnlyCommand, password?: string, options: SshInvocationOptions = {}): Promise<string> {
   const invocation = buildSshInvocation(host, password, options);
   try {
-    const result = await execFileWithInput(invocation.executable, [...invocation.args, command], {
+    const result = await execFileWithInput(invocation.executable, [...invocation.args, renderReadOnlyCommand(command)], {
       env: invocation.env,
       timeout: options.timeoutMs ?? DEFAULT_SSH_COMMAND_TIMEOUT_MS,
       maxOutputBytes: options.maxOutputBytes,
@@ -175,20 +182,20 @@ export async function runSshCommand(host: HostConfig, command: string, password?
 }
 
 export interface SshSession {
-  run(command: string): Promise<string>;
+  run(command: ReadOnlyCommand): Promise<string>;
   close(): Promise<void>;
 }
 
 export async function createSshSession(host: HostConfig, password?: string, sudoPassword?: string, commandTimeoutMs = DEFAULT_SSH_COMMAND_TIMEOUT_MS): Promise<SshSession> {
   const directory = await mkdtemp(`${tmpdir()}/mise-en-plesk-`);
   const controlPath = `${directory}/control`;
-  const run = (command: string) => runSshCommand(host, command, password, {
+  const run = (command: ReadOnlyCommand) => runSshCommand(host, command, password, {
     controlPath,
     stdin: sudoPassword === undefined ? undefined : `${sudoPassword}\n`,
     timeoutMs: commandTimeoutMs,
   });
   try {
-    await run(":");
+    await run({ kind: "ssh-handshake" });
   } catch (error: unknown) {
     await rm(directory, { recursive: true, force: true });
     throw error;
@@ -302,24 +309,25 @@ export async function scanPleskHost(
   if (limit !== undefined && (!Number.isSafeInteger(limit) || limit < 1)) {
     throw new Error("wordpressLimit must be a positive safe integer.");
   }
-  let prefix = options.useSudo ? "sudo -S -p '' -- " : "";
   const warnings: string[] = [];
   let subscriptions: string[] = [];
   let pleskCliAvailable = true;
   try {
-    subscriptions = parseLineList(await runner(host, `${prefix}plesk bin subscription --list`));
+    subscriptions = parseLineList(await runner(host, { kind: "plesk-subscriptions", useSudo: options.useSudo }));
   } catch (error: unknown) {
     pleskCliAvailable = false;
     warnings.push(`Plesk CLI subscription discovery unavailable; using filesystem discovery only: ${shortError(error)}`);
-    prefix = "";
   }
-  const findCandidates = `${prefix}find /var/www/vhosts -xdev -maxdepth 4 -type f ${options.includeAlternateWordPressDetection ? "\\( -name wp-config.php -o -path '*/wp-includes/version.php' \\)" : "-name wp-config.php"} -print`;
-  const discoveryCommand = limit === undefined
-    ? findCandidates
-    : `${findCandidates} | ${String.raw`awk '{ candidate=$0; sub(/\/wp-config\.php$/, "", candidate); sub(/\/wp-includes\/version\.php$/, "", candidate); if (seen[candidate]++) next; position++; if (position > ${offset} && position <= ${offset + limit + 1}) { print; if (position >= ${offset + limit + 1}) exit } }'`}`;
+  const filesystemUseSudo = pleskCliAvailable && options.useSudo;
   let configPaths: string[];
   try {
-    configPaths = parseLineList(await runner(host, discoveryCommand));
+    configPaths = parseLineList(await runner(host, {
+      kind: "wordpress-candidates",
+      useSudo: filesystemUseSudo,
+      includeAlternateDetection: options.includeAlternateWordPressDetection,
+      offset,
+      limit,
+    }));
   } catch (error: unknown) {
     const detail = shortError(error);
     return {
@@ -336,9 +344,9 @@ export async function scanPleskHost(
   if (options.collectHostFacts) {
     hostFacts = {};
     const facts = [
-      ["Plesk version", `${prefix}plesk version`, (output: string) => { hostFacts!.pleskVersion = parsePleskVersion(output); }],
-      ["PHP version", `${prefix}php -v`, (output: string) => { hostFacts!.phpVersion = parsePhpVersion(output); }],
-      ["disk usage", `${prefix}df -P -k /var/www/vhosts`, (output: string) => { hostFacts!.disk = parseDiskUsage(output); }],
+      ["Plesk version", { kind: "plesk-version", useSudo: filesystemUseSudo }, (output: string) => { hostFacts!.pleskVersion = parsePleskVersion(output); }],
+      ["PHP version", { kind: "php-version", useSudo: filesystemUseSudo }, (output: string) => { hostFacts!.phpVersion = parsePhpVersion(output); }],
+      ["disk usage", { kind: "disk-usage", useSudo: filesystemUseSudo }, (output: string) => { hostFacts!.disk = parseDiskUsage(output); }],
     ] as const;
     for (const [name, command, assign] of facts) {
       try {

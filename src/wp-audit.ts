@@ -10,6 +10,7 @@ import {
 } from "./vulnerabilities";
 import type { Finding } from "./findings";
 import type { FindingEvent } from "./finding-state";
+import { isReadOnlyWpCommand, renderReadOnlyCommand, renderWpCliCommand, type ReadOnlyCommand } from "./ssh-transport";
 
 export interface PluginInfo {
   name: string;
@@ -79,24 +80,7 @@ interface BatchSection {
 }
 
 export function buildWpAuditBatchCommand(installation: WordPressInstallation, options: { useSudo?: boolean } = {}): string {
-  const prefix = options.useSudo ? "sudo -S -p '' -- " : "";
-  const commands = {
-    core: buildWpCliCommand(installation, "core version", options),
-    coreUpdate: buildWpCliCommand(installation, "core check-update --format=json", options),
-    plugins: buildWpCliCommand(installation, "plugin list --format=json --fields=name,status,update,version,update_version,wporg_status,wporg_last_updated", options),
-    pluginChecksums: buildWpCliCommand(installation, "plugin verify-checksums --all --strict", options),
-    themes: buildWpCliCommand(installation, "theme list --format=json --fields=name,status,version,update,update_version,auto_update", options),
-    checksums: buildWpCliCommand(installation, "core verify-checksums", options),
-    uploads: `${prefix}find ${shellQuote(`${installation.path}/wp-content/uploads`)} -type f -name '*.php' -print`,
-  };
-  return Object.entries(commands).map(([name, command]) => [
-    `printf '%s\\n' '__MISE_${name.toUpperCase()}_BEGIN__'`,
-    `value=$(${command} 2>&1)`,
-    "status=$?",
-    "printf '%s\\n' \"$value\"",
-    `printf '%s\\n' "__MISE_${name.toUpperCase()}_STATUS_\${status}__"`,
-    `printf '%s\\n' '__MISE_${name.toUpperCase()}_END__'`,
-  ].join("; ")).join("; ");
+  return renderReadOnlyCommand({ kind: "wp-audit-batch", installationPath: installation.path, useSudo: options.useSudo });
 }
 
 function parseBatchSections(output: string): Map<string, BatchSection> {
@@ -110,12 +94,12 @@ function parseBatchSections(output: string): Map<string, BatchSection> {
 
 export function createBatchedWpRunners(
   installation: WordPressInstallation,
-  remoteRunner: (command: string) => Promise<string>,
+  remoteRunner: (command: ReadOnlyCommand) => Promise<string>,
   options: { useSudo?: boolean } = {},
 ): { runner: WpCommandRunner; suspiciousFileRunner: SuspiciousFileRunner } {
   let sectionsPromise: Promise<Map<string, BatchSection>> | undefined;
   const sections = async (): Promise<Map<string, BatchSection>> => {
-    sectionsPromise ??= remoteRunner(buildWpAuditBatchCommand(installation, options)).then(parseBatchSections);
+    sectionsPromise ??= remoteRunner({ kind: "wp-audit-batch", installationPath: installation.path, useSudo: options.useSudo }).then(parseBatchSections);
     return sectionsPromise;
   };
   const read = async (name: string): Promise<string> => {
@@ -139,6 +123,7 @@ export function createBatchedWpRunners(
 }
 
 export interface WordPressAuditOptions extends VulnerabilityLookupOptions {
+  useSudo?: boolean;
   abandonmentDays?: number;
   now?: Date;
   vulnerabilityLookup?: typeof lookupPluginVulnerabilities;
@@ -146,12 +131,9 @@ export interface WordPressAuditOptions extends VulnerabilityLookupOptions {
   suspiciousFileRunner?: SuspiciousFileRunner;
 }
 
-function shellQuote(value: string): string {
-  return `'${value.replaceAll("'", "'\\''")}'`;
-}
-
 export function buildWpCliCommand(installation: WordPressInstallation, command: string, options: { useSudo?: boolean } = {}): string {
-  return `${options.useSudo ? "sudo -S -p '' -- " : ""}wp ${command} --path=${shellQuote(installation.path)} --allow-root`;
+  if (!isReadOnlyWpCommand(command)) throw new Error(`Unsupported read-only WP command: ${command}`);
+  return renderWpCliCommand(installation.path, command, options.useSudo);
 }
 
 export function pluginSlug(name: string): string {
@@ -326,7 +308,7 @@ async function collectSuspiciousFiles(
   try {
     return parseSuspiciousFiles(await options.suspiciousFileRunner(
       installation,
-      `find ${shellQuote(`${installation.path}/wp-content/uploads`)} -type f -name '*.php' -print`,
+      renderReadOnlyCommand({ kind: "suspicious-uploads", installationPath: installation.path, useSudo: options.useSudo }),
     ));
   } catch {
     return [];

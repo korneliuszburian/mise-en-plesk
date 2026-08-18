@@ -9,6 +9,7 @@ describe("WordPress audit", () => {
   it("builds a read-only WP-CLI command for a remote SSH shell", () => {
     expect(buildWpCliCommand({ path: "/var/www/vhosts/example.test/httpdocs" }, "core version"))
       .toBe("wp core version --path='/var/www/vhosts/example.test/httpdocs' --allow-root");
+    expect(() => buildWpCliCommand({ path: "/srv/site" }, "plugin update --all")).toThrow("Unsupported read-only WP command");
   });
 
   it("prefixes every fixed audit command with non-interactive sudo when enabled", () => {

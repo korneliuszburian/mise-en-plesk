@@ -1,5 +1,6 @@
 import { describe, expect, it } from "vitest";
 import { scanPleskHost, type SshCommandRunner } from "../src/plesk-scan";
+import { renderReadOnlyCommand } from "../src/ssh-transport";
 import { buildWpAuditBatchCommand } from "../src/wp-audit";
 
 const host = {
@@ -27,11 +28,12 @@ describe("remote read-only safety contract", () => {
   it("keeps Plesk discovery and host facts inside the fixed read-only command set", async () => {
     const calls: string[] = [];
     const runner: SshCommandRunner = async (_host, command) => {
-      calls.push(command);
-      if (command.includes("subscription --list")) return "example.test\n";
-      if (command.includes("find /var/www/vhosts")) return "/var/www/vhosts/example.test/httpdocs/wp-config.php\n";
-      if (command === "plesk version") return "Plesk Obsidian 18.0.67\n";
-      if (command === "php -v") return "PHP 8.2.0\n";
+      const text = renderReadOnlyCommand(command);
+      calls.push(text);
+      if (text.includes("subscription --list")) return "example.test\n";
+      if (text.includes("find /var/www/vhosts")) return "/var/www/vhosts/example.test/httpdocs/wp-config.php\n";
+      if (text === "sudo -S -p '' -- plesk version") return "Plesk Obsidian 18.0.67\n";
+      if (text === "sudo -S -p '' -- php -v") return "PHP 8.2.0\n";
       return "Filesystem 1024-blocks Used Available Capacity Mounted on\n/dev/vda 1 1 1 1% /var/www/vhosts\n";
     };
 
@@ -49,5 +51,11 @@ describe("remote read-only safety contract", () => {
       expect(command).not.toMatch(forbiddenRemoteMutation);
       expect(allowedCommands.has(command)).toBe(true);
     }
+  });
+
+  it("renders only known read-only command kinds", () => {
+    expect(renderReadOnlyCommand({ kind: "ssh-handshake" })).toBe(":");
+    expect(renderReadOnlyCommand({ kind: "plesk-subscriptions", useSudo: true })).toBe("sudo -S -p '' -- plesk bin subscription --list");
+    expect(() => renderReadOnlyCommand({ kind: "wp-audit-batch", installationPath: "/tmp/site\n;rm -rf /" })).toThrow("control character");
   });
 });

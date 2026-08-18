@@ -2,7 +2,8 @@ import { chmod, mkdtemp, readFile, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { describe, expect, it } from "vitest";
-import { buildSshInvocation, classifyWordPressInstallation, parseDiskUsage, parsePhpVersion, parsePleskVersion, runSshCommand, scanPleskHost, type SshCommandRunner } from "../src/plesk-scan";
+import { adaptLegacySshRunner, buildSshInvocation, classifyWordPressInstallation, parseDiskUsage, parsePhpVersion, parsePleskVersion, runSshCommand, scanPleskHost, type SshCommandRunner } from "../src/plesk-scan";
+import { renderReadOnlyCommand } from "../src/ssh-transport";
 import type { HostConfig } from "../src/ssh-inventory";
 
 const host: HostConfig = {
@@ -16,6 +17,17 @@ const host: HostConfig = {
 };
 
 describe("plesk scan", () => {
+  it("adapts legacy string runners through the typed renderer", async () => {
+    let received = "";
+    const runner = adaptLegacySshRunner(async (_host, command) => {
+      received = command;
+      return "ok";
+    });
+
+    await expect(runner(host, { kind: "plesk-subscriptions", useSudo: true })).resolves.toBe("ok");
+    expect(received).toBe("sudo -S -p '' -- plesk bin subscription --list");
+  });
+
   it("parses read-only host fact output", () => {
     expect(parsePleskVersion("Plesk Obsidian 18.0.67 Update #3\n")).toBe("Plesk Obsidian 18.0.67");
     expect(parsePhpVersion("PHP 8.2.29 (cli) (built: Jun 12 2026 10:00:00)\n")).toBe("8.2.29");
@@ -29,11 +41,12 @@ describe("plesk scan", () => {
   it("collects host facts through fixed read-only commands", async () => {
     const calls: string[] = [];
     const runner: SshCommandRunner = async (_host, command) => {
-      calls.push(command);
-      if (command.startsWith("plesk bin subscription")) return "example.test\n";
-      if (command.startsWith("find /var/www/vhosts")) return "/var/www/vhosts/example.test/httpdocs/wp-config.php\n";
-      if (command === "plesk version") return "Plesk Obsidian 18.0.67 Update #3\n";
-      if (command === "php -v") return "PHP 8.2.29 (cli)\n";
+      const text = renderReadOnlyCommand(command);
+      calls.push(text);
+      if (text.startsWith("plesk bin subscription")) return "example.test\n";
+      if (text.startsWith("find /var/www/vhosts")) return "/var/www/vhosts/example.test/httpdocs/wp-config.php\n";
+      if (text === "plesk version") return "Plesk Obsidian 18.0.67 Update #3\n";
+      if (text === "php -v") return "PHP 8.2.29 (cli)\n";
       return "Filesystem 1024-blocks Used Available Capacity Mounted on\n/dev/vda1 100000 65000 35000 65% /var/www/vhosts\n";
     };
 
@@ -47,7 +60,7 @@ describe("plesk scan", () => {
 
   it("detects alternate WordPress roots from wp-includes/version.php", async () => {
     const runner: SshCommandRunner = async (_host, command) => {
-      if (command.startsWith("plesk bin subscription")) return "example.test\n";
+      if (renderReadOnlyCommand(command).startsWith("plesk bin subscription")) return "example.test\n";
       return "/var/www/vhosts/example.test/httpdocs/wp-includes/version.php\n/var/www/vhosts/other.test/httpdocs/wp-config.php\n";
     };
 
@@ -114,7 +127,7 @@ describe("plesk scan", () => {
     const previousPath = process.env.PATH;
     process.env.PATH = `${directory}:${previousPath ?? ""}`;
     try {
-      await expect(runSshCommand(host, ":", "secret-password", { timeoutMs: 100 })).rejects.toThrow();
+      await expect(runSshCommand(host, { kind: "ssh-handshake" }, "secret-password", { timeoutMs: 100 })).rejects.toThrow();
       const childPid = Number(await readFile(childPidPath, "utf8"));
       await new Promise((resolve) => setTimeout(resolve, 200));
       expect(() => process.kill(childPid, 0)).toThrow();
@@ -132,7 +145,7 @@ describe("plesk scan", () => {
     const previousPath = process.env.PATH;
     process.env.PATH = `${directory}:${previousPath ?? ""}`;
     try {
-      await expect(runSshCommand(host, ":", "secret-password", { timeoutMs: 5_000, maxOutputBytes: 256 })).rejects.toThrow("output exceeded 256 bytes");
+      await expect(runSshCommand(host, { kind: "ssh-handshake" }, "secret-password", { timeoutMs: 5_000, maxOutputBytes: 256 })).rejects.toThrow("output exceeded 256 bytes");
     } finally {
       process.env.PATH = previousPath;
     }
@@ -141,8 +154,9 @@ describe("plesk scan", () => {
   it("collects subscriptions and WordPress config paths using read-only commands", async () => {
     const calls: string[] = [];
     const runner: SshCommandRunner = async (_host, command) => {
-      calls.push(command);
-      if (command.startsWith("plesk bin subscription")) return "example.test\nshop.test\n";
+      const text = renderReadOnlyCommand(command);
+      calls.push(text);
+      if (text.startsWith("plesk bin subscription")) return "example.test\nshop.test\n";
       return "/var/www/vhosts/example.test/httpdocs/wp-config.php\n";
     };
 
@@ -164,9 +178,10 @@ describe("plesk scan", () => {
   it("bounds remote WordPress discovery for a chunk", async () => {
     const calls: string[] = [];
     const runner: SshCommandRunner = async (_host, command) => {
-      calls.push(command);
-      if (command.startsWith("plesk bin subscription")) return "example.test\n";
-      if (command.includes("position > 2")) return "/var/www/vhosts/three.test/httpdocs/wp-config.php\n";
+      const text = renderReadOnlyCommand(command);
+      calls.push(text);
+      if (text.startsWith("plesk bin subscription")) return "example.test\n";
+      if (text.includes("position > 2")) return "/var/www/vhosts/three.test/httpdocs/wp-config.php\n";
       return [
         "/var/www/vhosts/one.test/httpdocs/wp-config.php",
         "/var/www/vhosts/two.test/httpdocs/wp-config.php",
@@ -193,8 +208,9 @@ describe("plesk scan", () => {
   it("uses non-interactive sudo only when explicitly enabled", async () => {
     const calls: string[] = [];
     const runner: SshCommandRunner = async (_host, command) => {
-      calls.push(command);
-      return command.startsWith("sudo") ? "/var/www/vhosts/example.test/httpdocs/wp-config.php\n" : "example.test\n";
+      const text = renderReadOnlyCommand(command);
+      calls.push(text);
+      return text.startsWith("sudo") ? "/var/www/vhosts/example.test/httpdocs/wp-config.php\n" : "example.test\n";
     };
 
     await scanPleskHost(host, runner, { wordpressLimit: 1, useSudo: true });
@@ -206,8 +222,9 @@ describe("plesk scan", () => {
   it("falls back to non-root filesystem discovery when Plesk CLI is unavailable", async () => {
     const calls: string[] = [];
     const runner: SshCommandRunner = async (_host, command) => {
-      calls.push(command);
-      if (command.includes("plesk bin subscription")) throw new Error("must run as root");
+      const text = renderReadOnlyCommand(command);
+      calls.push(text);
+      if (text.includes("plesk bin subscription")) throw new Error("must run as root");
       return "/var/www/vhosts/example.test/httpdocs/wp-config.php\n";
     };
 
@@ -224,7 +241,7 @@ describe("plesk scan", () => {
 
   it("returns host health when filesystem discovery loses the SSH connection", async () => {
     const runner: SshCommandRunner = async (_host, command) => {
-      if (command.includes("plesk bin subscription")) return "example.test\n";
+      if (renderReadOnlyCommand(command).includes("plesk bin subscription")) return "example.test\n";
       throw new Error("Command failed (timeout)");
     };
 

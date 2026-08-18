@@ -1,0 +1,90 @@
+export type ReadOnlyCommand =
+  | { kind: "ssh-handshake" }
+  | { kind: "plesk-subscriptions"; useSudo?: boolean }
+  | { kind: "wordpress-candidates"; useSudo?: boolean; includeAlternateDetection?: boolean; offset?: number; limit?: number }
+  | { kind: "plesk-version"; useSudo?: boolean }
+  | { kind: "php-version"; useSudo?: boolean }
+  | { kind: "disk-usage"; useSudo?: boolean }
+  | { kind: "suspicious-uploads"; installationPath: string; useSudo?: boolean }
+  | { kind: "wp-audit-batch"; installationPath: string; useSudo?: boolean };
+
+export const READ_ONLY_WP_COMMANDS = [
+  "core version",
+  "core check-update --format=json",
+  "core verify-checksums",
+  "plugin list --format=json --fields=name,status,update,version,update_version,wporg_status,wporg_last_updated",
+  "plugin verify-checksums --all --strict",
+  "theme list --format=json --fields=name,status,version,update,update_version,auto_update",
+] as const;
+
+export type ReadOnlyWpCommand = typeof READ_ONLY_WP_COMMANDS[number];
+
+export function isReadOnlyWpCommand(value: string): value is ReadOnlyWpCommand {
+  return (READ_ONLY_WP_COMMANDS as readonly string[]).includes(value);
+}
+
+function shellQuote(value: string): string {
+  if (/[\u0000-\u001f\u007f]/.test(value)) throw new Error("unsafe installation path: control character");
+  return `'${value.replaceAll("'", "'\\''")}'`;
+}
+
+function sudoPrefix(useSudo = false): string {
+  return useSudo ? "sudo -S -p '' -- " : "";
+}
+
+function boundedRange(offset = 0, limit?: number): { offset: number; limit?: number } {
+  if (!Number.isSafeInteger(offset) || offset < 0) throw new Error("wordpress offset must be a non-negative safe integer");
+  if (limit !== undefined && (!Number.isSafeInteger(limit) || limit < 1)) throw new Error("wordpress limit must be a positive safe integer");
+  if (limit !== undefined && offset > Number.MAX_SAFE_INTEGER - limit - 1) {
+    throw new Error("wordpress offset and limit exceed safe integer range");
+  }
+  return { offset, limit };
+}
+
+function renderWordPressCandidates(command: Extract<ReadOnlyCommand, { kind: "wordpress-candidates" }>): string {
+  const { offset, limit } = boundedRange(command.offset, command.limit);
+  const prefix = sudoPrefix(command.useSudo);
+  const find = `${prefix}find /var/www/vhosts -xdev -maxdepth 4 -type f ${command.includeAlternateDetection ? "\\( -name wp-config.php -o -path '*/wp-includes/version.php' \\)" : "-name wp-config.php"} -print`;
+  if (limit === undefined) return find;
+  const end = offset + limit + 1;
+  return `${find} | ${String.raw`awk '{ candidate=$0; sub(/\/wp-config\.php$/, "", candidate); sub(/\/wp-includes\/version\.php$/, "", candidate); if (seen[candidate]++) next; position++; if (position > ${offset} && position <= ${end}) { print; if (position >= ${end}) exit } }'`}`;
+}
+
+function renderWpAuditBatch(command: Extract<ReadOnlyCommand, { kind: "wp-audit-batch" }>): string {
+  const prefix = sudoPrefix(command.useSudo);
+  const wp = (value: ReadOnlyWpCommand): string => renderWpCliCommand(command.installationPath, value, command.useSudo);
+  const commands: Record<string, string> = {
+    core: wp(READ_ONLY_WP_COMMANDS[0]),
+    coreUpdate: wp(READ_ONLY_WP_COMMANDS[1]),
+    plugins: wp(READ_ONLY_WP_COMMANDS[3]),
+    pluginChecksums: wp(READ_ONLY_WP_COMMANDS[4]),
+    themes: wp(READ_ONLY_WP_COMMANDS[5]),
+    checksums: wp(READ_ONLY_WP_COMMANDS[2]),
+    uploads: `${prefix}find ${shellQuote(`${command.installationPath}/wp-content/uploads`)} -type f -name '*.php' -print`,
+  };
+  return Object.entries(commands).map(([name, value]) => [
+    `printf '%s\\n' '__MISE_${name.toUpperCase()}_BEGIN__'`,
+    `value=$(${value} 2>&1)`,
+    "status=$?",
+    "printf '%s\\n' \"$value\"",
+    `printf '%s\\n' "__MISE_${name.toUpperCase()}_STATUS_\${status}__"`,
+    `printf '%s\\n' '__MISE_${name.toUpperCase()}_END__'`,
+  ].join("; ")).join("; ");
+}
+
+export function renderWpCliCommand(installationPath: string, command: ReadOnlyWpCommand, useSudo = false): string {
+  return `${sudoPrefix(useSudo)}wp ${command} --path=${shellQuote(installationPath)} --allow-root`;
+}
+
+export function renderReadOnlyCommand(command: ReadOnlyCommand): string {
+  switch (command.kind) {
+    case "ssh-handshake": return ":";
+    case "plesk-subscriptions": return `${sudoPrefix(command.useSudo)}plesk bin subscription --list`;
+    case "wordpress-candidates": return renderWordPressCandidates(command);
+    case "plesk-version": return `${sudoPrefix(command.useSudo)}plesk version`;
+    case "php-version": return `${sudoPrefix(command.useSudo)}php -v`;
+    case "disk-usage": return `${sudoPrefix(command.useSudo)}df -P -k /var/www/vhosts`;
+    case "suspicious-uploads": return `${sudoPrefix(command.useSudo)}find ${shellQuote(`${command.installationPath}/wp-content/uploads`)} -type f -name '*.php' -print`;
+    case "wp-audit-batch": return renderWpAuditBatch(command);
+  }
+}

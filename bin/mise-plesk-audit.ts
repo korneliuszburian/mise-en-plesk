@@ -2,6 +2,7 @@
 import { getInventoryHostItem, readInventory, syncFromBitwarden } from "../src/ssh-inventory";
 import { extractSecureNoteSshCredentials } from "../src/bitwarden";
 import { createSshSession, scanPleskHost, DEFAULT_SSH_COMMAND_TIMEOUT_MS } from "../src/plesk-scan";
+import type { ReadOnlyCommand } from "../src/ssh-transport";
 import { auditWordPressInstallation, createBatchedWpRunners, type AuditResult, type WordPressAudit, type ScanProgress } from "../src/wp-audit";
 import { writeAuditReport } from "../src/report";
 import { createFileVulnerabilityCache, lookupVulnerabilities, type VulnerabilityCache } from "../src/vulnerabilities";
@@ -171,7 +172,7 @@ async function scanHost(
     };
   }
   try {
-    const ssh = (command: string) => session.run(command);
+    const ssh = (command: ReadOnlyCommand) => session.run(command);
     const scan = await scanPleskHost(host, (_host, command) => ssh(command), {
       wordpressOffset: offset,
       wordpressLimit: maxSites,
@@ -189,6 +190,7 @@ async function scanHost(
       wordpress.push(...await Promise.all(batch.map(async (installation) => {
         const batched = createBatchedWpRunners(installation, ssh, { useSudo: effectiveSudo });
         return auditWordPressInstallation(installation, batched.runner, {
+          useSudo: effectiveSudo,
           enabled: process.env.MISE_PLESK_ENABLE_VULNS === "1",
           vulnerabilityResourceLookup: async (resource, identifier, options) => {
             if (process.env.MISE_PLESK_ENABLE_VULNS !== "1") return { status: "disabled" };
