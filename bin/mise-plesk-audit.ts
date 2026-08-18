@@ -9,6 +9,7 @@ import { lookupPluginVulnerabilities } from "../src/vulnerabilities";
 import { findingsFromAudits } from "../src/findings";
 import { readFindingState, reconcileFindings, writeFindingState } from "../src/finding-state";
 import { notifyFindingEvents } from "../src/notifications";
+import { runPreflight } from "../src/preflight";
 
 const inventoryPath = process.env.MISE_PLESK_INVENTORY ?? "inventory.json";
 const configPath = process.env.MISE_PLESK_CONFIG ?? "config.mise-en-plesk.json";
@@ -21,7 +22,7 @@ interface MisePleskConfig {
 }
 
 function usage(): never {
-  console.error("Usage: mise-plesk-audit sync-ssh | scan <target|all> [--json]");
+  console.error("Usage: mise-plesk-audit doctor [--json] | sync-ssh | scan <target|all> [--json]");
   process.exit(1);
 }
 
@@ -88,6 +89,13 @@ async function main(): Promise<void> {
   const [command, target, ...flags] = process.argv.slice(2);
   const json = flags.includes("--json");
   if (flags.some((flag) => flag !== "--json")) usage();
+  if (command === "doctor") {
+    const result = await runPreflight({ inventoryPath, configPath });
+    if (json) console.log(JSON.stringify(result, null, 2));
+    else for (const item of result.checks) console.log(`${item.ok ? "OK" : "FAIL"} ${item.name}: ${item.detail}`);
+    if (!result.ok) process.exitCode = 1;
+    return;
+  }
   if (command === "sync-ssh") {
     const inventory = await syncFromBitwarden("mise-en-plesk", inventoryPath);
     console.log(`Synced ${Object.keys(inventory).length} host(s) to ${inventoryPath}.`);

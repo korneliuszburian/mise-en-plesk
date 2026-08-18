@@ -8,6 +8,7 @@ Small, read-only tooling for auditing WordPress installations on Plesk hosts.
 pnpm install
 pnpm typecheck
 pnpm test
+pnpm mise-plesk-audit doctor
 source scripts/setup-bw-session.sh
 pnpm mise-plesk-audit sync-ssh
 pnpm mise-plesk-audit scan master
@@ -65,3 +66,8 @@ The webhook is provider-neutral so it can target an internal bridge, n8n, or a
 WhatsApp Business adapter. Notification failures are logged briefly and never
 fail the read-only scan. The URL is read at runtime and is never written to
 reports or inventory.
+
+Run `mise-plesk-audit doctor` before a scheduled scan. It checks local
+prerequisites, session presence, inventory/config readability, and reports
+whether alerting is enabled. Alerting is informational and does not make a
+scan fail by itself.
