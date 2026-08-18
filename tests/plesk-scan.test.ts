@@ -1,5 +1,8 @@
+import { chmod, mkdtemp, readFile, writeFile } from "node:fs/promises";
+import { tmpdir } from "node:os";
+import { join } from "node:path";
 import { describe, expect, it } from "vitest";
-import { buildSshInvocation, classifyWordPressInstallation, parseDiskUsage, parsePhpVersion, parsePleskVersion, scanPleskHost, type SshCommandRunner } from "../src/plesk-scan";
+import { buildSshInvocation, classifyWordPressInstallation, parseDiskUsage, parsePhpVersion, parsePleskVersion, runSshCommand, scanPleskHost, type SshCommandRunner } from "../src/plesk-scan";
 import type { HostConfig } from "../src/ssh-inventory";
 
 const host: HostConfig = {
@@ -99,6 +102,25 @@ describe("plesk scan", () => {
     expect(invocation.args).toContain("ControlMaster=auto");
     expect(invocation.args).toContain("ControlPersist=120");
     expect(invocation.args).toContain("ControlPath=/tmp/mise-en-plesk/control");
+  });
+
+  it("terminates the whole sshpass process group on command timeout", async () => {
+    if (process.platform === "win32") return;
+    const directory = await mkdtemp(join(tmpdir(), "mise-en-plesk-ssh-timeout-"));
+    const fakeSshpass = join(directory, "sshpass");
+    const childPidPath = join(directory, "child.pid");
+    await writeFile(fakeSshpass, `#!/bin/sh\n(sleep 30) &\necho $! > "${childPidPath}"\nwhile true; do sleep 1; done\n`);
+    await chmod(fakeSshpass, 0o755);
+    const previousPath = process.env.PATH;
+    process.env.PATH = `${directory}:${previousPath ?? ""}`;
+    try {
+      await expect(runSshCommand(host, ":", "secret-password", { timeoutMs: 100 })).rejects.toThrow();
+      const childPid = Number(await readFile(childPidPath, "utf8"));
+      await new Promise((resolve) => setTimeout(resolve, 200));
+      expect(() => process.kill(childPid, 0)).toThrow();
+    } finally {
+      process.env.PATH = previousPath;
+    }
   });
 
   it("collects subscriptions and WordPress config paths using read-only commands", async () => {

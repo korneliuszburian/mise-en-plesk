@@ -1,4 +1,4 @@
-import { execFile } from "node:child_process";
+import { execFile, spawn } from "node:child_process";
 import { mkdtemp, rm } from "node:fs/promises";
 import { dirname } from "node:path";
 import { tmpdir } from "node:os";
@@ -10,19 +10,54 @@ const execFileAsync = promisify(execFile);
 function execFileWithInput(
   executable: string,
   args: string[],
-  options: Parameters<typeof execFileAsync>[2],
+  options: { env?: NodeJS.ProcessEnv; timeout?: number },
   input?: string,
 ): Promise<{ stdout: string; stderr: string }> {
   return new Promise((resolve, reject) => {
-    const child = execFile(executable, args, options, (error, stdout, stderr) => {
-      if (error) {
-        Object.assign(error, { stdout: stdout.toString(), stderr: stderr.toString() });
-        reject(error);
+    const timeoutMs = typeof options.timeout === "number" ? options.timeout : undefined;
+    let stdout = "";
+    let stderr = "";
+    let timedOut = false;
+    let forceKillTimer: NodeJS.Timeout | undefined;
+    const child = spawn(executable, args, {
+      env: options.env,
+      stdio: ["pipe", "pipe", "pipe"],
+      detached: process.platform !== "win32",
+    });
+    const terminate = (signal: NodeJS.Signals): void => {
+      if (!child.pid) return;
+      try {
+        if (process.platform === "win32") child.kill(signal);
+        else process.kill(-child.pid, signal);
+      } catch {
+        // The process may have exited between the timeout and cleanup.
+      }
+    };
+    const timeoutTimer = timeoutMs === undefined ? undefined : setTimeout(() => {
+      timedOut = true;
+      terminate("SIGTERM");
+      forceKillTimer = setTimeout(() => terminate("SIGKILL"), 500);
+    }, timeoutMs);
+    child.stdout?.on("data", (chunk: Buffer) => { stdout += chunk.toString(); });
+    child.stderr?.on("data", (chunk: Buffer) => { stderr += chunk.toString(); });
+    child.once("error", (error: Error) => {
+      if (timeoutTimer) clearTimeout(timeoutTimer);
+      if (forceKillTimer) clearTimeout(forceKillTimer);
+      Object.assign(error, { stdout, stderr });
+      reject(error);
+    });
+    child.once("close", (code, signal) => {
+      if (timeoutTimer) clearTimeout(timeoutTimer);
+      if (forceKillTimer) clearTimeout(forceKillTimer);
+      if (code === 0) {
+        resolve({ stdout, stderr });
         return;
       }
-      resolve({ stdout: stdout.toString(), stderr: stderr.toString() });
+      const error = new Error(`Command failed${timedOut ? " (timeout)" : ""}${signal ? ` (${signal})` : code !== null ? ` (exit code ${code})` : ""}`);
+      Object.assign(error, { stdout, stderr, code: code ?? signal });
+      reject(error);
     });
-    if (input !== undefined) child.stdin?.end(input);
+    child.stdin?.end(input);
   });
 }
 
