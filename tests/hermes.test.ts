@@ -59,6 +59,40 @@ describe("Hermes notifications", () => {
     expect(result.sentEvents).toEqual([]);
   });
 
+  it("retries a failed Hermes command with bounded backoff", async () => {
+    let calls = 0;
+    const result = await sendFindingEventsViaHermes([event], {
+      target: "whatsapp:123@s.whatsapp.net",
+      retryDelayMs: 0,
+      commandRunner: async () => {
+        calls += 1;
+        if (calls === 1) throw new Error("temporary failure");
+      },
+    });
+    expect(result.sent).toBe(true);
+    expect(calls).toBe(2);
+  });
+
+  it("acknowledges only successful chunks when a later chunk fails", async () => {
+    const secondEvent = {
+      ...event,
+      finding: { ...event.finding, id: "finding-2", domain: "second.test" },
+    } satisfies FindingEvent;
+    let calls = 0;
+    const result = await sendFindingEventsViaHermes([event, secondEvent], {
+      target: "whatsapp:123@s.whatsapp.net",
+      maxMessageLength: 10,
+      maxAttempts: 1,
+      commandRunner: async () => {
+        calls += 1;
+        if (calls === 2) throw new Error("second chunk failed");
+      },
+    });
+    expect(calls).toBe(2);
+    expect(result.sent).toBe(false);
+    expect(result.sentEvents).toEqual([event]);
+  });
+
   it("supports a guarded one-shot text delivery", async () => {
     const calls: string[][] = [];
     await sendHermesText("test", {

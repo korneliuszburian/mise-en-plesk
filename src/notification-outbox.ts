@@ -95,11 +95,12 @@ export async function readNotificationOutbox(path: string): Promise<Notification
         && typeof item.createdAt === "string"
         && typeof item.webhookSent === "boolean"
         && typeof item.whatsappSent === "boolean"
+        && (item.hermesSent === undefined || typeof item.hermesSent === "boolean")
         && isFindingEvent(item.event);
     })) throw new Error(`Invalid notification outbox: ${path}`);
     return {
       version: 1,
-      entries: (value as NotificationOutbox).entries.map((entry) => ({ ...entry, hermesSent: entry.hermesSent ?? false })),
+      entries: (value as NotificationOutbox).entries.map((entry) => ({ ...entry, hermesSent: entry.hermesSent ?? true })),
     };
   } catch (error: unknown) {
     if (error && typeof error === "object" && "code" in error && error.code === "ENOENT") return emptyNotificationOutbox();

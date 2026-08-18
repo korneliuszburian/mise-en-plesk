@@ -12,6 +12,7 @@ describe("systemd deployment contract", () => {
     expect(unit).toContain("Environment=MISE_PLESK_FINDINGS=/var/lib/mise-en-plesk/findings.json");
     expect(unit).toContain("Environment=MISE_PLESK_NOTIFICATION_OUTBOX=/var/lib/mise-en-plesk/notification-outbox.json");
     expect(unit).toContain("Environment=HOME=/var/lib/mise-en-plesk");
+    expect(unit).toContain("EnvironmentFile=-/etc/mise-en-plesk/mise-en-plesk.env");
     expect(unit).not.toContain("ReadWritePaths=/opt/mise-en-plesk");
   });
 });

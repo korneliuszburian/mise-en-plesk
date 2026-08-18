@@ -65,6 +65,34 @@ async function defaultCommandRunner(binary: string, args: string[], timeoutMs: n
   await execFileAsync(binary, args, { timeout: timeoutMs, maxBuffer: 1024 * 1024 });
 }
 
+function sleep(milliseconds: number): Promise<void> {
+  return new Promise((resolve) => setTimeout(resolve, milliseconds));
+}
+
+async function runWithRetry(
+  runner: (binary: string, args: string[], timeoutMs: number) => Promise<void>,
+  binary: string,
+  args: string[],
+  timeoutMs: number,
+  options: RetryOptions,
+): Promise<void> {
+  const maxAttempts = Math.max(1, Math.min(5, Math.floor(options.maxAttempts ?? 3)));
+  const retryDelayMs = Math.max(0, options.retryDelayMs ?? 250);
+  const sleepImpl = options.sleepImpl ?? sleep;
+  let lastError: unknown;
+  for (let attempt = 1; attempt <= maxAttempts; attempt += 1) {
+    try {
+      await runner(binary, args, timeoutMs);
+      return;
+    } catch (error: unknown) {
+      lastError = error;
+      if (attempt === maxAttempts) break;
+      await sleepImpl(retryDelayMs * attempt);
+    }
+  }
+  throw lastError instanceof Error ? lastError : new Error("Hermes command failed");
+}
+
 export async function sendFindingEventsViaHermes(
   events: FindingEvent[],
   options: HermesOptions = {},
@@ -88,7 +116,13 @@ export async function sendFindingEventsViaHermes(
   for (const chunk of chunks(selected, maxLength)) {
     const message = chunk.map((event) => eventText(event, maxLength)).join("\n");
     try {
-      await (options.commandRunner ?? defaultCommandRunner)(binary, ["send", "--to", target, message], timeoutMs);
+      await runWithRetry(
+        options.commandRunner ?? defaultCommandRunner,
+        binary,
+        ["send", "--to", target, message],
+        timeoutMs,
+        options,
+      );
       sentEvents.push(...chunk);
     } catch (error: unknown) {
       options.debug?.(`Hermes notification skipped: ${error instanceof Error ? error.message : "command failed"}`);
@@ -100,12 +134,14 @@ export async function sendFindingEventsViaHermes(
 
 export async function sendHermesText(
   message: string,
-  options: Pick<HermesOptions, "target" | "binary" | "timeoutMs" | "commandRunner">,
+  options: Pick<HermesOptions, "target" | "binary" | "timeoutMs" | "commandRunner" | "maxAttempts" | "retryDelayMs" | "sleepImpl">,
 ): Promise<void> {
   const target = requireHermesWhatsAppTarget(options.target);
-  await (options.commandRunner ?? defaultCommandRunner)(
+  await runWithRetry(
+    options.commandRunner ?? defaultCommandRunner,
     options.binary?.trim() || "hermes",
     ["send", "--to", target, message],
     options.timeoutMs ?? 15_000,
+    options,
   );
 }

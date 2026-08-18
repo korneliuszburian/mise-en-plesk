@@ -77,6 +77,15 @@ describe("notification outbox", () => {
     const { hermesSent: _ignored, ...legacyEntry } = queued.entries[0]!;
     await writeFile(path, JSON.stringify({ version: 1, entries: [legacyEntry] }));
 
-    await expect(readNotificationOutbox(path)).resolves.toMatchObject({ entries: [{ hermesSent: false }] });
+    await expect(readNotificationOutbox(path)).resolves.toMatchObject({ entries: [{ hermesSent: true }] });
+  });
+
+  it("rejects a malformed Hermes delivery flag", async () => {
+    const directory = await mkdtemp(join(tmpdir(), "mise-en-plesk-outbox-hermes-invalid-"));
+    const path = join(directory, "outbox.json");
+    const queued = enqueueNotificationEvents(emptyNotificationOutbox(), [event()]);
+    await writeFile(path, JSON.stringify({ version: 1, entries: [{ ...queued.entries[0], hermesSent: "yes" }] }));
+
+    await expect(readNotificationOutbox(path)).rejects.toThrow("Invalid notification outbox");
   });
 });
