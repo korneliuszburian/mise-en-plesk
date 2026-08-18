@@ -10,7 +10,7 @@ runner_bin="${MISE_PLESK_RUNNER_BIN:-pnpm}"
 chunk_size="${MISE_PLESK_SCAN_CHUNK_SIZE:-20}"
 runner_args=("$runner_bin")
 if [[ "$(basename "$runner_bin")" == "pnpm" ]]; then
-  runner_args+=(run)
+  runner_args+=(--silent run)
 fi
 
 umask 077

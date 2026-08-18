@@ -15,11 +15,11 @@ checks on Node.js 20 and 22 through GitHub Actions.
 pnpm install
 pnpm typecheck
 pnpm test
-pnpm run mise-plesk-audit doctor
+pnpm --silent run mise-plesk-audit doctor
 source scripts/setup-bw-session.sh
-pnpm run mise-plesk-audit sync-ssh
-pnpm run mise-plesk-audit scan master-ssh --json --max-sites=20 --all-chunks
-pnpm run mise-plesk-audit scan all --json
+pnpm --silent run mise-plesk-audit sync-ssh
+pnpm --silent run mise-plesk-audit scan master-ssh --json --max-sites=20 --all-chunks
+pnpm --silent run mise-plesk-audit scan all --json
 ```
 
 Bitwarden items must be searchable with `mise-en-plesk`, contain a login
@@ -149,7 +149,7 @@ Hermes without copying its WhatsApp credentials into this repository. Set
 `whatsapp:<chat-id>` and optionally `MISE_PLESK_HERMES_BIN` if `hermes` is not
 on `PATH`. The scanner invokes `hermes send --to <target> <message>` only when
 the target is configured. Verify it with the guarded command
-`pnpm run mise-plesk-audit hermes-test --confirm=<exact-target>`. The Hermes
+`pnpm --silent run mise-plesk-audit hermes-test --confirm=<exact-target>`. The Hermes
 channel is independent in the crash-safe outbox; a failed delivery is retried
 on the next run. No Hermes or WhatsApp process activity occurs when the target
 is unset.
@@ -166,7 +166,7 @@ are delivered as bounded messages (900 characters by default); a failed chunk
 stays pending while successfully delivered chunks are acknowledged separately.
 
 After checking the configured recipient, verify the real provider path with
-`pnpm run mise-plesk-audit whatsapp-test --confirm=<configured recipient>`. This
+`pnpm --silent run mise-plesk-audit whatsapp-test --confirm=<configured recipient>`. This
 is the only command that sends an intentional test message; it requires the
 confirmation to match the runtime recipient exactly and does not contact
 Plesk.
@@ -181,7 +181,7 @@ Direct `scan` commands repeat the blocking capability checks before opening
 any SSH session, so a missing Bitwarden session, inventory, config, or required
 password-auth SSH tool fails locally first.
 
-`pnpm run mise-plesk-audit monitor-health --json` evaluates the last completed scan
+`pnpm --silent run mise-plesk-audit monitor-health --json` evaluates the last completed scan
 against `monitorMaxAgeHours` (default two hours), records a deduplicated P1
 `monitor-stale` finding, and uses the configured webhook/WhatsApp adapters for
 the alert. It is safe to run before every scheduled scan and returns normally

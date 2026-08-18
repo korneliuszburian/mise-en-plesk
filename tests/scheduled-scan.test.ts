@@ -25,8 +25,8 @@ set -euo pipefail
 if [[ "\${1:-}" == "exec" && "\${2:-}" == "tsx" ]]; then
   exec ${realPnpm} "$@"
 fi
-if [[ "\${1:-}" == "run" && "\${2:-}" == "mise-plesk-audit" && "\${3:-}" == "scan" ]]; then
-  target="\${4:?target missing}"
+if [[ "\${1:-}" == "--silent" && "\${2:-}" == "run" && "\${3:-}" == "mise-plesk-audit" && "\${4:-}" == "scan" ]]; then
+  target="\${5:?target missing}"
   stamp="\$(date -u +%Y%m%d)\${MISE_PLESK_REPORT_SUFFIX:?suffix missing}"
   mkdir -p "${reportDirectory}"
   printf '{"scanProgress":[{"host":"%s","offset":0,"scanned":1,"complete":true}]}\\n' "$target" > "${reportDirectory}/plesk-wp-audit-$stamp.json"
