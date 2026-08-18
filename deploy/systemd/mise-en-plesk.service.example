@@ -14,6 +14,15 @@ Group=mise-en-plesk
 WorkingDirectory=/opt/mise-en-plesk
 Environment=MISE_PLESK_SCHEDULED_TARGET=all
 Environment=MISE_PLESK_SCAN_CHUNK_SIZE=20
+Environment=MISE_PLESK_REPORTS=/var/lib/mise-en-plesk/reports
+Environment=MISE_PLESK_SCHEDULE_LOG_DIR=/var/lib/mise-en-plesk/logs
+Environment=MISE_PLESK_SCHEDULE_LOCK_FILE=/var/lib/mise-en-plesk/scan.lock
+Environment=MISE_PLESK_SCAN_CURSOR=/var/lib/mise-en-plesk/scan-cursor.json
+Environment=MISE_PLESK_FINDINGS=/var/lib/mise-en-plesk/findings.json
+Environment=MISE_PLESK_SCAN_CYCLES=/var/lib/mise-en-plesk/scan-cycles.json
+Environment=MISE_PLESK_NOTIFICATION_OUTBOX=/var/lib/mise-en-plesk/notification-outbox.json
+Environment=MISE_PLESK_HEARTBEAT=/var/lib/mise-en-plesk/heartbeat.json
+Environment=MISE_PLESK_VULN_CACHE=/var/lib/mise-en-plesk/vulnerabilities.json
 Environment=PATH=/usr/local/bin:/usr/bin:/bin
 # Install pnpm system-wide at this path, or change this explicit runner path.
 Environment=MISE_PLESK_RUNNER_BIN=/usr/local/bin/pnpm
@@ -26,6 +35,6 @@ ProtectSystem=strict
 ProtectKernelTunables=yes
 ProtectKernelModules=yes
 ProtectControlGroups=yes
-ReadWritePaths=/opt/mise-en-plesk/.mise-en-plesk /opt/mise-en-plesk/reports
+ReadWritePaths=/var/lib/mise-en-plesk
 ExecStartPre=/usr/bin/test -x /usr/local/bin/pnpm
 ExecStart=/usr/bin/bash /opt/mise-en-plesk/scripts/run-scheduled-scan-systemd.sh

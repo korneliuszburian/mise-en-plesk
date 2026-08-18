@@ -5,6 +5,7 @@ unit_directory="${MISE_PLESK_SYSTEMD_UNIT_DIR:-/etc/systemd/system}"
 service_unit="$unit_directory/mise-en-plesk.service"
 timer_unit="$unit_directory/mise-en-plesk.timer"
 credential_path="/etc/mise-en-plesk/bw-session.cred"
+state_directory="/var/lib/mise-en-plesk"
 
 fail() {
   echo "systemd installation check failed: $*" >&2
@@ -17,6 +18,7 @@ command -v systemd-analyze >/dev/null 2>&1 || fail "systemd-analyze is not avail
 [[ -r "$service_unit" ]] || fail "service unit is not readable: $service_unit"
 [[ -r "$timer_unit" ]] || fail "timer unit is not readable: $timer_unit"
 [[ -r "$credential_path" ]] || fail "encrypted Bitwarden credential is not readable: $credential_path"
+[[ -d "$state_directory" ]] || fail "runtime state directory is missing: $state_directory"
 
 systemd-analyze verify "$service_unit" "$timer_unit"
 systemctl is-enabled --quiet mise-en-plesk.timer || fail "mise-en-plesk.timer is not enabled"
@@ -31,6 +33,12 @@ grep -Fqx "NoNewPrivileges=yes" "$service_unit" \
   || fail "service is missing NoNewPrivileges=yes"
 grep -Fqx "ProtectSystem=strict" "$service_unit" \
   || fail "service is missing ProtectSystem=strict"
+grep -Fqx "ReadWritePaths=$state_directory" "$service_unit" \
+  || fail "service does not restrict writes to $state_directory"
+
+state_owner="$(stat -c '%U' "$state_directory" 2>/dev/null || true)"
+[[ "$state_owner" == "mise-en-plesk" ]] \
+  || fail "runtime state directory must be owned by mise-en-plesk (found ${state_owner:-unknown})"
 
 credential_mode="$(stat -c '%a' "$credential_path" 2>/dev/null || true)"
 credential_owner="$(stat -c '%U' "$credential_path" 2>/dev/null || true)"

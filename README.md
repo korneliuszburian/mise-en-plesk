@@ -202,6 +202,10 @@ committed:
 
 ```sh
 sudo useradd --system --home-dir /var/lib/mise-en-plesk --create-home --shell /usr/sbin/nologin mise-en-plesk
+sudo install -d -o mise-en-plesk -g mise-en-plesk -m 0750 \
+  /var/lib/mise-en-plesk \
+  /var/lib/mise-en-plesk/reports \
+  /var/lib/mise-en-plesk/logs
 # With BW_SESSION present only in the current shell, rotate the encrypted
 # credential without putting it in argv or a plaintext file.
 scripts/update-systemd-bw-credential.sh
@@ -222,7 +226,10 @@ It checks unit syntax, timer state, the dedicated non-root service account,
 the encrypted Bitwarden credential, and the systemd filesystem hardening. It
 does not start, stop, reload, or modify any unit.
 
-The timer runs the incremental one-chunk-per-host mode. It never performs
+The checkout is mounted read-only by systemd. Runtime state, reports, logs,
+locks, cursors, findings, and notification outbox data live under
+`/var/lib/mise-en-plesk`, owned by the dedicated service account. The timer
+runs the incremental one-chunk-per-host mode. It never performs
 remote remediation; `systemctl stop mise-en-plesk.timer` is the local stop
 switch. Rotate the encrypted `bw-session.cred` before the session expires by
 running `source scripts/setup-bw-session.sh` followed by
