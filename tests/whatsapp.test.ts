@@ -15,7 +15,7 @@ const findingEvent: FindingEvent = {
 describe("WhatsApp Cloud API notifier", () => {
   it("does not call the API when configuration is incomplete", async () => {
     let calls = 0;
-    await expect(notifyFindingEventsToWhatsApp([findingEvent], { fetchImpl: async () => { calls += 1; throw new Error("must not call"); } })).resolves.toEqual({ sent: false, eligibleEvents: 1 });
+    await expect(notifyFindingEventsToWhatsApp([findingEvent], { fetchImpl: async () => { calls += 1; throw new Error("must not call"); } })).resolves.toEqual({ sent: false, eligibleEvents: 1, sentEvents: [] });
     expect(calls).toBe(0);
   });
 
@@ -36,7 +36,7 @@ describe("WhatsApp Cloud API notifier", () => {
       },
     });
 
-    expect(result).toEqual({ sent: true, eligibleEvents: 1 });
+    expect(result).toEqual({ sent: true, eligibleEvents: 1, sentEvents: [findingEvent] });
     expect(url).toBe("https://graph.facebook.com/v23.0/12345/messages");
     expect(init?.headers).toMatchObject({ authorization: "Bearer runtime-token" });
     expect(JSON.parse(String(init?.body))).toMatchObject({
@@ -61,7 +61,37 @@ describe("WhatsApp Cloud API notifier", () => {
       },
     });
 
-    expect(result).toEqual({ sent: true, eligibleEvents: 1 });
+    expect(result).toEqual({ sent: true, eligibleEvents: 1, sentEvents: [findingEvent] });
     expect(calls).toBe(2);
+  });
+
+  it("chunks long alert batches and reports only successfully delivered events", async () => {
+    const second = {
+      ...findingEvent,
+      finding: { ...findingEvent.finding, id: "finding-2", message: "second critical vulnerability" },
+    } satisfies FindingEvent;
+    let calls = 0;
+    const messageLengths: number[] = [];
+    const result = await notifyFindingEventsToWhatsApp([findingEvent, second], {
+      accessToken: "runtime-token",
+      phoneNumberId: "12345",
+      recipient: "48123123123",
+      templateName: "plesk_security_alert",
+      graphVersion: "v23.0",
+      maxMessageLength: 40,
+      retryDelayMs: 0,
+      fetchImpl: async (_url, init) => {
+        calls += 1;
+        const body = JSON.parse(String(init?.body)) as { template: { components: Array<{ parameters: Array<{ text: string }> }> } };
+        messageLengths.push(body.template.components[0].parameters[0].text.length);
+        return calls === 1 ? new Response(null, { status: 200 }) : new Response(null, { status: 400 });
+      },
+    });
+
+    expect(result.sent).toBe(false);
+    expect(result.eligibleEvents).toBe(2);
+    expect(result.sentEvents).toEqual([findingEvent]);
+    expect(calls).toBe(2);
+    expect(messageLengths).toEqual([40, 40]);
   });
 });

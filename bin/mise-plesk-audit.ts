@@ -136,8 +136,8 @@ async function deliverNotifications(
       graphVersion: process.env.MISE_PLESK_WHATSAPP_GRAPH_VERSION,
       debug: (message) => console.error(message),
     })
-    : { sent: false, eligibleEvents: pendingWhatsApp.length };
-  if (whatsapp.sent) outbox = markNotificationChannelSent(outbox, "whatsapp", pendingWhatsApp);
+    : { sent: false, eligibleEvents: pendingWhatsApp.length, sentEvents: [] };
+  if (whatsapp.sentEvents.length) outbox = markNotificationChannelSent(outbox, "whatsapp", whatsapp.sentEvents);
   else if (!whatsappConfigured) outbox = markNotificationChannelSent(outbox, "whatsapp", pendingWhatsApp);
   await writeNotificationOutbox(outboxPath, compactNotificationOutbox(outbox));
   return { webhookSent: notification.sent, whatsappSent: whatsapp.sent };

@@ -145,7 +145,9 @@ Direct WhatsApp Business Cloud API delivery is also opt-in. Set
 `MISE_PLESK_WHATSAPP_GRAPH_VERSION`; optionally set
 `MISE_PLESK_WHATSAPP_TEMPLATE_LANGUAGE`. The template must be approved in
 WhatsApp Manager and provide one body text parameter. Tokens are read only
-from the process environment and never persisted.
+from the process environment and never persisted. Multiple pending P1 events
+are delivered as bounded messages (900 characters by default); a failed chunk
+stays pending while successfully delivered chunks are acknowledged separately.
 
 After checking the configured recipient, verify the real provider path with
 `pnpm run mise-plesk-audit whatsapp-test --confirm=<configured recipient>`. This
