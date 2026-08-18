@@ -19,4 +19,16 @@ describe("scan cursor", () => {
     await writeScanCursor(path, cursor);
     await expect(readScanCursor(path)).resolves.toEqual(cursor);
   });
+
+  it("refuses to advance after an incomplete scan made no progress", () => {
+    expect(() => advanceScanCursor(emptyScanCursor(), { host: "master-ssh", offset: 0, scanned: 0, complete: false }))
+      .toThrow("made no progress");
+    expect(() => advanceScanCursor(emptyScanCursor(), { host: "master-ssh", offset: Number.MAX_SAFE_INTEGER, scanned: 1, complete: false }))
+      .toThrow("safe integer");
+  });
+
+  it("rejects malformed completion flags", () => {
+    expect(() => advanceScanCursor(emptyScanCursor(), { host: "master-ssh", offset: 0, scanned: 0, complete: "true" as unknown as boolean }))
+      .toThrow("completion flag");
+  });
 });

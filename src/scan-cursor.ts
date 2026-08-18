@@ -38,6 +38,19 @@ export function advanceScanCursor(
   cursor: ScanCursor,
   progress: ScanProgress,
 ): ScanCursor {
+  if (typeof progress.complete !== "boolean") throw new Error("scan progress has an invalid completion flag");
+  if (!progress.host || !Number.isSafeInteger(progress.offset) || progress.offset < 0) {
+    throw new Error("scan progress has an invalid host or offset");
+  }
+  if (!Number.isSafeInteger(progress.scanned) || progress.scanned < 0) {
+    throw new Error("scan progress has an invalid scanned count");
+  }
+  if (!progress.complete && progress.scanned < 1) {
+    throw new Error(`scan progress made no progress for ${progress.host}`);
+  }
+  if (!progress.complete && progress.offset > Number.MAX_SAFE_INTEGER - progress.scanned) {
+    throw new Error(`scan progress exceeded safe integer range for ${progress.host}`);
+  }
   const nextOffset = progress.complete ? 0 : progress.offset + progress.scanned;
   return {
     version: 1,
