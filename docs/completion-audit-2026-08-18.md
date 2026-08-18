@@ -23,7 +23,7 @@ the implementation, automated check, and operational evidence agree.
 | Plesk subscription and WordPress discovery | done | `scanPleskHost`, pagination cursor, alternate `version.php` signal, tests |
 | WP core/plugin/theme audit | done | `src/wp-audit.ts`, batched WP-CLI probes, tests |
 | Vulnerability enrichment | done | opt-in WPVulnerability adapter, cache/budget/error handling, tests |
-| Suspicious uploads and integrity signals | done | uploads PHP scan, checksum findings, tests |
+| Suspicious uploads and integrity signals | done | independent uploads PHP probe, including WP-CLI failure fallback, checksum findings, tests, and real master runtime evidence |
 | Stable findings and resolved/reopened state | done | `src/findings.ts`, `src/finding-state.ts`, atomic persistence/tests |
 | Markdown and JSON reports | done | `src/report.ts`, additive `AuditResult`, report tests |
 | P1 alert delivery and retry/outbox | done | webhook + WhatsApp adapters, retry/outbox tests |
@@ -34,7 +34,7 @@ the implementation, automated check, and operational evidence agree.
 | Master and dev real-host proof | done | current checkout completed bounded read-only scans: `master-ssh` reported 216 subscriptions/1 candidate and classified the site as runtime-incompatible, `dev-ssh` reported 92 subscriptions/1 candidate and classified the site as WP-CLI-broken; no credentials were written to reports |
 | WhatsApp production delivery proof | partial | adapter, fake-client tests, and recipient-bound `whatsapp-test --confirm=<recipient>` are implemented; approved template and runtime env are operator-owned |
 | Full-fleet rotation proof | done | current checkout completed two scheduler cycles across both configured hosts; each host advanced independently from offset `0` to `2`, with four unique timestamped reports and persistent findings/outbox state |
-| CI on supported Node versions | done | `.github/workflows/ci.yml`, Node 20/22 matrix; CI run `32125172397` passed both jobs |
+| CI on supported Node versions | done | `.github/workflows/ci.yml`, Node 20/22 matrix; CI run `32125853131` passed both jobs |
 | Public repository / review trail | done | GitHub remote, semantic commit history, two-axis review required per major slice |
 | Remote mutation safety audit | done | `tests/read-only-safety.test.ts` checks generated Plesk/WP commands against the forbidden mutation set |
 
