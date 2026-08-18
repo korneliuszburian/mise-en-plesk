@@ -20,6 +20,10 @@ export function emptyNotificationOutbox(): NotificationOutbox {
 }
 
 function eventId(event: FindingEvent): string {
+  return `${event.type}:${event.finding.id}`;
+}
+
+function legacyEventId(event: FindingEvent): string {
   return `${event.type}:${event.finding.id}:${event.occurredAt}`;
 }
 
@@ -32,11 +36,11 @@ export function enqueueNotificationEvents(
   events: FindingEvent[],
 ): NotificationOutbox {
   const entries = outbox.entries.filter((entry) => !(entry.webhookSent && entry.whatsappSent));
-  const known = new Set(entries.map((entry) => entry.id));
+  const known = new Set(entries.flatMap((entry) => [entry.id, eventId(entry.event), legacyEventId(entry.event)]));
   for (const event of events) {
     if (!actionable(event)) continue;
     const id = eventId(event);
-    if (known.has(id)) continue;
+    if (known.has(id) || known.has(legacyEventId(event))) continue;
     entries.push({ id, event, createdAt: event.occurredAt, webhookSent: false, whatsappSent: false });
     known.add(id);
   }
@@ -64,11 +68,11 @@ export function markNotificationChannelSent(
   channel: "webhook" | "whatsapp",
   events: FindingEvent[],
 ): NotificationOutbox {
-  const sent = new Set(events.map(eventId));
+  const sent = new Set(events.flatMap((event) => [eventId(event), legacyEventId(event)]));
   return {
     version: 1,
     entries: outbox.entries.map((entry) => {
-      if (!sent.has(entry.id)) return entry;
+      if (!sent.has(entry.id) && !sent.has(eventId(entry.event)) && !sent.has(legacyEventId(entry.event))) return entry;
       return channel === "webhook" ? { ...entry, webhookSent: true } : { ...entry, whatsappSent: true };
     }),
   };

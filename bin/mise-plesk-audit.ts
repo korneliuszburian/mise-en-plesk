@@ -97,16 +97,24 @@ async function readOptionalConfig(): Promise<MisePleskConfig> {
   }
 }
 
-async function deliverNotifications(
-  events: FindingEvent[],
-  config: MisePleskConfig,
-): Promise<{ webhookSent: boolean; whatsappSent: boolean }> {
-  const outboxPath = process.env.MISE_PLESK_NOTIFICATION_OUTBOX
+function notificationOutboxPath(config: MisePleskConfig): string {
+  return process.env.MISE_PLESK_NOTIFICATION_OUTBOX
     ?? config.notificationOutboxPath
     ?? ".mise-en-plesk/notification-outbox.json";
+}
+
+async function queueNotificationEvents(events: FindingEvent[], config: MisePleskConfig): Promise<void> {
+  if (!events.length) return;
+  const path = notificationOutboxPath(config);
+  const outbox = enqueueNotificationEvents(await readNotificationOutbox(path), events);
+  await writeNotificationOutbox(path, outbox);
+}
+
+async function deliverNotifications(
+  config: MisePleskConfig,
+): Promise<{ webhookSent: boolean; whatsappSent: boolean }> {
+  const outboxPath = notificationOutboxPath(config);
   let outbox = await readNotificationOutbox(outboxPath);
-  outbox = enqueueNotificationEvents(outbox, events);
-  await writeNotificationOutbox(outboxPath, outbox);
 
   const webhookConfigured = Boolean(process.env.MISE_PLESK_ALERT_WEBHOOK_URL?.trim());
   const pendingWebhook = pendingNotificationEvents(outbox, "webhook");
@@ -153,8 +161,9 @@ async function persistFindingList(
   config: MisePleskConfig,
 ): Promise<{ state: Awaited<ReturnType<typeof readFindingState>>; events: FindingEvent[]; notificationSent: boolean; whatsappSent: boolean }> {
   const transition = reconcileFindings(findingState, findings, occurredAt, scope);
+  await queueNotificationEvents(transition.events, config);
   await writeFindingState(findingStatePath, transition.state);
-  const delivery = await deliverNotifications(transition.events, config);
+  const delivery = await deliverNotifications(config);
   return {
     state: transition.state,
     events: transition.events,
@@ -320,8 +329,9 @@ async function main(): Promise<void> {
       now.toISOString(),
       { installationPaths: new Set(["__monitor__"]) },
     );
+    await queueNotificationEvents(transition.events, config);
     await writeFindingState(findingStatePath, transition.state);
-    const notification = await deliverNotifications(transition.events, config);
+    const notification = await deliverNotifications(config);
     const result = { heartbeatPath, heartbeat, stale: Boolean(staleFinding), findingEvents: transition.events };
     if (jsonOutput) console.log(JSON.stringify(result, null, 2));
     else console.log(staleFinding ? `Monitor is stale: ${heartbeatPath}` : `Monitor is healthy: ${heartbeat?.completedAt ?? "unknown"}`);

@@ -37,6 +37,16 @@ describe("notification outbox", () => {
     expect(compactNotificationOutbox(fullyDelivered).entries).toHaveLength(0);
   });
 
+  it("deduplicates a replayed transition after a crash with a new timestamp", () => {
+    const replay = { ...event(), occurredAt: "2026-08-18T00:01:00.000Z" };
+
+    const queued = enqueueNotificationEvents(emptyNotificationOutbox(), [event()]);
+    const replayed = enqueueNotificationEvents(queued, [replay]);
+
+    expect(replayed.entries).toHaveLength(1);
+    expect(replayed.entries[0]?.event.occurredAt).toBe(event().occurredAt);
+  });
+
   it("allows disabled channels to be discarded without retaining an alert backlog", () => {
     const queued = enqueueNotificationEvents(emptyNotificationOutbox(), [event()]);
     const skippedWebhook = markNotificationChannelSent(queued, "webhook", [event()]);
