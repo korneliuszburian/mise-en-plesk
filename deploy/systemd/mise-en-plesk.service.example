@@ -14,6 +14,8 @@ Group=mise-en-plesk
 WorkingDirectory=/opt/mise-en-plesk
 Environment=MISE_PLESK_SCHEDULED_TARGET=all
 Environment=MISE_PLESK_SCAN_CHUNK_SIZE=20
+Environment=MISE_PLESK_INVENTORY=/var/lib/mise-en-plesk/inventory.json
+Environment=MISE_PLESK_CONFIG=/var/lib/mise-en-plesk/config.mise-en-plesk.json
 Environment=MISE_PLESK_REPORTS=/var/lib/mise-en-plesk/reports
 Environment=MISE_PLESK_SCHEDULE_LOG_DIR=/var/lib/mise-en-plesk/logs
 Environment=MISE_PLESK_SCHEDULE_LOCK_FILE=/var/lib/mise-en-plesk/scan.lock

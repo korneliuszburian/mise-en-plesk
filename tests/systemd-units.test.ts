@@ -7,6 +7,8 @@ describe("systemd deployment contract", () => {
 
     expect(unit).toContain("ProtectSystem=strict");
     expect(unit).toContain("ReadWritePaths=/var/lib/mise-en-plesk");
+    expect(unit).toContain("Environment=MISE_PLESK_INVENTORY=/var/lib/mise-en-plesk/inventory.json");
+    expect(unit).toContain("Environment=MISE_PLESK_CONFIG=/var/lib/mise-en-plesk/config.mise-en-plesk.json");
     expect(unit).toContain("Environment=MISE_PLESK_REPORTS=/var/lib/mise-en-plesk/reports");
     expect(unit).toContain("Environment=MISE_PLESK_SCAN_CURSOR=/var/lib/mise-en-plesk/scan-cursor.json");
     expect(unit).toContain("Environment=MISE_PLESK_FINDINGS=/var/lib/mise-en-plesk/findings.json");

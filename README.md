@@ -139,8 +139,8 @@ WhatsApp Business adapter. Transient timeout/408/429/5xx failures receive a
 bounded retry with backoff; permanent 4xx failures are not retried. Pending P1
 events are retained in the local gitignored notification outbox and retried on
 the next run, so a temporary alerting outage does not lose a finding. Disabled
-channels are discarded from the outbox rather than creating an old-alert
-backlog; configure a channel before the scan if it must receive the event.
+channels remain pending, so enabling Hermes Agent later can deliver an alert
+that was observed while Hermes was not configured.
 Delivery history is stored separately in the gitignored notification history
 file and applies a 24-hour per-finding, per-channel cooldown by default. Set
 `notificationCooldownHours` in config to change it; set it to `0` to disable
@@ -228,6 +228,14 @@ sudo install -d -o mise-en-plesk -g mise-en-plesk -m 0750 \
 # With BW_SESSION present only in the current shell, rotate the encrypted
 # credential without putting it in argv or a plaintext file.
 scripts/update-systemd-bw-credential.sh
+
+# Provision the non-secret runtime inputs before enabling the timer. Keep the
+# checkout read-only; the service reads these copies from /var/lib.
+sudo install -o mise-en-plesk -g mise-en-plesk -m 0640 \
+  config.mise-en-plesk.json /var/lib/mise-en-plesk/config.mise-en-plesk.json
+pnpm --silent run mise-plesk-audit sync-ssh
+sudo install -o mise-en-plesk -g mise-en-plesk -m 0640 \
+  inventory.json /var/lib/mise-en-plesk/inventory.json
 sudo systemctl daemon-reload
 sudo systemctl enable --now mise-en-plesk.timer
 systemctl status mise-en-plesk.timer

@@ -18,6 +18,7 @@ import {
   markNotificationChannelSent,
   pendingNotificationEvents,
   readNotificationOutbox,
+  type NotificationChannel,
   writeNotificationOutbox,
 } from "../src/notification-outbox";
 import { markNotificationsSent, partitionByCooldown, readNotificationHistory, writeNotificationHistory } from "../src/notification-history";
@@ -130,14 +131,14 @@ async function deliverNotifications(
   const cooldownMs = cooldownHours * 60 * 60 * 1000;
   const now = new Date();
 
-  const pendingForDelivery = (channel: "webhook" | "whatsapp" | "hermes") => {
+  const pendingForDelivery = (channel: NotificationChannel) => {
     const pending = pendingNotificationEvents(outbox, channel);
     const partition = partitionByCooldown(pending, channel, history, now, cooldownMs);
     if (partition.suppressed.length) outbox = markNotificationChannelSent(outbox, channel, partition.suppressed);
     return partition.deliverable;
   };
 
-  const markDelivered = (channel: "webhook" | "whatsapp" | "hermes", events: FindingEvent[]) => {
+  const markDelivered = (channel: NotificationChannel, events: FindingEvent[]) => {
     if (!events.length) return;
     outbox = markNotificationChannelSent(outbox, channel, events);
     history = markNotificationsSent(history, channel, events, now);
@@ -199,14 +200,11 @@ async function deliverNotifications(
       },
     },
   ];
-  const sentChannels: Record<"webhook" | "whatsapp" | "hermes", boolean> = { webhook: false, whatsapp: false, hermes: false };
+  const sentChannels: Record<NotificationChannel, boolean> = { webhook: false, whatsapp: false, hermes: false };
   for (const adapter of channels) {
+    if (!adapter.configured) continue;
     const pending = pendingForDelivery(adapter.channel);
     if (!pending.length) continue;
-    if (!adapter.configured) {
-      outbox = markNotificationChannelSent(outbox, adapter.channel, pending);
-      continue;
-    }
     const result = await adapter.notifier.send(pending);
     if (result.sentEvents.length) markDelivered(adapter.channel, result.sentEvents);
     sentChannels[adapter.channel] ||= result.sent;
