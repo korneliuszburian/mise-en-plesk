@@ -144,4 +144,17 @@ describe("local preflight", () => {
     expect(commands).toContain("hermes");
     expect(result.checks.find((item) => item.name === "hermes")).toMatchObject({ ok: true, blocking: false });
   });
+
+  it("rejects an invalid Hermes target without checking the executable", async () => {
+    const commands: string[] = [];
+    const result = await runPreflight({
+      inventoryPath: "/tmp/mise-en-plesk-no-inventory.json",
+      configPath: "/tmp/mise-en-plesk-no-config.json",
+      env: { BW_SESSION: "short-lived", MISE_PLESK_HERMES_WHATSAPP_TARGET: "telegram:123" },
+      commandRunner: async (command) => { commands.push(command); return "available"; },
+    });
+
+    expect(commands).not.toContain("hermes");
+    expect(result.checks.find((item) => item.name === "hermes")).toMatchObject({ ok: false, blocking: false, detail: expect.stringContaining("invalid target") });
+  });
 });

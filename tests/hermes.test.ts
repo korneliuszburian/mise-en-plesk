@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { sendFindingEventsViaHermes, sendHermesText } from "../src/hermes";
+import { isHermesWhatsAppTarget, sendFindingEventsViaHermes, sendHermesText } from "../src/hermes";
 import type { FindingEvent } from "../src/finding-state";
 
 const event: FindingEvent = {
@@ -20,6 +20,12 @@ const event: FindingEvent = {
 };
 
 describe("Hermes notifications", () => {
+  it("accepts only explicit WhatsApp targets", () => {
+    expect(isHermesWhatsAppTarget("whatsapp:123@s.whatsapp.net")).toBe(true);
+    expect(isHermesWhatsAppTarget("telegram:123")).toBe(false);
+    expect(isHermesWhatsAppTarget("whatsapp:123 target")).toBe(false);
+  });
+
   it("does not run a process when the target is disabled", async () => {
     let called = false;
     const result = await sendFindingEventsViaHermes([event], {

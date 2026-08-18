@@ -21,6 +21,17 @@ export interface HermesResult {
   sentEvents: FindingEvent[];
 }
 
+export function isHermesWhatsAppTarget(value: string | undefined): value is string {
+  return typeof value === "string" && /^whatsapp:\S+$/.test(value.trim());
+}
+
+function requireHermesWhatsAppTarget(value: string | undefined): string {
+  if (!isHermesWhatsAppTarget(value)) {
+    throw new Error("Hermes WhatsApp target must match whatsapp:<chat-id> without whitespace.");
+  }
+  return value.trim();
+}
+
 function eligible(events: FindingEvent[]): FindingEvent[] {
   return events.filter((event) =>
     (event.type === "opened" || event.type === "reopened") && event.finding.severity === "P1");
@@ -62,6 +73,13 @@ export async function sendFindingEventsViaHermes(
   if (!options.target?.trim() || selected.length === 0) {
     return { sent: false, eligibleEvents: selected.length, sentEvents: [] };
   }
+  let target: string;
+  try {
+    target = requireHermesWhatsAppTarget(options.target);
+  } catch (error: unknown) {
+    options.debug?.(`Hermes notification skipped: ${error instanceof Error ? error.message : "invalid target"}`);
+    return { sent: false, eligibleEvents: selected.length, sentEvents: [] };
+  }
 
   const binary = options.binary?.trim() || "hermes";
   const timeoutMs = options.timeoutMs ?? 15_000;
@@ -70,7 +88,7 @@ export async function sendFindingEventsViaHermes(
   for (const chunk of chunks(selected, maxLength)) {
     const message = chunk.map((event) => eventText(event, maxLength)).join("\n");
     try {
-      await (options.commandRunner ?? defaultCommandRunner)(binary, ["send", "--to", options.target.trim(), message], timeoutMs);
+      await (options.commandRunner ?? defaultCommandRunner)(binary, ["send", "--to", target, message], timeoutMs);
       sentEvents.push(...chunk);
     } catch (error: unknown) {
       options.debug?.(`Hermes notification skipped: ${error instanceof Error ? error.message : "command failed"}`);
@@ -84,10 +102,10 @@ export async function sendHermesText(
   message: string,
   options: Pick<HermesOptions, "target" | "binary" | "timeoutMs" | "commandRunner">,
 ): Promise<void> {
-  if (!options.target?.trim()) throw new Error("MISE_PLESK_HERMES_WHATSAPP_TARGET is not configured.");
+  const target = requireHermesWhatsAppTarget(options.target);
   await (options.commandRunner ?? defaultCommandRunner)(
     options.binary?.trim() || "hermes",
-    ["send", "--to", options.target.trim(), message],
+    ["send", "--to", target, message],
     options.timeoutMs ?? 15_000,
   );
 }

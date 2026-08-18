@@ -3,6 +3,7 @@ import { promisify } from "node:util";
 import { readInventory } from "./ssh-inventory";
 import { isHeartbeatStale, readHeartbeat } from "./monitor-health";
 import { readConfigFile } from "./config";
+import { isHermesWhatsAppTarget } from "./hermes";
 
 const execFileAsync = promisify(execFile);
 
@@ -134,7 +135,9 @@ export async function runPreflight(options: PreflightOptions = {}): Promise<Pref
     }
   }
   const hermesTarget = env.MISE_PLESK_HERMES_WHATSAPP_TARGET?.trim();
-  if (hermesTarget) {
+  if (hermesTarget && !isHermesWhatsAppTarget(hermesTarget)) {
+    checks.push(check("hermes", false, "invalid target; expected whatsapp:<chat-id> without whitespace", false));
+  } else if (hermesTarget) {
     try {
       const version = await commandRunner(env.MISE_PLESK_HERMES_BIN?.trim() || "hermes");
       checks.push(check("hermes", true, `${version || "available"}; target configured`, false));
