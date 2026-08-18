@@ -30,10 +30,10 @@ the implementation, automated check, and operational evidence agree.
 | Stale monitor signal | done | `src/monitor-health.ts`, CLI and tests |
 | Locking and concurrent-run protection | done | local lock, scheduler `flock`, lock tests |
 | Bounded scan and per-host rotation | done | `scan-cursor.ts`, scheduler, cursor tests and bounded runtime proof |
-| Master and dev real-host proof | partial | bounded SSH scan proof required on the current checkout; credentials stay operator-owned |
+| Master and dev real-host proof | done | current checkout completed bounded read-only scans: `master-ssh` reported 216 subscriptions/1 candidate, `dev-ssh` 92 subscriptions/1 candidate; no credentials were written to reports |
 | WhatsApp production delivery proof | partial | adapter and fake-client tests are done; approved template and runtime env are operator-owned |
 | Full-fleet rotation proof | partial | one bounded chunk per host is safe; a complete multi-cycle fleet run must be observed on the operator runner |
-| CI on supported Node versions | done | `.github/workflows/ci.yml`, Node 20/22 matrix; latest pushed commit must be green |
+| CI on supported Node versions | done | `.github/workflows/ci.yml`, Node 20/22 matrix; CI run `32122112111` passed both jobs |
 | Public repository / review trail | done | GitHub remote, semantic commit history, two-axis review required per major slice |
 | Remote mutation safety audit | done | `tests/read-only-safety.test.ts` checks generated Plesk/WP commands against the forbidden mutation set |
 
