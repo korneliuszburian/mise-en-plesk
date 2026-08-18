@@ -30,11 +30,11 @@ the implementation, automated check, and operational evidence agree.
 | Stale monitor signal | done | `src/monitor-health.ts`, CLI and tests |
 | Locking and concurrent-run protection | done | local lock, scheduler `flock`, lock tests |
 | Bounded scan and per-host rotation | done | streamed/deduplicated paginated filesystem discovery, `scan-cursor.ts` plus `scan-cycle.ts`, scheduler, cursor/cycle tests and bounded runtime proof on master/dev |
-| Production scheduler packaging | partial | non-root systemd service/timer examples, encrypted `LoadCredentialEncrypted` contract, repeatable credential rotation helper, hardened filesystem policy, and README install/stop instructions; deployment on the operator's actual always-on runner remains unverified |
+| Production scheduler packaging | partial | non-root systemd service/timer examples, encrypted `LoadCredentialEncrypted` contract, repeatable credential rotation helper, hardened filesystem policy, scheduler integration coverage including custom `reportsDirectory`, and README install/stop instructions; deployment on the operator's actual always-on runner remains unverified |
 | Master and dev real-host proof | done | current checkout completed bounded read-only scans: `master-ssh` reported 216 subscriptions/1 candidate and classified the site as runtime-incompatible, `dev-ssh` reported 92 subscriptions/1 candidate and classified the site as WP-CLI-broken; no credentials were written to reports |
 | WhatsApp production delivery proof | partial | adapter, fake-client tests, and recipient-bound `whatsapp-test --confirm=<recipient>` are implemented; approved template and runtime env are operator-owned |
 | Full-fleet rotation proof | done | current checkout completed two scheduler cycles across both configured hosts; each host advanced independently from offset `0` to `2`, with four unique timestamped reports and persistent findings/outbox state |
-| CI on supported Node versions | done | `.github/workflows/ci.yml`, Node 20/22 matrix; CI run `32129221215` passed both jobs |
+| CI on supported Node versions | done | `.github/workflows/ci.yml`, Node 20/22 matrix; CI run `32129869838` passed both jobs |
 | Public repository / review trail | done | GitHub remote, semantic commit history, two-axis review required per major slice |
 | Remote mutation safety audit | done | `tests/read-only-safety.test.ts` checks generated Plesk/WP commands against the forbidden mutation set |
 
