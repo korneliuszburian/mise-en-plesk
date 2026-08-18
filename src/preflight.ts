@@ -64,12 +64,22 @@ export async function runPreflight(options: PreflightOptions = {}): Promise<Pref
     env.BW_SESSION?.trim() ? "present for this process" : "missing; source scripts/setup-bw-session.sh",
   ));
 
+  let passwordAuthHosts = 0;
   const inventoryPath = options.inventoryPath ?? "inventory.json";
   try {
-    await readInventory(inventoryPath);
+    const inventory = await readInventory(inventoryPath);
+    passwordAuthHosts = Object.values(inventory).filter((host) => host.credentialMode === "secure-note-password").length;
     checks.push(check("inventory", true, `${inventoryPath} is readable`));
   } catch (error: unknown) {
     checks.push(check("inventory", false, error instanceof Error ? error.message : `cannot read ${inventoryPath}`));
+  }
+
+  const sshpassCheck = checks.find((item) => item.name === "sshpass");
+  if (sshpassCheck && passwordAuthHosts > 0) {
+    sshpassCheck.blocking = true;
+    if (!sshpassCheck.ok) {
+      sshpassCheck.detail = `required for ${passwordAuthHosts} Bitwarden Secure Note password-authenticated host(s)`;
+    }
   }
 
   const configPath = options.configPath ?? "config.mise-en-plesk.json";

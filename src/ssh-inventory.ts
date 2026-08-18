@@ -47,6 +47,9 @@ function validateHostConfig(value: unknown, alias: string): HostConfig {
   if (/[\s/@]/.test(hostName)) throw new Error(`${source}.host contains unsafe SSH target characters`);
   const user = nonEmptyString(host.user, "user", source);
   if (/[\s/@:]/.test(user)) throw new Error(`${source}.user contains unsafe SSH username characters`);
+  if (host.credentialMode !== undefined && host.credentialMode !== "secure-note-password") {
+    throw new Error(`${source}.credentialMode is invalid`);
+  }
   return {
     id: nonEmptyString(host.id, "id", source),
     name: nonEmptyString(host.name, "name", source),
@@ -54,6 +57,7 @@ function validateHostConfig(value: unknown, alias: string): HostConfig {
     port,
     user,
     identitySource: nonEmptyString(host.identitySource, "identitySource", source),
+    ...(host.credentialMode ? { credentialMode: host.credentialMode } : {}),
     alias: entryAlias,
   };
 }

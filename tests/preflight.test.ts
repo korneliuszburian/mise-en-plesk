@@ -59,6 +59,40 @@ describe("local preflight", () => {
     expect(whatsapp?.detail).not.toContain("do-not-print");
   });
 
+  it("makes sshpass blocking when inventory requires Secure Note password auth", async () => {
+    const directory = await mkdtemp(join(tmpdir(), "mise-en-plesk-preflight-password-"));
+    const inventoryPath = join(directory, "inventory.json");
+    await writeFile(inventoryPath, JSON.stringify({
+      dev: {
+        alias: "dev",
+        id: "dev-id",
+        name: "dev ssh",
+        host: "dev.example.test",
+        port: 22,
+        user: "deploy",
+        identitySource: "bitwarden:dev-id",
+        credentialMode: "secure-note-password",
+      },
+    }));
+    const result = await runPreflight({
+      inventoryPath,
+      configPath: "/tmp/mise-en-plesk-no-config.json",
+      env: { BW_SESSION: "short-lived" },
+      commandRunner: async (command) => {
+        if (command === "sshpass") throw new Error("not installed");
+        return "available";
+      },
+    });
+
+    expect(result.checks).toContainEqual(expect.objectContaining({
+      name: "sshpass",
+      ok: false,
+      blocking: true,
+      detail: expect.stringContaining("Secure Note password"),
+    }));
+    expect(result.ok).toBe(false);
+  });
+
   it("reports a stale monitor heartbeat without making doctor fail", async () => {
     const directory = await mkdtemp(join(tmpdir(), "mise-en-plesk-preflight-"));
     const heartbeatPath = join(directory, "heartbeat.json");

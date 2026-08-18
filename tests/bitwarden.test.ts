@@ -58,6 +58,7 @@ describe("bitwarden", () => {
       port: 2222,
       user: "root",
       identitySource: "bitwarden:secure-note-1",
+      credentialMode: "secure-note-password",
     });
     expect(parseSecureNoteSsh(item.notes)).toEqual({
       host: "master.example.test",

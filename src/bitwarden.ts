@@ -28,6 +28,7 @@ export interface HostDescriptor {
   port: number;
   user: string;
   identitySource: string;
+  credentialMode?: "secure-note-password";
 }
 
 export interface SecureNoteSshCredentials {
@@ -104,6 +105,7 @@ export function normalizeHostDescriptor(item: BitwardenItem): HostDescriptor {
     port,
     user,
     identitySource: fieldValue(item, "identitySource") ?? `bitwarden:${item.id}`,
+    ...(secureNote ? { credentialMode: "secure-note-password" as const } : {}),
   };
 }
 

@@ -36,7 +36,9 @@ Notes. Their read-only SSH shape is `host:port\nuser:password` (the separator
 may be a literal `\\n`). `sync-ssh` understands these two notes and writes only
 host metadata to `inventory.json`; the password is fetched again from
 Bitwarden at scan time and passed to `sshpass` through the child environment.
-Install `sshpass` locally when password-authenticated SSH is required.
+The cache records only the non-secret `credentialMode` marker for Secure Note
+password hosts, so `doctor` can fail early if `sshpass` is unavailable. Install
+`sshpass` locally when password-authenticated SSH is required.
 
 The `scan <target>` command runs a read-only SSH/Plesk/WordPress scan and writes
 a Markdown report under `reports/`. Plesk commands are intentionally
