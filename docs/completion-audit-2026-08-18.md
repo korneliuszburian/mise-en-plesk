@@ -18,6 +18,7 @@ the implementation, automated check, and operational evidence agree.
 | --- | --- | --- |
 | TypeScript, Node.js, pnpm, strict build | done | `package.json`, `tsconfig.json`, `pnpm typecheck`, `pnpm build` |
 | Bitwarden CLI session and Secure Note credentials | done | `src/bitwarden.ts`, runtime-only item fetch, credential-mode-aware `src/preflight.ts`, and direct-scan preflight proof |
+| Remote capability preflight | done | `remote-preflight <target>` uses a typed read-only probe; transpiled runtime proof against `dev-ssh` identified UID 1000 `szymon`, Node/systemd present, and bw/pnpm/sshpass absent |
 | Local inventory cache without credentials | done | `src/ssh-inventory.ts`, ignored `inventory.json`, unit tests |
 | SSH-only remote access and bounded commands | done | `src/plesk-scan.ts`, fixed command construction, timeout/process-group/output-bound tests |
 | Plesk subscription and WordPress discovery | done | `scanPleskHost`, pagination cursor, alternate `version.php` signal, tests |
@@ -48,6 +49,10 @@ the implementation, automated check, and operational evidence agree.
   non-root `szymon` account (UID 1000); Node and systemd are present, while
   `bw`, pnpm, and sshpass are absent. No installation or remote write was
   attempted.
+- The transpiled CLI (`node dist/bin/mise-plesk-audit.js`) completed the same
+  read-only capability proof. A fresh bounded scheduler run on `dev-ssh`
+  completed one chunk, advanced the persistent cursor from offset `0` to `1`,
+  and recorded an intentionally incomplete heartbeat without remote mutation.
 - `pnpm typecheck`, `pnpm build`, `git diff --check`, `bash -n scripts/*.sh`, and
   `systemd-analyze verify` on copied unit examples passed.
 - GitHub Actions run `32134127563` passed both Node 20 and Node 22 jobs for
