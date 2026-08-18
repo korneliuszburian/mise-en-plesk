@@ -10,7 +10,7 @@ const execFileAsync = promisify(execFile);
 function execFileWithInput(
   executable: string,
   args: string[],
-  options: { env?: NodeJS.ProcessEnv; timeout?: number },
+  options: { env?: NodeJS.ProcessEnv; timeout?: number; maxOutputBytes?: number },
   input?: string,
 ): Promise<{ stdout: string; stderr: string }> {
   return new Promise((resolve, reject) => {
@@ -18,6 +18,8 @@ function execFileWithInput(
     let stdout = "";
     let stderr = "";
     let timedOut = false;
+    let outputLimitExceeded = false;
+    const maxOutputBytes = options.maxOutputBytes ?? 8 * 1024 * 1024;
     let forceKillTimer: NodeJS.Timeout | undefined;
     const child = spawn(executable, args, {
       env: options.env,
@@ -38,8 +40,20 @@ function execFileWithInput(
       terminate("SIGTERM");
       forceKillTimer = setTimeout(() => terminate("SIGKILL"), 500);
     }, timeoutMs);
-    child.stdout?.on("data", (chunk: Buffer) => { stdout += chunk.toString(); });
-    child.stderr?.on("data", (chunk: Buffer) => { stderr += chunk.toString(); });
+    const appendOutput = (stream: "stdout" | "stderr", chunk: Buffer): void => {
+      if (outputLimitExceeded) return;
+      const currentBytes = Buffer.byteLength(stdout) + Buffer.byteLength(stderr);
+      if (currentBytes + chunk.byteLength > maxOutputBytes) {
+        outputLimitExceeded = true;
+        terminate("SIGTERM");
+        forceKillTimer = setTimeout(() => terminate("SIGKILL"), 500);
+        return;
+      }
+      if (stream === "stdout") stdout += chunk.toString();
+      else stderr += chunk.toString();
+    };
+    child.stdout?.on("data", (chunk: Buffer) => appendOutput("stdout", chunk));
+    child.stderr?.on("data", (chunk: Buffer) => appendOutput("stderr", chunk));
     child.once("error", (error: Error) => {
       if (timeoutTimer) clearTimeout(timeoutTimer);
       if (forceKillTimer) clearTimeout(forceKillTimer);
@@ -49,11 +63,13 @@ function execFileWithInput(
     child.once("close", (code, signal) => {
       if (timeoutTimer) clearTimeout(timeoutTimer);
       if (forceKillTimer) clearTimeout(forceKillTimer);
-      if (code === 0) {
+      const error = new Error(outputLimitExceeded
+        ? `Command failed (output exceeded ${maxOutputBytes} bytes)`
+        : `Command failed${timedOut ? " (timeout)" : ""}${signal ? ` (${signal})` : code !== null ? ` (exit code ${code})` : ""}`);
+      if (code === 0 && !outputLimitExceeded) {
         resolve({ stdout, stderr });
         return;
       }
-      const error = new Error(`Command failed${timedOut ? " (timeout)" : ""}${signal ? ` (${signal})` : code !== null ? ` (exit code ${code})` : ""}`);
       Object.assign(error, { stdout, stderr, code: code ?? signal });
       reject(error);
     });
@@ -117,6 +133,7 @@ interface SshInvocationOptions {
   controlPath?: string;
   stdin?: string;
   timeoutMs?: number;
+  maxOutputBytes?: number;
 }
 
 export const DEFAULT_SSH_COMMAND_TIMEOUT_MS = 60_000;
@@ -144,6 +161,7 @@ export async function runSshCommand(host: HostConfig, command: string, password?
     const result = await execFileWithInput(invocation.executable, [...invocation.args, command], {
       env: invocation.env,
       timeout: options.timeoutMs ?? DEFAULT_SSH_COMMAND_TIMEOUT_MS,
+      maxOutputBytes: options.maxOutputBytes,
     }, options.stdin);
     return result.stdout;
   } catch (error: unknown) {
@@ -169,7 +187,12 @@ export async function createSshSession(host: HostConfig, password?: string, sudo
     stdin: sudoPassword === undefined ? undefined : `${sudoPassword}\n`,
     timeoutMs: commandTimeoutMs,
   });
-  await run(":");
+  try {
+    await run(":");
+  } catch (error: unknown) {
+    await rm(directory, { recursive: true, force: true });
+    throw error;
+  }
 
   return {
     run,

@@ -123,6 +123,21 @@ describe("plesk scan", () => {
     }
   });
 
+  it("bounds captured SSH output before it can exhaust the scanner process", async () => {
+    if (process.platform === "win32") return;
+    const directory = await mkdtemp(join(tmpdir(), "mise-en-plesk-ssh-output-"));
+    const fakeSshpass = join(directory, "sshpass");
+    await writeFile(fakeSshpass, "#!/bin/sh\nhead -c 4096 /dev/zero\n");
+    await chmod(fakeSshpass, 0o755);
+    const previousPath = process.env.PATH;
+    process.env.PATH = `${directory}:${previousPath ?? ""}`;
+    try {
+      await expect(runSshCommand(host, ":", "secret-password", { timeoutMs: 5_000, maxOutputBytes: 256 })).rejects.toThrow("output exceeded 256 bytes");
+    } finally {
+      process.env.PATH = previousPath;
+    }
+  });
+
   it("collects subscriptions and WordPress config paths using read-only commands", async () => {
     const calls: string[] = [];
     const runner: SshCommandRunner = async (_host, command) => {
