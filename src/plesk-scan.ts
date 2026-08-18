@@ -110,9 +110,13 @@ export async function scanPleskHost(
   runner: SshCommandRunner = runSshCommand,
   options: PleskScanOptions = {},
 ): Promise<PleskScanResult> {
-  const subscriptions = parseLineList(await runner(host, "plesk bin subscription --list"));
   const offset = options.wordpressOffset ?? 0;
   const limit = options.wordpressLimit;
+  if (!Number.isSafeInteger(offset) || offset < 0) throw new Error("wordpressOffset must be a non-negative safe integer.");
+  if (limit !== undefined && (!Number.isSafeInteger(limit) || limit < 1)) {
+    throw new Error("wordpressLimit must be a positive safe integer.");
+  }
+  const subscriptions = parseLineList(await runner(host, "plesk bin subscription --list"));
   const discoveryCommand = limit === undefined
     ? "find /var/www/vhosts -xdev -maxdepth 4 -type f -name wp-config.php -print"
     : `find /var/www/vhosts -xdev -maxdepth 4 -type f -name wp-config.php -print | sort | awk 'NR > ${offset} && NR <= ${offset + limit + 1} { print }'`;

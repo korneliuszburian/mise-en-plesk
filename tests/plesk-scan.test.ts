@@ -77,4 +77,11 @@ describe("plesk scan", () => {
     });
     expect(calls[1]).toContain("awk 'NR > 2 && NR <= 5");
   });
+
+  it("rejects unsafe discovery ranges before building a remote command", async () => {
+    const runner: SshCommandRunner = async () => "";
+
+    await expect(scanPleskHost(host, runner, { wordpressOffset: -1 })).rejects.toThrow("wordpressOffset");
+    await expect(scanPleskHost(host, runner, { wordpressLimit: 0 })).rejects.toThrow("wordpressLimit");
+  });
 });
