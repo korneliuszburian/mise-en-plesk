@@ -21,6 +21,7 @@ import { runPreflight } from "../src/preflight";
 import { createMonitorStaleFinding, readHeartbeat, writeHeartbeat } from "../src/monitor-health";
 import { parseCliArguments } from "../src/cli-args";
 import { readConfigFile, type MisePleskConfig } from "../src/config";
+import { acquireLocalLock, type LocalLock } from "../src/local-lock";
 
 const inventoryPath = process.env.MISE_PLESK_INVENTORY ?? "inventory.json";
 const configPath = process.env.MISE_PLESK_CONFIG ?? "config.mise-en-plesk.json";
@@ -220,6 +221,11 @@ async function scanHost(
 async function main(): Promise<void> {
   const { command, target, flags } = parseCliArguments(process.argv.slice(2));
   const json = flags.includes("--json");
+  let runLock: LocalLock | undefined;
+  try {
+    if ((command === "scan" || command === "monitor-health") && process.env.MISE_PLESK_RUN_LOCK_HELD !== "1") {
+      runLock = await acquireLocalLock(process.env.MISE_PLESK_RUN_LOCK ?? ".mise-en-plesk/scan.lock");
+    }
   if (command === "doctor") {
     const config = await readOptionalConfig();
     const result = await runPreflight({ inventoryPath, configPath, heartbeatPath: process.env.MISE_PLESK_HEARTBEAT ?? config.heartbeatPath });
@@ -374,7 +380,10 @@ async function main(): Promise<void> {
     if (whatsappSent) console.log("Sent pending P1 WhatsApp alert(s).");
     return;
   }
-  usage();
+    usage();
+  } finally {
+    await runLock?.release();
+  }
 }
 
 main().catch(async (error: unknown) => {

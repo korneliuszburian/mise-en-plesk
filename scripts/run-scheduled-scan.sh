@@ -25,6 +25,8 @@ log_path="$log_dir/scan-$(date -u +%Y%m%dT%H%M%SZ).log"
 exec > >(tee -a "$log_path") 2>&1
 echo "[$(date -u +%Y-%m-%dT%H:%M:%SZ)] starting read-only scan target=$target"
 cd "$repo_root"
+export MISE_PLESK_RUN_LOCK="$lock_file"
+export MISE_PLESK_RUN_LOCK_HELD=1
 "${runner_args[@]}" mise-plesk-audit monitor-health --json
 "${runner_args[@]}" mise-plesk-audit doctor --json
 "${runner_args[@]}" mise-plesk-audit scan "$target" --json --max-sites="$chunk_size" --all-chunks

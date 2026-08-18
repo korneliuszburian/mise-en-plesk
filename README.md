@@ -57,6 +57,10 @@ findings for the whole host.
 SSH commands have a bounded 60-second timeout by default; set
 `sshCommandTimeoutMs` when a large Plesk filesystem needs a different explicit
 limit. This changes only the local wait bound, never the remote command set.
+`scan` and `monitor-health` use a local process lock at
+`.mise-en-plesk/scan.lock` (override with `MISE_PLESK_RUN_LOCK`) so concurrent
+processes cannot overwrite finding state or the notification outbox. The
+scheduler owns that same lock and passes ownership to its child commands.
 For an unattended complete run, use `--all-chunks`; it repeats bounded
 discovery until every installation is covered and writes one aggregate report:
 `scan all --json --max-sites=20 --all-chunks`. Starting `--all-chunks` at a
