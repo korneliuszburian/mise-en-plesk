@@ -21,6 +21,7 @@ import { readConfigFile, type MisePleskConfig } from "../src/config";
 import { acquireLocalLock, type LocalLock } from "../src/local-lock";
 import { createWhatsAppTestEvent, requireWhatsAppTestConfirmation } from "../src/notification-test";
 import { formatScanOutput } from "../src/cli-output";
+import { isCompleteScanPage, nextScanOffset } from "../src/scan-lifecycle";
 
 const inventoryPath = process.env.MISE_PLESK_INVENTORY ?? "inventory.json";
 const configPath = process.env.MISE_PLESK_CONFIG ?? "config.mise-en-plesk.json";
@@ -220,13 +221,16 @@ async function scanHost(
         ...(scan.warnings ? { warnings: scan.warnings } : {}),
       },
       scannedInstallationPaths,
-      complete: maxSites === undefined
-        ? offset === 0
-        : scan.wordpressHasMore === false,
+      complete: isCompleteScanPage(scan, maxSites, offset),
       offset,
     };
   } finally {
-    await session.close();
+    try {
+      await session.close();
+    } catch (error: unknown) {
+      const detail = error instanceof Error ? error.message.replace(/\s+/g, " ").trim().slice(0, 200) : "SSH session close failed";
+      console.error(`[${alias}] SSH session close warning: ${detail}`);
+    }
   }
 }
 
@@ -389,8 +393,7 @@ async function main(): Promise<void> {
         whatsappSent ||= batchTransition.whatsappSent;
         hermesSent ||= batchTransition.hermesSent;
         if (!scanRange.allChunks || execution.complete) break;
-        if (!execution.scannedInstallationPaths.length) throw new Error(`[${alias}] bounded scan made no progress at offset ${offset}.`);
-        offset += execution.scannedInstallationPaths.length;
+        offset = nextScanOffset(offset, execution.scannedInstallationPaths.length);
       }
       const finalExecution = hostExecutions.at(-1);
       if (finalExecution?.complete) {
