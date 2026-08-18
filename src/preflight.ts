@@ -78,5 +78,24 @@ export async function runPreflight(options: PreflightOptions = {}): Promise<Pref
     env.MISE_PLESK_ALERT_WEBHOOK_URL?.trim() ? "webhook configured" : "disabled; set MISE_PLESK_ALERT_WEBHOOK_URL to enable",
     false,
   ));
+  const whatsappVariables = [
+    "MISE_PLESK_WHATSAPP_ACCESS_TOKEN",
+    "MISE_PLESK_WHATSAPP_PHONE_NUMBER_ID",
+    "MISE_PLESK_WHATSAPP_RECIPIENT",
+    "MISE_PLESK_WHATSAPP_TEMPLATE_NAME",
+    "MISE_PLESK_WHATSAPP_GRAPH_VERSION",
+  ];
+  const missingWhatsApp = whatsappVariables.filter((name) => !env[name]?.trim());
+  const configuredWhatsApp = missingWhatsApp.length < whatsappVariables.length;
+  checks.push(check(
+    "whatsapp",
+    !configuredWhatsApp || missingWhatsApp.length === 0,
+    !configuredWhatsApp
+      ? "disabled; set the WhatsApp environment variables to enable"
+      : missingWhatsApp.length === 0
+        ? "configuration complete"
+        : `incomplete; missing ${missingWhatsApp.join(", ")}`,
+    false,
+  ));
   return { ok: checks.filter((item) => item.blocking).every((item) => item.ok), checks };
 }

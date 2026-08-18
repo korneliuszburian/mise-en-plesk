@@ -79,7 +79,8 @@ from the process environment and never persisted.
 Run `mise-plesk-audit doctor` before a scheduled scan. It checks local
 prerequisites, session presence, inventory/config readability, and reports
 whether alerting is enabled. Alerting is informational and does not make a
-scan fail by itself.
+scan fail by itself. It also reports whether the WhatsApp configuration is
+disabled, complete, or partially configured without printing secret values.
 
 For a simple cron/systemd timer integration, run
 `scripts/run-scheduled-scan.sh`. It defaults to `scan all --json`, writes

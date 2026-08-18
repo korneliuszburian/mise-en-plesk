@@ -32,6 +32,20 @@ describe("local preflight", () => {
     });
 
     expect(result.checks.find((item) => item.name === "alerting")).toMatchObject({ ok: false });
+    expect(result.checks.find((item) => item.name === "whatsapp")).toMatchObject({ ok: true, detail: expect.stringContaining("disabled") });
     expect(result.ok).toBe(false);
+  });
+
+  it("reports partial WhatsApp configuration without exposing values", async () => {
+    const result = await runPreflight({
+      inventoryPath: "/tmp/mise-en-plesk-no-inventory.json",
+      configPath: "/tmp/mise-en-plesk-no-config.json",
+      env: { MISE_PLESK_WHATSAPP_ACCESS_TOKEN: "do-not-print", MISE_PLESK_WHATSAPP_PHONE_NUMBER_ID: "123" },
+      commandRunner: async () => "available",
+    });
+    const whatsapp = result.checks.find((item) => item.name === "whatsapp");
+    expect(whatsapp).toMatchObject({ ok: false, blocking: false });
+    expect(whatsapp?.detail).toContain("MISE_PLESK_WHATSAPP_RECIPIENT");
+    expect(whatsapp?.detail).not.toContain("do-not-print");
   });
 });
