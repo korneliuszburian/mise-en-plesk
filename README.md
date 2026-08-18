@@ -71,3 +71,11 @@ Run `mise-plesk-audit doctor` before a scheduled scan. It checks local
 prerequisites, session presence, inventory/config readability, and reports
 whether alerting is enabled. Alerting is informational and does not make a
 scan fail by itself.
+
+For a simple cron/systemd timer integration, run
+`scripts/run-scheduled-scan.sh`. It defaults to `scan all --json`, writes
+0600 logs under `.mise-en-plesk/logs/`, and uses an atomic directory lock. Set
+`MISE_PLESK_SCHEDULED_TARGET`, `MISE_PLESK_SCHEDULE_LOG_DIR`, or
+`MISE_PLESK_SCHEDULE_LOCK_FILE` to override the defaults. Exit code `75` means
+another scan is already running. The lock is process-backed via `flock` and is
+released automatically when the runner exits.
