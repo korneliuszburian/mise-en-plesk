@@ -9,20 +9,10 @@ import { findingsFromAudits } from "../src/findings";
 import { readFindingState, reconcileFindings, writeFindingState, type FindingScope, type FindingEvent } from "../src/finding-state";
 import { appendScanCycleFindings, completeScanCycle, prepareScanCycle, readScanCycleState, writeScanCycleState } from "../src/scan-cycle";
 import type { Finding } from "../src/findings";
-import { notifyFindingEvents } from "../src/notifications";
 import { notifyFindingEventsToWhatsApp } from "../src/whatsapp";
 import { sendFindingEventsViaHermes, sendHermesText } from "../src/hermes";
-import {
-  enqueueNotificationEvents,
-  compactNotificationOutbox,
-  markNotificationChannelSent,
-  pendingNotificationEvents,
-  readNotificationOutbox,
-  type NotificationChannel,
-  writeNotificationOutbox,
-} from "../src/notification-outbox";
-import { markNotificationsSent, partitionByCooldown, readNotificationHistory, writeNotificationHistory } from "../src/notification-history";
-import type { NotificationChannelAdapter } from "../src/notifier";
+import { createNotificationAdapters } from "../src/notification-adapters";
+import { createNotificationDelivery, type NotificationDelivery } from "../src/notification-delivery";
 import { runPreflight } from "../src/preflight";
 import { createMonitorStaleFinding, readHeartbeat, writeHeartbeat } from "../src/monitor-health";
 import { parseCliArguments } from "../src/cli-args";
@@ -113,105 +103,15 @@ function notificationHistoryPath(config: MisePleskConfig): string {
     ?? ".mise-en-plesk/notification-history.json";
 }
 
-async function queueNotificationEvents(events: FindingEvent[], config: MisePleskConfig): Promise<void> {
-  if (!events.length) return;
-  const path = notificationOutboxPath(config);
-  const outbox = enqueueNotificationEvents(await readNotificationOutbox(path), events);
-  await writeNotificationOutbox(path, outbox);
-}
-
-async function deliverNotifications(
-  config: MisePleskConfig,
-): Promise<{ webhookSent: boolean; whatsappSent: boolean; hermesSent: boolean }> {
-  const outboxPath = notificationOutboxPath(config);
-  let outbox = await readNotificationOutbox(outboxPath);
-  const historyPath = notificationHistoryPath(config);
-  let history = await readNotificationHistory(historyPath);
+function createDelivery(config: MisePleskConfig): NotificationDelivery {
   const cooldownHours = config.notificationCooldownHours ?? 24;
-  const cooldownMs = cooldownHours * 60 * 60 * 1000;
-  const now = new Date();
-
-  const pendingForDelivery = (channel: NotificationChannel) => {
-    const pending = pendingNotificationEvents(outbox, channel);
-    const partition = partitionByCooldown(pending, channel, history, now, cooldownMs);
-    if (partition.suppressed.length) outbox = markNotificationChannelSent(outbox, channel, partition.suppressed);
-    return partition.deliverable;
-  };
-
-  const markDelivered = (channel: NotificationChannel, events: FindingEvent[]) => {
-    if (!events.length) return;
-    outbox = markNotificationChannelSent(outbox, channel, events);
-    history = markNotificationsSent(history, channel, events, now);
-  };
-
-  const webhookConfigured = Boolean(process.env.MISE_PLESK_ALERT_WEBHOOK_URL?.trim());
-  const whatsappConfigured = [
-    process.env.MISE_PLESK_WHATSAPP_ACCESS_TOKEN,
-    process.env.MISE_PLESK_WHATSAPP_PHONE_NUMBER_ID,
-    process.env.MISE_PLESK_WHATSAPP_RECIPIENT,
-    process.env.MISE_PLESK_WHATSAPP_TEMPLATE_NAME,
-    process.env.MISE_PLESK_WHATSAPP_GRAPH_VERSION,
-  ].every((value) => Boolean(value?.trim()));
-  const hermesConfigured = Boolean(process.env.MISE_PLESK_HERMES_WHATSAPP_TARGET?.trim());
-  const channels: NotificationChannelAdapter[] = [
-    {
-      channel: "webhook",
-      configured: webhookConfigured,
-      notifier: {
-        send: async (events) => {
-          const result = await notifyFindingEvents(events, {
-            webhookUrl: process.env.MISE_PLESK_ALERT_WEBHOOK_URL,
-            debug: (message) => console.error(message),
-          });
-          return { sent: result.sent, sentEvents: result.sent ? events : [] };
-        },
-      },
-    },
-    {
-      channel: "whatsapp",
-      configured: whatsappConfigured,
-      notifier: {
-        send: async (events) => {
-          const result = await notifyFindingEventsToWhatsApp(events, {
-            accessToken: process.env.MISE_PLESK_WHATSAPP_ACCESS_TOKEN,
-            phoneNumberId: process.env.MISE_PLESK_WHATSAPP_PHONE_NUMBER_ID,
-            recipient: process.env.MISE_PLESK_WHATSAPP_RECIPIENT,
-            templateName: process.env.MISE_PLESK_WHATSAPP_TEMPLATE_NAME,
-            templateLanguage: process.env.MISE_PLESK_WHATSAPP_TEMPLATE_LANGUAGE,
-            graphVersion: process.env.MISE_PLESK_WHATSAPP_GRAPH_VERSION,
-            debug: (message) => console.error(message),
-          });
-          return { sent: result.sent, sentEvents: result.sentEvents };
-        },
-      },
-    },
-    {
-      channel: "hermes",
-      configured: hermesConfigured,
-      notifier: {
-        send: async (events) => {
-          const result = await sendFindingEventsViaHermes(events, {
-            target: process.env.MISE_PLESK_HERMES_WHATSAPP_TARGET,
-            binary: process.env.MISE_PLESK_HERMES_BIN,
-            debug: (message) => console.error(message),
-          });
-          return { sent: result.sent, sentEvents: result.sentEvents };
-        },
-      },
-    },
-  ];
-  const sentChannels: Record<NotificationChannel, boolean> = { webhook: false, whatsapp: false, hermes: false };
-  for (const adapter of channels) {
-    if (!adapter.configured) continue;
-    const pending = pendingForDelivery(adapter.channel);
-    if (!pending.length) continue;
-    const result = await adapter.notifier.send(pending);
-    if (result.sentEvents.length) markDelivered(adapter.channel, result.sentEvents);
-    sentChannels[adapter.channel] ||= result.sent;
-  }
-  await writeNotificationOutbox(outboxPath, compactNotificationOutbox(outbox));
-  await writeNotificationHistory(historyPath, history);
-  return { webhookSent: sentChannels.webhook, whatsappSent: sentChannels.whatsapp, hermesSent: sentChannels.hermes };
+  return createNotificationDelivery({
+    outboxPath: notificationOutboxPath(config),
+    historyPath: notificationHistoryPath(config),
+    cooldownMs: cooldownHours * 60 * 60 * 1000,
+    adapters: createNotificationAdapters(process.env),
+    debug: (message) => console.error(message),
+  });
 }
 
 async function persistFindingList(
@@ -220,18 +120,18 @@ async function persistFindingList(
   findingStatePath: string,
   scope: FindingScope,
   occurredAt: string,
-  config: MisePleskConfig,
+  delivery: NotificationDelivery,
 ): Promise<{ state: Awaited<ReturnType<typeof readFindingState>>; events: FindingEvent[]; notificationSent: boolean; whatsappSent: boolean; hermesSent: boolean }> {
   const transition = reconcileFindings(findingState, findings, occurredAt, scope);
-  await queueNotificationEvents(transition.events, config);
+  await delivery.enqueue(transition.events);
   await writeFindingState(findingStatePath, transition.state);
-  const delivery = await deliverNotifications(config);
+  const notification = await delivery.flush();
   return {
     state: transition.state,
     events: transition.events,
-    notificationSent: delivery.webhookSent,
-    whatsappSent: delivery.whatsappSent,
-    hermesSent: delivery.hermesSent,
+    notificationSent: notification.webhookSent,
+    whatsappSent: notification.whatsappSent,
+    hermesSent: notification.hermesSent,
   };
 }
 
@@ -397,15 +297,16 @@ async function main(): Promise<void> {
     const staleFinding = createMonitorStaleFinding(heartbeat, now, maxAgeHours * 60 * 60 * 1000);
     const findingStatePath = process.env.MISE_PLESK_FINDINGS ?? config.findingsStatePath ?? ".mise-en-plesk/findings.json";
     const previousState = await readFindingState(findingStatePath);
+    const delivery = createDelivery(config);
     const transition = reconcileFindings(
       previousState,
       staleFinding ? [staleFinding] : [],
       now.toISOString(),
       { installationPaths: new Set(["__monitor__"]) },
     );
-    await queueNotificationEvents(transition.events, config);
+    await delivery.enqueue(transition.events);
     await writeFindingState(findingStatePath, transition.state);
-    const notification = await deliverNotifications(config);
+    const notification = await delivery.flush();
     const result = { heartbeatPath, heartbeat, stale: Boolean(staleFinding), findingEvents: transition.events };
     if (jsonOutput) console.log(JSON.stringify(result, null, 2));
     else console.log(staleFinding ? `Monitor is stale: ${heartbeatPath}` : `Monitor is healthy: ${heartbeat?.completedAt ?? "unknown"}`);
@@ -451,6 +352,7 @@ async function main(): Promise<void> {
     const scanCycleStatePath = process.env.MISE_PLESK_SCAN_CYCLES ?? config.scanCycleStatePath ?? ".mise-en-plesk/scan-cycles.json";
     let findingState = await readFindingState(findingStatePath);
     let scanCycleState = await readScanCycleState(scanCycleStatePath);
+    const delivery = createDelivery(config);
     const findingEvents: FindingEvent[] = [];
     let alertSent = false;
     let whatsappSent = false;
@@ -477,7 +379,7 @@ async function main(): Promise<void> {
           findingStatePath,
           { installationPaths: new Set(execution.scannedInstallationPaths) },
           new Date().toISOString(),
-          config,
+          delivery,
         );
         findingState = batchTransition.state;
         findingEvents.push(...batchTransition.events);
@@ -500,7 +402,7 @@ async function main(): Promise<void> {
             findingStatePath,
             { completeHosts: new Set([finalExecution.report.host]) },
             new Date().toISOString(),
-            config,
+            delivery,
           );
           findingState = completeTransition.state;
           findingEvents.push(...completeTransition.events);
