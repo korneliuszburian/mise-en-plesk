@@ -24,7 +24,7 @@ the implementation, automated check, and operational evidence agree.
 | WP core/plugin/theme audit | done | `src/wp-audit.ts`, batched WP-CLI probes, tests |
 | Vulnerability enrichment | done | opt-in WPVulnerability adapter, cache/budget/error handling, tests |
 | Suspicious uploads and integrity signals | done | independent uploads PHP probe, including WP-CLI failure fallback, checksum findings, tests, and real master runtime evidence |
-| Stable findings and resolved/reopened state | done | `src/findings.ts`, `src/finding-state.ts`, `src/scan-cycle.ts`, atomic persistence and multi-chunk cycle tests |
+| Stable findings and resolved/reopened state | done | `src/findings.ts`, `src/finding-state.ts`, `src/scan-cycle.ts`, atomic persistence and multi-chunk cycle tests; WP-CLI health findings retain legacy identity while exposing precise status codes |
 | Markdown and JSON reports | done | `src/report.ts`, additive `AuditResult`, report tests, and CLI JSON-stream coverage |
 | P1 alert delivery and retry/outbox | done | webhook + grouped/chunked WhatsApp Cloud + Hermes CLI adapters, per-finding/per-channel cooldown history, opened/reopened/resolved recovery events, bounded retry/outbox tests, partial-ack coverage, disabled-channel backlog proof, and crash-safe enqueue-before-state replay coverage |
 | Stale monitor signal | done | `src/monitor-health.ts`, CLI and tests |
@@ -43,13 +43,15 @@ the implementation, automated check, and operational evidence agree.
 - `doctor --json`: `ok: true`; Node, `bw`, SSH, `sshpass`, `BW_SESSION`, inventory,
   and config all passed. Hermes and direct WhatsApp were correctly disabled because
   no provider target/credentials were configured in this shell.
-- `pnpm test`: 32 files / 144 tests passed.
+- `pnpm test`: 32 files / 147 tests passed.
 - `pnpm typecheck`, `pnpm build`, `git diff --check`, `bash -n scripts/*.sh`, and
   `systemd-analyze verify` on copied unit examples passed.
 - GitHub Actions run `32134127563` passed both Node 20 and Node 22 jobs for
   commit `d8abbfa`.
 - GitHub Actions runs `32137998740`, `32141783099`, and `32142483046` passed
   both Node 20 and Node 22 jobs for commits `f33f0a6`, `e01bca3`, and `55e3837`.
+- GitHub Actions run `32143772024` passed both Node 20 and Node 22 jobs for
+  commit `f08e6d9`.
 - A fresh bounded runtime scan with `--max-sites=20 --all-chunks
   --max-chunks=1` reached both `master-ssh` and `dev-ssh`, audited 20
   installations per host, emitted JSON with `complete: false`, and left the
