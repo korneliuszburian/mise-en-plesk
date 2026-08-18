@@ -4,7 +4,7 @@ import { dirname } from "node:path";
 import { tmpdir } from "node:os";
 import { promisify } from "node:util";
 import type { HostConfig } from "./ssh-inventory";
-import { renderReadOnlyCommand, type ReadOnlyCommand } from "./ssh-transport";
+import { assertReadOnlyRenderedCommand, renderReadOnlyCommand, type ReadOnlyCommand } from "./ssh-transport";
 
 const execFileAsync = promisify(execFile);
 
@@ -164,8 +164,10 @@ export function buildSshInvocation(host: HostConfig, password?: string, options:
 
 export async function runSshCommand(host: HostConfig, command: ReadOnlyCommand, password?: string, options: SshInvocationOptions = {}): Promise<string> {
   const invocation = buildSshInvocation(host, password, options);
+  const renderedCommand = renderReadOnlyCommand(command);
+  assertReadOnlyRenderedCommand(renderedCommand);
   try {
-    const result = await execFileWithInput(invocation.executable, [...invocation.args, renderReadOnlyCommand(command)], {
+    const result = await execFileWithInput(invocation.executable, [...invocation.args, renderedCommand], {
       env: invocation.env,
       timeout: options.timeoutMs ?? DEFAULT_SSH_COMMAND_TIMEOUT_MS,
       maxOutputBytes: options.maxOutputBytes,

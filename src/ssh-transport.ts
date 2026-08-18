@@ -88,3 +88,30 @@ export function renderReadOnlyCommand(command: ReadOnlyCommand): string {
     case "wp-audit-batch": return renderWpAuditBatch(command);
   }
 }
+
+const forbiddenRemoteMutation = [
+  /\b(?:rm|rmdir|mv|cp|chmod|chown|truncate|mkfs|reboot|shutdown|poweroff)\b/i,
+  /\bwp\s+(?!(?:core\s+(?:version|check-update|verify-checksums)|plugin\s+(?:list|verify-checksums)|theme\s+list)\b)/i,
+  /\bwp\s+.*(?:--exec|--require|--eval)(?:=|\s)/i,
+  /\bplesk\s+(?!(?:bin\s+subscription\s+--list|version)\b)/i,
+  /\bplesk\s+bin\s+subscription\s+--list\s+\S|\bplesk\s+version\s+\S/i,
+  /\bphp\s+-[rce]\b/i,
+  /\b(?:sh|bash|dash|zsh|ksh)\s+-c\b/i,
+  />>\s*\S|>\s*(?:[~/.]|["'])|<\s*(?:[~/.]|["'])|<\(/i,
+];
+const allowedRemoteExecutables = new Set(["printf", "wp", "plesk", "php", "df", "find", "awk", ":"]);
+
+export function assertReadOnlyRenderedCommand(command: string): void {
+  const normalizedCommand = command.replace(/sudo\s+-S\s+-p\s+(?:''|"")\s+--\s+/gi, "");
+  const commandForExecutableScan = normalizedCommand.replace(/\d*>&\d+/g, "").replace(/'[^']*'/g, "''");
+  const shellOnlyCommand = normalizedCommand.replace(/'[^']*'/g, "''");
+  const executableNames = [...commandForExecutableScan.matchAll(/(?:^|[;&|]\s*|\$\(\s*)(?![A-Za-z_][A-Za-z0-9_]*=)([A-Za-z0-9_./-]+)/gm)].map((match) => match[1]);
+  if (
+    /\bsudo\b/i.test(normalizedCommand)
+    || executableNames.some((name) => !allowedRemoteExecutables.has(name))
+    || /\s(?:>>?|<)\s*(?!&\d)\S+|<\(/i.test(shellOnlyCommand)
+    || forbiddenRemoteMutation.some((pattern) => pattern.test(normalizedCommand))
+  ) {
+    throw new Error("Refusing remote command: mutation detected in read-only SSH policy.");
+  }
+}
