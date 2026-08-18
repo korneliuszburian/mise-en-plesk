@@ -6,9 +6,13 @@ export type FindingCode =
   | "runtime-incompatible"
   | "wp-cli-error"
   | "core-outdated"
+  | "core-update"
   | "plugin-update"
   | "plugin-abandoned"
   | "plugin-vulnerable"
+  | "theme-update"
+  | "core-checksum-failed"
+  | "plugin-checksum-failed"
   | "suspicious-upload-php";
 
 export type FindingSeverity = "P1" | "P2" | "info";
@@ -77,6 +81,9 @@ export function findingsFromAudits(hosts: AuditedHost[], now = new Date()): Find
       if (isVeryOldCore(audit.coreVersion)) {
         findings.push(makeFinding(host, audit, "core-outdated", "P1", "core is very old", "core"));
       }
+      if (audit.coreUpdateAvailable) {
+        findings.push(makeFinding(host, audit, "core-update", "P2", "WordPress core update available", "core-update"));
+      }
       for (const plugin of audit.plugins) {
         if (plugin.hasUpdate) {
           findings.push(makeFinding(host, audit, "plugin-update", "P2", `plugin ${plugin.name} has an update available`, `plugin:${plugin.name}:update`, { plugin: plugin.name }));
@@ -95,6 +102,17 @@ export function findingsFromAudits(hosts: AuditedHost[], now = new Date()): Find
             { plugin: plugin.name, vulnerabilityId: vulnerability.id, evidence: vulnerability.title },
           ));
         }
+      }
+      for (const theme of audit.themes ?? []) {
+        if (theme.hasUpdate) {
+          findings.push(makeFinding(host, audit, "theme-update", "P2", `theme ${theme.name} has an update available`, `theme:${theme.name}:update`, { evidence: theme.version }));
+        }
+      }
+      if (audit.integrity?.coreChecksums === "failed") {
+        findings.push(makeFinding(host, audit, "core-checksum-failed", "P1", "WordPress core checksum verification failed", "core-checksums"));
+      }
+      if (audit.integrity?.pluginChecksums === "failed") {
+        findings.push(makeFinding(host, audit, "plugin-checksum-failed", "P2", "WordPress plugin checksum verification needs manual review", "plugin-checksums"));
       }
       if (audit.suspiciousFiles.length) {
         findings.push(makeFinding(host, audit, "suspicious-upload-php", "P1", "PHP files found in uploads (possible backdoors)", "uploads-php", { evidence: audit.suspiciousFiles.join("\n") }));

@@ -11,7 +11,10 @@ describe("WordPress audit", () => {
     const command = buildWpAuditBatchCommand({ path: "/srv/site" });
 
     expect(command).toContain("__MISE_CORE_BEGIN__");
+    expect(command).toContain("core check-update --minor --format=json");
     expect(command).toContain("__MISE_PLUGINS_BEGIN__");
+    expect(command).toContain("plugin verify-checksums --all --strict");
+    expect(command).toContain("theme list --format=json");
     expect(command).toContain("__MISE_CORE_STATUS_${status}__");
     expect(command).toContain("wp core verify-checksums");
     expect(command).toContain("find '/srv/site/wp-content/uploads'");
@@ -23,7 +26,10 @@ describe("WordPress audit", () => {
       calls += 1;
       return [
         "__MISE_CORE_BEGIN__", "6.6.1", "__MISE_CORE_STATUS_0__", "__MISE_CORE_END__",
+        "__MISE_CORE_UPDATE_BEGIN__", "[]", "__MISE_CORE_UPDATE_STATUS_0__", "__MISE_CORE_UPDATE_END__",
         "__MISE_PLUGINS_BEGIN__", "[]", "__MISE_PLUGINS_STATUS_0__", "__MISE_PLUGINS_END__",
+        "__MISE_PLUGIN_CHECKSUMS_BEGIN__", "Success", "__MISE_PLUGIN_CHECKSUMS_STATUS_0__", "__MISE_PLUGIN_CHECKSUMS_END__",
+        "__MISE_THEMES_BEGIN__", "[]", "__MISE_THEMES_STATUS_0__", "__MISE_THEMES_END__",
         "__MISE_CHECKSUMS_BEGIN__", "ok", "__MISE_CHECKSUMS_STATUS_0__", "__MISE_CHECKSUMS_END__",
         "__MISE_UPLOADS_BEGIN__", "/srv/site/wp-content/uploads/shell.php", "__MISE_UPLOADS_STATUS_0__", "__MISE_UPLOADS_END__",
       ].join("\n");
@@ -45,22 +51,31 @@ describe("WordPress audit", () => {
           { name: "old-plugin", version: "1.0", status: "inactive", update: "none" },
         ]);
       }
+      if (command.includes("core check-update")) return "[]";
+      if (command.includes("theme list")) return JSON.stringify([{ name: "twentytwentyfour", version: "1.0", status: "active", update: "none" }]);
+      if (command.includes("plugin verify-checksums")) return "Success: Plugin verified.";
       return "Success: WordPress installation verifies against checksums.";
     };
 
     await expect(auditWordPressInstallation({ path: "/var/www/vhosts/example.test/httpdocs", domain: "example.test" }, runner)).resolves.toEqual({
       installation: { path: "/var/www/vhosts/example.test/httpdocs", domain: "example.test" },
       coreVersion: "6.6.1",
+      coreUpdateAvailable: false,
       plugins: [
         { name: "akismet", version: "5.3", active: true, hasUpdate: false, vulnerabilities: [] },
         { name: "old-plugin", version: "1.0", active: false, hasUpdate: false, vulnerabilities: [] },
       ],
+      themes: [{ name: "twentytwentyfour", version: "1.0", active: true, hasUpdate: false }],
       vulnerabilities: [],
       suspiciousFiles: [],
+      integrity: { coreChecksums: "verified", pluginChecksums: "verified" },
       health: { reachable: true },
       priorities: [],
     });
     expect(calls).toContain("plugin list --format=json --fields=name,status,update,version,update_version,wporg_status,wporg_last_updated");
+    expect(calls).toContain("core check-update --minor --format=json");
+    expect(calls.some((call) => call.startsWith("theme list --format=json"))).toBe(true);
+    expect(calls).toContain("plugin verify-checksums --all --strict");
   });
 
   it("keeps the host audit alive when one WordPress install is unreachable", async () => {

@@ -13,12 +13,27 @@ export interface PluginInfo {
   vulnerabilities: PluginVulnerabilitySummary["vulnerabilities"];
 }
 
+export interface ThemeInfo {
+  name: string;
+  version: string;
+  active: boolean;
+  hasUpdate: boolean;
+}
+
+export type ChecksumStatus = "verified" | "failed";
+
 export interface WordPressAudit {
   installation: WordPressInstallation;
   coreVersion: string;
+  coreUpdateAvailable?: boolean;
   plugins: PluginInfo[];
+  themes?: ThemeInfo[];
   vulnerabilities: PluginVulnerabilitySummary[];
   suspiciousFiles: string[];
+  integrity?: {
+    coreChecksums: ChecksumStatus;
+    pluginChecksums: ChecksumStatus;
+  };
   health: {
     reachable: boolean;
     lastUpdate?: string;
@@ -46,7 +61,10 @@ interface BatchSection {
 export function buildWpAuditBatchCommand(installation: WordPressInstallation): string {
   const commands = {
     core: buildWpCliCommand(installation, "core version"),
+    coreUpdate: buildWpCliCommand(installation, "core check-update --minor --format=json"),
     plugins: buildWpCliCommand(installation, "plugin list --format=json --fields=name,status,update,version,update_version,wporg_status,wporg_last_updated"),
+    pluginChecksums: buildWpCliCommand(installation, "plugin verify-checksums --all --strict"),
+    themes: buildWpCliCommand(installation, "theme list --format=json --fields=name,status,version,update,update_version,auto_update"),
     checksums: buildWpCliCommand(installation, "core verify-checksums"),
     uploads: `find ${shellQuote(`${installation.path}/wp-content/uploads`)} -type f -name '*.php' -print`,
   };
@@ -62,7 +80,7 @@ export function buildWpAuditBatchCommand(installation: WordPressInstallation): s
 
 function parseBatchSections(output: string): Map<string, BatchSection> {
   const sections = new Map<string, BatchSection>();
-  for (const name of ["CORE", "PLUGINS", "CHECKSUMS", "UPLOADS"]) {
+  for (const name of ["CORE", "CORE_UPDATE", "PLUGINS", "PLUGIN_CHECKSUMS", "THEMES", "CHECKSUMS", "UPLOADS"]) {
     const match = output.match(new RegExp(`__MISE_${name}_BEGIN__\\n([\\s\\S]*?)\\n__MISE_${name}_STATUS_(\\d+)__\\n__MISE_${name}_END__`));
     if (match) sections.set(name.toLowerCase(), { output: match[1], status: Number(match[2]) });
   }
@@ -87,7 +105,10 @@ export function createBatchedWpRunners(
   return {
     runner: async (_installation, command) => {
       if (command === "core version") return read("core");
+      if (command === "core check-update --minor --format=json") return read("core_update");
       if (command.startsWith("plugin list")) return read("plugins");
+      if (command.startsWith("plugin verify-checksums")) return read("plugin_checksums");
+      if (command.startsWith("theme list")) return read("themes");
       if (command === "core verify-checksums") return read("checksums");
       throw new Error(`Unsupported batched WP command: ${command}`);
     },
@@ -129,6 +150,12 @@ export async function auditWordPressInstallation(
   let coreVersion = "unknown";
   try {
     coreVersion = (await runner(installation, "core version")).trim();
+    let coreUpdateAvailable: boolean | undefined;
+    try {
+      coreUpdateAvailable = parseCoreUpdateAvailable(await runner(installation, "core check-update --minor --format=json"));
+    } catch {
+      coreUpdateAvailable = undefined;
+    }
     const pluginOutput = await runner(installation, "plugin list --format=json --fields=name,status,update,version,update_version,wporg_status,wporg_last_updated");
     const rawPlugins: unknown = JSON.parse(pluginOutput);
     if (!Array.isArray(rawPlugins)) throw new Error(`wp plugin list returned invalid JSON for ${installation.path}`);
@@ -147,7 +174,35 @@ export async function auditWordPressInstallation(
         vulnerabilities: vulnerabilitySummary?.vulnerabilities ?? [],
       };
     }));
-    await runner(installation, "core verify-checksums");
+    let coreChecksums: ChecksumStatus = "verified";
+    try {
+      await runner(installation, "core verify-checksums");
+    } catch {
+      coreChecksums = "failed";
+    }
+    let pluginChecksums: ChecksumStatus = "verified";
+    try {
+      await runner(installation, "plugin verify-checksums --all --strict");
+    } catch {
+      pluginChecksums = "failed";
+    }
+    let themes: ThemeInfo[] | undefined;
+    try {
+      const rawThemes: unknown = JSON.parse(await runner(installation, "theme list --format=json --fields=name,status,version,update,update_version,auto_update"));
+      if (!Array.isArray(rawThemes)) throw new Error("wp theme list returned invalid JSON");
+      themes = rawThemes.map((theme) => {
+        if (!theme || typeof theme !== "object") throw new Error("wp theme list contained an invalid item");
+        const value = theme as Record<string, unknown>;
+        return {
+          name: String(value.name ?? ""),
+          version: String(value.version ?? ""),
+          active: value.status === "active",
+          hasUpdate: value.update === "available" || Boolean(value.update_version),
+        };
+      });
+    } catch {
+      themes = undefined;
+    }
     let suspiciousFiles: string[] = [];
     if (options.suspiciousFileRunner) {
       try {
@@ -163,13 +218,14 @@ export async function auditWordPressInstallation(
       const summary = plugin.vulnerabilities;
       return summary.length ? [{ slug: plugin.name, vulnerabilities: summary }] : [];
     });
-    return applyHeuristics({ installation, coreVersion, plugins, vulnerabilities, suspiciousFiles, health: { reachable: true } }, options);
+    return applyHeuristics({ installation, coreVersion, coreUpdateAvailable, plugins, themes, vulnerabilities, suspiciousFiles, integrity: { coreChecksums, pluginChecksums }, health: { reachable: true } }, options);
   } catch (error: unknown) {
     const health = classifyAuditError(error);
     return applyHeuristics({
       installation,
       coreVersion,
       plugins: [],
+      themes: [],
       vulnerabilities: [],
       suspiciousFiles: [],
       health,
@@ -193,12 +249,20 @@ export function parseSuspiciousFiles(output: string): string[] {
   return output.split(/\r?\n/).map((line) => line.trim()).filter(Boolean);
 }
 
+export function parseCoreUpdateAvailable(output: string): boolean {
+  const value: unknown = JSON.parse(output);
+  if (Array.isArray(value)) return value.length > 0;
+  if (value && typeof value === "object") return true;
+  throw new Error("wp core check-update returned invalid JSON");
+}
+
 export function applyHeuristics(
   audit: Omit<WordPressAudit, "priorities">,
   options: Pick<WordPressAuditOptions, "abandonmentDays" | "now"> = {},
 ): WordPressAudit {
   const priorities: string[] = [];
   if (isVeryOldCore(audit.coreVersion)) priorities.push("core is very old");
+  if (audit.coreUpdateAvailable) priorities.push("WordPress core update available");
   if (!audit.health.reachable) priorities.push("installation is unreachable");
   if (audit.health.status === "runtime-incompatible") {
     priorities.push("WordPress runtime is incompatible with the installed PHP version");
@@ -216,6 +280,11 @@ export function applyHeuristics(
       priorities.push(`plugin ${plugin.name} has known vulnerabilities (via WPVulnerability)${severe?.severity ? `: ${severe.severity}` : ""}`);
     }
   }
+  for (const theme of audit.themes ?? []) {
+    if (theme.hasUpdate) priorities.push(`theme ${theme.name} has an update available`);
+  }
+  if (audit.integrity?.coreChecksums === "failed") priorities.push("WordPress core checksum verification failed");
+  if (audit.integrity?.pluginChecksums === "failed") priorities.push("WordPress plugin checksum verification needs manual review");
   if (audit.suspiciousFiles.length) priorities.push("PHP files found in uploads (possible backdoors)");
   return { ...audit, priorities };
 }

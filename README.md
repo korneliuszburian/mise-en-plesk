@@ -47,6 +47,11 @@ The following findings are P1 manual-review signals, not automatic repairs:
 very old core, abandoned plugins, known-vulnerable plugins, and PHP files under
 `wp-content/uploads`.
 
+The read-only WP-CLI batch also checks for available core/theme updates and
+verifies core and plugin checksums. A checksum failure is a review signal, not
+an automatic cleanup action; custom or premium plugins may not have matching
+WordPress.org checksums.
+
 Each scan also writes a local, gitignored finding state file at
 `.mise-en-plesk/findings.json` (override with `MISE_PLESK_FINDINGS` or
 `findingsStatePath`). Finding IDs are stable per host/site/signal, so unchanged
