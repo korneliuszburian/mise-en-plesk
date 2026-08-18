@@ -166,6 +166,9 @@ whether alerting is enabled. It also reports the monitor heartbeat as an
 informational check. Alerting and heartbeat checks do not make a scan fail by
 themselves. It also reports whether the WhatsApp configuration is disabled,
 complete, or partially configured without printing secret values.
+Direct `scan` commands repeat the blocking capability checks before opening
+any SSH session, so a missing Bitwarden session, inventory, config, or required
+password-auth SSH tool fails locally first.
 
 `pnpm run mise-plesk-audit monitor-health --json` evaluates the last completed scan
 against `monitorMaxAgeHours` (default two hours), records a deduplicated P1

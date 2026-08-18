@@ -340,7 +340,12 @@ async function main(): Promise<void> {
     return;
   }
   if (command === "scan" && target) {
-    const config = target === "all" ? await readConfig() : await readOptionalConfig();
+    const preflight = await runPreflight({ inventoryPath, configPath, env: process.env });
+    const blockingFailures = preflight.checks
+      .filter((check) => check.blocking && !check.ok)
+      .map((check) => `${check.name}: ${check.detail}`);
+    if (blockingFailures.length) throw new Error(`Preflight failed: ${blockingFailures.join("; ")}`);
+    const config = await readConfig();
     const scanRange = readScanRange(flags, config);
     const heartbeatPath = process.env.MISE_PLESK_HEARTBEAT ?? config.heartbeatPath ?? ".mise-en-plesk/heartbeat.json";
     const startedAt = new Date().toISOString();

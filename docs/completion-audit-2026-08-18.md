@@ -17,7 +17,7 @@ the implementation, automated check, and operational evidence agree.
 | Area | Status | Evidence / gate |
 | --- | --- | --- |
 | TypeScript, Node.js, pnpm, strict build | done | `package.json`, `tsconfig.json`, `pnpm typecheck`, `pnpm build` |
-| Bitwarden CLI session and Secure Note credentials | done | `src/bitwarden.ts`, runtime-only item fetch, `src/preflight.ts` |
+| Bitwarden CLI session and Secure Note credentials | done | `src/bitwarden.ts`, runtime-only item fetch, credential-mode-aware `src/preflight.ts`, and direct-scan preflight proof |
 | Local inventory cache without credentials | done | `src/ssh-inventory.ts`, ignored `inventory.json`, unit tests |
 | SSH-only remote access and bounded commands | done | `src/plesk-scan.ts`, fixed command construction, timeout/process-group tests |
 | Plesk subscription and WordPress discovery | done | `scanPleskHost`, pagination cursor, alternate `version.php` signal, tests |
