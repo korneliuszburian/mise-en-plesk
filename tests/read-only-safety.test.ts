@@ -38,14 +38,16 @@ describe("remote read-only safety contract", () => {
     await scanPleskHost(host, runner, { useSudo: true, collectHostFacts: true, includeAlternateWordPressDetection: true });
 
     expect(calls.length).toBeGreaterThan(1);
+    const allowedCommands = new Set([
+      "sudo -S -p '' -- plesk bin subscription --list",
+      "sudo -S -p '' -- find /var/www/vhosts -xdev -maxdepth 4 -type f \\( -name wp-config.php -o -path '*/wp-includes/version.php' \\) -print",
+      "sudo -S -p '' -- plesk version",
+      "sudo -S -p '' -- php -v",
+      "sudo -S -p '' -- df -P -k /var/www/vhosts",
+    ]);
     for (const command of calls) {
       expect(command).not.toMatch(forbiddenRemoteMutation);
-      const isAllowed = command === "sudo -S -p '' -- plesk bin subscription --list"
-        || command === "sudo -S -p '' -- plesk version"
-        || command === "sudo -S -p '' -- php -v"
-        || command === "sudo -S -p '' -- df -P -k /var/www/vhosts"
-        || command.startsWith("sudo -S -p '' -- find /var/www/vhosts ");
-      expect(isAllowed).toBe(true);
+      expect(allowedCommands.has(command)).toBe(true);
     }
   });
 });

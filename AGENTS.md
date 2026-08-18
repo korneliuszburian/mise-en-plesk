@@ -23,6 +23,10 @@ WPVulnerability API; otherwise it performs no vulnerability API requests. The
 monitor heartbeat and `monitor-stale` finding are local operational signals;
 they never trigger remote commands or remediation.
 
+`whatsapp-test --confirm=<configured recipient>` is the only intentional
+outbound test message. Never run it without checking the configured recipient
+in the current task.
+
 ## Skills
 
 Use the globally installed skills: `/setup-mise-en-plesk`,

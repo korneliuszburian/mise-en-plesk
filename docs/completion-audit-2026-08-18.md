@@ -31,7 +31,7 @@ the implementation, automated check, and operational evidence agree.
 | Locking and concurrent-run protection | done | local lock, scheduler `flock`, lock tests |
 | Bounded scan and per-host rotation | done | `scan-cursor.ts`, scheduler, cursor tests and bounded runtime proof |
 | Master and dev real-host proof | done | current checkout completed bounded read-only scans: `master-ssh` reported 216 subscriptions/1 candidate, `dev-ssh` 92 subscriptions/1 candidate; no credentials were written to reports |
-| WhatsApp production delivery proof | partial | adapter and fake-client tests are done; approved template and runtime env are operator-owned |
+| WhatsApp production delivery proof | partial | adapter, fake-client tests, and recipient-bound `whatsapp-test --confirm=<recipient>` are implemented; approved template and runtime env are operator-owned |
 | Full-fleet rotation proof | done | current checkout completed two scheduler cycles across both configured hosts; each host advanced independently from offset `0` to `2`, with four unique timestamped reports and persistent findings/outbox state |
 | CI on supported Node versions | done | `.github/workflows/ci.yml`, Node 20/22 matrix; CI run `32122489649` passed both jobs |
 | Public repository / review trail | done | GitHub remote, semantic commit history, two-axis review required per major slice |
@@ -51,8 +51,9 @@ checkout:
 4. A standards/spec review of the final implementation diff, followed by
    fixes, a semantic commit, push, and green GitHub CI.
 5. A documented operator deployment check for the scheduler and WhatsApp
-   adapter. Missing production secrets are an infrastructure prerequisite,
-   not a reason to weaken the read-only scanner or fake delivery evidence.
+   adapter, followed by `whatsapp-test --confirm=<recipient>` and one recovery delivery.
+   Missing production secrets are an infrastructure prerequisite, not a reason
+   to weaken the read-only scanner or fake delivery evidence.
 
 The package version remains pre-release until these gates are green. That is
 an honest release-state marker, not a product scope decision: the target is

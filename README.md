@@ -137,6 +137,12 @@ Direct WhatsApp Business Cloud API delivery is also opt-in. Set
 WhatsApp Manager and provide one body text parameter. Tokens are read only
 from the process environment and never persisted.
 
+After checking the configured recipient, verify the real provider path with
+`pnpm run mise-plesk-audit whatsapp-test --confirm=<configured recipient>`. This
+is the only command that sends an intentional test message; it requires the
+confirmation to match the runtime recipient exactly and does not contact
+Plesk.
+
 Run `mise-plesk-audit doctor` before a scheduled scan. It checks local
 prerequisites, session presence, inventory/config validity, and reports
 whether alerting is enabled. It also reports the monitor heartbeat as an

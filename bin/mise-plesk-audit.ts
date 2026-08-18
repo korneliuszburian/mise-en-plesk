@@ -22,6 +22,7 @@ import { createMonitorStaleFinding, readHeartbeat, writeHeartbeat } from "../src
 import { parseCliArguments } from "../src/cli-args";
 import { readConfigFile, type MisePleskConfig } from "../src/config";
 import { acquireLocalLock, type LocalLock } from "../src/local-lock";
+import { createWhatsAppTestEvent, requireWhatsAppTestConfirmation } from "../src/notification-test";
 
 const inventoryPath = process.env.MISE_PLESK_INVENTORY ?? "inventory.json";
 const configPath = process.env.MISE_PLESK_CONFIG ?? "config.mise-en-plesk.json";
@@ -31,7 +32,7 @@ interface VulnerabilityLookupBudget {
 }
 
 function usage(): never {
-  console.error("Usage: mise-plesk-audit doctor [--json] | monitor-health [--json] [--max-age-hours=N] | sync-ssh | scan <target|all> [--json] [--max-sites=N] [--offset=N] [--all-chunks]");
+  console.error("Usage: mise-plesk-audit doctor [--json] | monitor-health [--json] [--max-age-hours=N] | sync-ssh | whatsapp-test --confirm=<recipient> | scan <target|all> [--json] [--max-sites=N] [--offset=N] [--all-chunks]");
   process.exit(1);
 }
 
@@ -257,6 +258,22 @@ async function main(): Promise<void> {
   if (command === "sync-ssh") {
     const inventory = await syncFromBitwarden("mise-en-plesk", inventoryPath);
     console.log(`Synced ${Object.keys(inventory).length} host(s) to ${inventoryPath}.`);
+    return;
+  }
+  if (command === "whatsapp-test") {
+    const recipient = process.env.MISE_PLESK_WHATSAPP_RECIPIENT;
+    requireWhatsAppTestConfirmation(flags, recipient);
+    const result = await notifyFindingEventsToWhatsApp([createWhatsAppTestEvent()], {
+      accessToken: process.env.MISE_PLESK_WHATSAPP_ACCESS_TOKEN,
+      phoneNumberId: process.env.MISE_PLESK_WHATSAPP_PHONE_NUMBER_ID,
+      recipient,
+      templateName: process.env.MISE_PLESK_WHATSAPP_TEMPLATE_NAME,
+      templateLanguage: process.env.MISE_PLESK_WHATSAPP_TEMPLATE_LANGUAGE,
+      graphVersion: process.env.MISE_PLESK_WHATSAPP_GRAPH_VERSION,
+      debug: (message) => console.error(message),
+    });
+    if (!result.sent) throw new Error("WhatsApp test delivery failed or is not configured.");
+    console.log("WhatsApp test message delivered.");
     return;
   }
   if (command === "monitor-health") {
