@@ -107,24 +107,38 @@ async function deliverNotifications(
   outbox = enqueueNotificationEvents(outbox, events);
   await writeNotificationOutbox(outboxPath, outbox);
 
+  const webhookConfigured = Boolean(process.env.MISE_PLESK_ALERT_WEBHOOK_URL?.trim());
   const pendingWebhook = pendingNotificationEvents(outbox, "webhook");
-  const notification = await notifyFindingEvents(pendingWebhook, {
-    webhookUrl: process.env.MISE_PLESK_ALERT_WEBHOOK_URL,
-    debug: (message) => console.error(message),
-  });
+  const notification = webhookConfigured
+    ? await notifyFindingEvents(pendingWebhook, {
+      webhookUrl: process.env.MISE_PLESK_ALERT_WEBHOOK_URL,
+      debug: (message) => console.error(message),
+    })
+    : { sent: false, eligibleEvents: pendingWebhook.length };
   if (notification.sent) outbox = markNotificationChannelSent(outbox, "webhook", pendingWebhook);
+  else if (!webhookConfigured) outbox = markNotificationChannelSent(outbox, "webhook", pendingWebhook);
 
+  const whatsappConfigured = [
+    process.env.MISE_PLESK_WHATSAPP_ACCESS_TOKEN,
+    process.env.MISE_PLESK_WHATSAPP_PHONE_NUMBER_ID,
+    process.env.MISE_PLESK_WHATSAPP_RECIPIENT,
+    process.env.MISE_PLESK_WHATSAPP_TEMPLATE_NAME,
+    process.env.MISE_PLESK_WHATSAPP_GRAPH_VERSION,
+  ].every((value) => Boolean(value?.trim()));
   const pendingWhatsApp = pendingNotificationEvents(outbox, "whatsapp");
-  const whatsapp = await notifyFindingEventsToWhatsApp(pendingWhatsApp, {
-    accessToken: process.env.MISE_PLESK_WHATSAPP_ACCESS_TOKEN,
-    phoneNumberId: process.env.MISE_PLESK_WHATSAPP_PHONE_NUMBER_ID,
-    recipient: process.env.MISE_PLESK_WHATSAPP_RECIPIENT,
-    templateName: process.env.MISE_PLESK_WHATSAPP_TEMPLATE_NAME,
-    templateLanguage: process.env.MISE_PLESK_WHATSAPP_TEMPLATE_LANGUAGE,
-    graphVersion: process.env.MISE_PLESK_WHATSAPP_GRAPH_VERSION,
-    debug: (message) => console.error(message),
-  });
+  const whatsapp = whatsappConfigured
+    ? await notifyFindingEventsToWhatsApp(pendingWhatsApp, {
+      accessToken: process.env.MISE_PLESK_WHATSAPP_ACCESS_TOKEN,
+      phoneNumberId: process.env.MISE_PLESK_WHATSAPP_PHONE_NUMBER_ID,
+      recipient: process.env.MISE_PLESK_WHATSAPP_RECIPIENT,
+      templateName: process.env.MISE_PLESK_WHATSAPP_TEMPLATE_NAME,
+      templateLanguage: process.env.MISE_PLESK_WHATSAPP_TEMPLATE_LANGUAGE,
+      graphVersion: process.env.MISE_PLESK_WHATSAPP_GRAPH_VERSION,
+      debug: (message) => console.error(message),
+    })
+    : { sent: false, eligibleEvents: pendingWhatsApp.length };
   if (whatsapp.sent) outbox = markNotificationChannelSent(outbox, "whatsapp", pendingWhatsApp);
+  else if (!whatsappConfigured) outbox = markNotificationChannelSent(outbox, "whatsapp", pendingWhatsApp);
   await writeNotificationOutbox(outboxPath, compactNotificationOutbox(outbox));
   return { webhookSent: notification.sent, whatsappSent: whatsapp.sent };
 }

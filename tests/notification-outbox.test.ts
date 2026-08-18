@@ -37,6 +37,14 @@ describe("notification outbox", () => {
     expect(compactNotificationOutbox(fullyDelivered).entries).toHaveLength(0);
   });
 
+  it("allows disabled channels to be discarded without retaining an alert backlog", () => {
+    const queued = enqueueNotificationEvents(emptyNotificationOutbox(), [event()]);
+    const skippedWebhook = markNotificationChannelSent(queued, "webhook", [event()]);
+    const skippedBoth = markNotificationChannelSent(skippedWebhook, "whatsapp", [event()]);
+
+    expect(compactNotificationOutbox(skippedBoth).entries).toHaveLength(0);
+  });
+
   it("round-trips atomically as local mode-600 bookkeeping", async () => {
     const directory = await mkdtemp(join(tmpdir(), "mise-en-plesk-outbox-"));
     const path = join(directory, "outbox.json");
