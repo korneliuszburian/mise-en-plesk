@@ -43,7 +43,7 @@ the implementation, automated check, and operational evidence agree.
 - `doctor --json`: `ok: true`; Node, `bw`, SSH, `sshpass`, `BW_SESSION`, inventory,
   and config all passed. Hermes and direct WhatsApp were correctly disabled because
   no provider target/credentials were configured in this shell.
-- `pnpm test`: 32 files / 147 tests passed.
+- `pnpm test`: 33 files / 149 tests passed.
 - `pnpm typecheck`, `pnpm build`, `git diff --check`, `bash -n scripts/*.sh`, and
   `systemd-analyze verify` on copied unit examples passed.
 - GitHub Actions run `32134127563` passed both Node 20 and Node 22 jobs for
