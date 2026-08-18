@@ -25,6 +25,7 @@ import { parseCliArguments } from "../src/cli-args";
 import { readConfigFile, type MisePleskConfig } from "../src/config";
 import { acquireLocalLock, type LocalLock } from "../src/local-lock";
 import { createWhatsAppTestEvent, requireWhatsAppTestConfirmation } from "../src/notification-test";
+import { formatScanOutput } from "../src/cli-output";
 
 const inventoryPath = process.env.MISE_PLESK_INVENTORY ?? "inventory.json";
 const configPath = process.env.MISE_PLESK_CONFIG ?? "config.mise-en-plesk.json";
@@ -443,13 +444,7 @@ async function main(): Promise<void> {
     const result: AuditResult = { ...preliminaryResult, findings: currentFindings, findingEvents };
     const reportPath = await writeAuditReport(result, process.env.MISE_PLESK_REPORTS ?? config.reportsDirectory ?? "reports", json, process.env.MISE_PLESK_REPORT_SUFFIX ?? "");
     await writeHeartbeat(heartbeatPath, { version: 1, target, startedAt, completedAt: new Date().toISOString(), reportPath });
-    const eventSummary = findingEvents.length
-      ? ` ${findingEvents.length} finding state change(s): ${findingEvents.map((event) => event.type).join(", ")}.`
-      : " No finding state changes.";
-    console.log(`Read-only scan complete. Report written to ${reportPath}.`);
-    console.log(`Open findings: ${currentFindings.length}.${eventSummary}`);
-    if (alertSent) console.log("Sent pending P1 alert(s).");
-    if (whatsappSent) console.log("Sent pending P1 WhatsApp alert(s).");
+    console.log(formatScanOutput(result, { reportPath, json, alertSent, whatsappSent }));
     return;
   }
     usage();

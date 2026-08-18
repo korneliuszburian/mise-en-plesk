@@ -25,7 +25,7 @@ the implementation, automated check, and operational evidence agree.
 | Vulnerability enrichment | done | opt-in WPVulnerability adapter, cache/budget/error handling, tests |
 | Suspicious uploads and integrity signals | done | independent uploads PHP probe, including WP-CLI failure fallback, checksum findings, tests, and real master runtime evidence |
 | Stable findings and resolved/reopened state | done | `src/findings.ts`, `src/finding-state.ts`, `src/scan-cycle.ts`, atomic persistence and multi-chunk cycle tests |
-| Markdown and JSON reports | done | `src/report.ts`, additive `AuditResult`, report tests |
+| Markdown and JSON reports | done | `src/report.ts`, additive `AuditResult`, report tests, and CLI JSON-stream coverage |
 | P1 alert delivery and retry/outbox | done | webhook + chunked WhatsApp adapters, bounded retry/outbox tests, partial-ack coverage, and disabled-channel backlog proof |
 | Stale monitor signal | done | `src/monitor-health.ts`, CLI and tests |
 | Locking and concurrent-run protection | done | local lock, scheduler `flock`, lock tests |

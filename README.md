@@ -54,8 +54,9 @@ scan falls back to non-root filesystem discovery and records a warning.
 example uses `master-ssh` and `dev-ssh`), scans
 them sequentially, and writes one aggregate report. Progress is written to
 stderr so machine consumers can use the command without mixing progress into
-the report. Add `--json` to write the machine-readable report instead of
-Markdown. Set `maxVulnerabilityLookupsPerHost` in the config to cap opt-in
+the JSON stream. Add `--json` to write the machine-readable report instead of
+Markdown; the same JSON result is emitted on stdout. Set
+`maxVulnerabilityLookupsPerHost` in the config to cap opt-in
 WPVulnerability requests per host. Set `maxConcurrentSitesPerHost` to tune
 the number of simultaneous site batches per host; the default is 4. For large
 hosts, bound a run with `--max-sites=20 --offset=0` and repeat with the next

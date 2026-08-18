@@ -31,7 +31,7 @@ export MISE_PLESK_RUN_LOCK_HELD=1
 "${runner_args[@]}" mise-plesk-audit monitor-health --json
 "${runner_args[@]}" mise-plesk-audit doctor --json
 if [[ "${MISE_PLESK_SCHEDULE_ALL_CHUNKS:-0}" == "1" ]]; then
-  "${runner_args[@]}" mise-plesk-audit scan "$target" --json --max-sites="$chunk_size" --all-chunks
+  "${runner_args[@]}" mise-plesk-audit scan "$target" --json --max-sites="$chunk_size" --all-chunks >/dev/null
 else
   config_path="${MISE_PLESK_CONFIG:-$repo_root/config.mise-en-plesk.json}"
   if [[ "$target" == "all" ]]; then
@@ -60,7 +60,7 @@ else
     run_stamp="$(date -u +%Y%m%dT%H%M%SZ)"
     suffix="-$scheduled_target-$run_stamp"
     report_path="$report_dir/plesk-wp-audit-$(date -u +%Y%m%d)${suffix}.json"
-    MISE_PLESK_REPORT_SUFFIX="$suffix" "${runner_args[@]}" mise-plesk-audit scan "$scheduled_target" --json --max-sites="$chunk_size" --offset="$offset"
+    MISE_PLESK_REPORT_SUFFIX="$suffix" "${runner_args[@]}" mise-plesk-audit scan "$scheduled_target" --json --max-sites="$chunk_size" --offset="$offset" >/dev/null
     "${cursor_runner[@]}" advance "$cursor_file" "$scheduled_target" "$report_path"
   done
 fi
