@@ -178,7 +178,9 @@ uses a chunk size of 20 and persists per-host cursors; override that with
 `MISE_PLESK_SCAN_CHUNK_SIZE`. Set `MISE_PLESK_SCHEDULE_ALL_CHUNKS=1` for an
 explicit complete sweep. Exit code `75` means
 another scan is already running. The lock is process-backed via `flock` and is
-released automatically when the runner exits.
+released automatically when the runner exits. When `MISE_PLESK_REPORTS` is not
+set, the runner uses the configured `reportsDirectory` for both report lookup
+and cursor advancement.
 
 For a systemd deployment, copy
 `deploy/systemd/mise-en-plesk.service.example` and

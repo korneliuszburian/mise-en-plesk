@@ -43,7 +43,11 @@ else
     echo "No scheduled hosts configured in $config_path" >&2
     exit 1
   fi
-  report_dir="${MISE_PLESK_REPORTS:-$repo_root/reports}"
+  if [[ -n "${MISE_PLESK_REPORTS:-}" ]]; then
+    report_dir="$MISE_PLESK_REPORTS"
+  else
+    report_dir="$(node -e 'const fs=require("node:fs"); const config=JSON.parse(fs.readFileSync(process.argv[1], "utf8")); process.stdout.write(config.reportsDirectory ?? "reports")' "$config_path")"
+  fi
   cursor_runner=("$runner_bin")
   if [[ "$(basename "$runner_bin")" == "pnpm" ]]; then
     cursor_runner+=(exec tsx)
