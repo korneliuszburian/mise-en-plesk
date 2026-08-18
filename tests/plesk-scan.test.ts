@@ -164,6 +164,7 @@ describe("plesk scan", () => {
       wordpressHasMore: false,
     });
     expect(calls[1]).toContain("awk 'NR > 2 && NR <= 5");
+    expect(calls[1]).toContain("if (NR >= 5) exit");
   });
 
   it("rejects unsafe discovery ranges before building a remote command", async () => {

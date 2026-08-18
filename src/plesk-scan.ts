@@ -292,7 +292,7 @@ export async function scanPleskHost(
   }
   const discoveryCommand = limit === undefined
     ? `${prefix}find /var/www/vhosts -xdev -maxdepth 4 -type f ${options.includeAlternateWordPressDetection ? "\\( -name wp-config.php -o -path '*/wp-includes/version.php' \\)" : "-name wp-config.php"} -print`
-    : `${prefix}find /var/www/vhosts -xdev -maxdepth 4 -type f ${options.includeAlternateWordPressDetection ? "\\( -name wp-config.php -o -path '*/wp-includes/version.php' \\)" : "-name wp-config.php"} -print | sort | awk 'NR > ${offset} && NR <= ${offset + limit + 1} { print }'`;
+    : `${prefix}find /var/www/vhosts -xdev -maxdepth 4 -type f ${options.includeAlternateWordPressDetection ? "\\( -name wp-config.php -o -path '*/wp-includes/version.php' \\)" : "-name wp-config.php"} -print | awk 'NR > ${offset} && NR <= ${offset + limit + 1} { print; if (NR >= ${offset + limit + 1}) exit }'`;
   let configPaths: string[];
   try {
     configPaths = parseLineList(await runner(host, discoveryCommand));
