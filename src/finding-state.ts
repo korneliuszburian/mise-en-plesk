@@ -28,6 +28,7 @@ export function reconcileFindings(
   previous: FindingState,
   current: Finding[],
   now = new Date().toISOString(),
+  scopeHosts?: ReadonlySet<string>,
 ): { state: FindingState; events: FindingEvent[] } {
   const next: FindingState = { version: 1, findings: { ...previous.findings } };
   const events: FindingEvent[] = [];
@@ -56,7 +57,8 @@ export function reconcileFindings(
   }
 
   for (const existing of Object.values(previous.findings)) {
-    if (existing.status === "open" && !currentIds.has(existing.id)) {
+    const inScope = scopeHosts === undefined || scopeHosts.has(existing.host);
+    if (existing.status === "open" && inScope && !currentIds.has(existing.id)) {
       const resolved: StoredFinding = { ...existing, status: "resolved", resolvedAt: now };
       next.findings[existing.id] = resolved;
       events.push({ type: "resolved", finding: resolved, occurredAt: now });

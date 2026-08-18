@@ -47,4 +47,15 @@ describe("finding state transitions", () => {
     await expect(readFindingState(path)).resolves.toEqual(state);
     await expect(readFile(path, "utf8")).resolves.toContain('"version": 1');
   });
+
+  it("does not resolve findings belonging to hosts outside the scan scope", () => {
+    const master = finding("master-finding");
+    const dev = { ...finding("dev-finding"), host: "dev-ssh" };
+    const initial = reconcileFindings(emptyFindingState(), [master, dev], "2026-08-12T00:00:00.000Z").state;
+    const result = reconcileFindings(initial, [], "2026-08-13T00:00:00.000Z", new Set(["master-ssh"]));
+
+    expect(result.state.findings["master-finding"].status).toBe("resolved");
+    expect(result.state.findings["dev-finding"].status).toBe("open");
+    expect(result.events.map((event) => event.finding.id)).toEqual(["master-finding"]);
+  });
 });

@@ -113,7 +113,12 @@ async function main(): Promise<void> {
     const currentFindings = findingsFromAudits(preliminaryResult.hosts);
     const findingStatePath = process.env.MISE_PLESK_FINDINGS ?? config.findingsStatePath ?? ".mise-en-plesk/findings.json";
     const findingState = await readFindingState(findingStatePath);
-    const transition = reconcileFindings(findingState, currentFindings, preliminaryResult.generatedAt);
+    const transition = reconcileFindings(
+      findingState,
+      currentFindings,
+      preliminaryResult.generatedAt,
+      new Set(preliminaryResult.hosts.map((host) => host.host)),
+    );
     await writeFindingState(findingStatePath, transition.state);
     const result: AuditResult = { ...preliminaryResult, findings: currentFindings, findingEvents: transition.events };
     const reportPath = await writeAuditReport(result, process.env.MISE_PLESK_REPORTS ?? config.reportsDirectory ?? "reports", json);
