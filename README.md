@@ -2,6 +2,9 @@
 
 Small, read-only tooling for auditing WordPress installations on Plesk hosts.
 
+Every push and pull request runs the test, typecheck, build, and whitespace
+checks on Node.js 20 and 22 through GitHub Actions.
+
 ## Quickstart
 
 ```sh
