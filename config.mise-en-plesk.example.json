@@ -5,5 +5,7 @@
   "allowSshConfigSnippet": false,
   "maxVulnerabilityLookupsPerHost": 25,
   "maxConcurrentSitesPerHost": 4,
-  "maxSitesPerHost": 20
+  "maxSitesPerHost": 20,
+  "heartbeatPath": ".mise-en-plesk/heartbeat.json",
+  "monitorMaxAgeHours": 2
 }

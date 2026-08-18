@@ -19,7 +19,9 @@ stdin, never argv/logs/files. Never add arbitrary sudo command execution.
 Risk priorities are P1 manual-review signals: very old core, abandoned plugin,
 vulnerable plugin, or PHP files under `wp-content/uploads`. With
 `MISE_PLESK_ENABLE_VULNS=1`, the audit performs opt-in lookups against the
-WPVulnerability API; otherwise it performs no vulnerability API requests.
+WPVulnerability API; otherwise it performs no vulnerability API requests. The
+monitor heartbeat and `monitor-stale` finding are local operational signals;
+they never trigger remote commands or remediation.
 
 ## Skills
 

@@ -11,6 +11,8 @@ import { readFindingState, reconcileFindings, writeFindingState, type FindingSco
 import { notifyFindingEvents } from "../src/notifications";
 import { notifyFindingEventsToWhatsApp } from "../src/whatsapp";
 import { runPreflight } from "../src/preflight";
+import { createMonitorStaleFinding, readHeartbeat, writeHeartbeat } from "../src/monitor-health";
+import { parseCliArguments } from "../src/cli-args";
 
 const inventoryPath = process.env.MISE_PLESK_INVENTORY ?? "inventory.json";
 const configPath = process.env.MISE_PLESK_CONFIG ?? "config.mise-en-plesk.json";
@@ -23,6 +25,8 @@ interface MisePleskConfig {
   maxConcurrentSitesPerHost?: number;
   maxSitesPerHost?: number;
   findingsStatePath?: string;
+  heartbeatPath?: string;
+  monitorMaxAgeHours?: number;
 }
 
 interface VulnerabilityLookupBudget {
@@ -30,7 +34,7 @@ interface VulnerabilityLookupBudget {
 }
 
 function usage(): never {
-  console.error("Usage: mise-plesk-audit doctor [--json] | sync-ssh | scan <target|all> [--json] [--max-sites=N] [--offset=N] [--all-chunks]");
+  console.error("Usage: mise-plesk-audit doctor [--json] | monitor-health [--json] [--max-age-hours=N] | sync-ssh | scan <target|all> [--json] [--max-sites=N] [--offset=N] [--all-chunks]");
   process.exit(1);
 }
 
@@ -90,6 +94,9 @@ async function readConfig(): Promise<MisePleskConfig> {
   }
   if (config.sudoHosts && (!Array.isArray(config.sudoHosts) || config.sudoHosts.some((host) => typeof host !== "string"))) {
     throw new Error(`Config sudoHosts must be an array of aliases: ${configPath}`);
+  }
+  if (config.monitorMaxAgeHours !== undefined && (!Number.isFinite(config.monitorMaxAgeHours) || config.monitorMaxAgeHours <= 0)) {
+    throw new Error(`Config monitorMaxAgeHours must be a positive number: ${configPath}`);
   }
   return config;
 }
@@ -161,10 +168,11 @@ async function scanHost(
 }
 
 async function main(): Promise<void> {
-  const [command, target, ...flags] = process.argv.slice(2);
+  const { command, target, flags } = parseCliArguments(process.argv.slice(2));
   const json = flags.includes("--json");
   if (command === "doctor") {
-    const result = await runPreflight({ inventoryPath, configPath });
+    const config = await readOptionalConfig();
+    const result = await runPreflight({ inventoryPath, configPath, heartbeatPath: process.env.MISE_PLESK_HEARTBEAT ?? config.heartbeatPath });
     if (json) console.log(JSON.stringify(result, null, 2));
     else for (const item of result.checks) console.log(`${item.ok ? "OK" : "FAIL"} ${item.name}: ${item.detail}`);
     if (!result.ok) process.exitCode = 1;
@@ -175,9 +183,57 @@ async function main(): Promise<void> {
     console.log(`Synced ${Object.keys(inventory).length} host(s) to ${inventoryPath}.`);
     return;
   }
+  if (command === "monitor-health") {
+    const config = await readOptionalConfig();
+    let jsonOutput = false;
+    let maxAgeHours = config.monitorMaxAgeHours ?? 2;
+    for (const flag of flags) {
+      if (flag === "--json") {
+        jsonOutput = true;
+        continue;
+      }
+      const maxAgeMatch = /^--max-age-hours=(.+)$/.exec(flag);
+      if (!maxAgeMatch) usage();
+      const parsed = Number(maxAgeMatch[1]);
+      if (!Number.isFinite(parsed) || parsed <= 0) throw new Error("--max-age-hours must be a positive number.");
+      maxAgeHours = parsed;
+    }
+    const heartbeatPath = process.env.MISE_PLESK_HEARTBEAT ?? config.heartbeatPath ?? ".mise-en-plesk/heartbeat.json";
+    const now = new Date();
+    const heartbeat = await readHeartbeat(heartbeatPath);
+    const staleFinding = createMonitorStaleFinding(heartbeat, now, maxAgeHours * 60 * 60 * 1000);
+    const findingStatePath = process.env.MISE_PLESK_FINDINGS ?? config.findingsStatePath ?? ".mise-en-plesk/findings.json";
+    const previousState = await readFindingState(findingStatePath);
+    const transition = reconcileFindings(
+      previousState,
+      staleFinding ? [staleFinding] : [],
+      now.toISOString(),
+      { installationPaths: new Set(["__monitor__"]) },
+    );
+    await writeFindingState(findingStatePath, transition.state);
+    const notification = await notifyFindingEvents(transition.events, { webhookUrl: process.env.MISE_PLESK_ALERT_WEBHOOK_URL, debug: (message) => console.error(message) });
+    const whatsapp = await notifyFindingEventsToWhatsApp(transition.events, {
+      accessToken: process.env.MISE_PLESK_WHATSAPP_ACCESS_TOKEN,
+      phoneNumberId: process.env.MISE_PLESK_WHATSAPP_PHONE_NUMBER_ID,
+      recipient: process.env.MISE_PLESK_WHATSAPP_RECIPIENT,
+      templateName: process.env.MISE_PLESK_WHATSAPP_TEMPLATE_NAME,
+      templateLanguage: process.env.MISE_PLESK_WHATSAPP_TEMPLATE_LANGUAGE,
+      graphVersion: process.env.MISE_PLESK_WHATSAPP_GRAPH_VERSION,
+      debug: (message) => console.error(message),
+    });
+    const result = { heartbeatPath, heartbeat, stale: Boolean(staleFinding), findingEvents: transition.events };
+    if (jsonOutput) console.log(JSON.stringify(result, null, 2));
+    else console.log(staleFinding ? `Monitor is stale: ${heartbeatPath}` : `Monitor is healthy: ${heartbeat?.completedAt ?? "unknown"}`);
+    if (notification.sent) console.error(`Sent ${notification.eligibleEvents} monitor alert(s).`);
+    if (whatsapp.sent) console.error(`Sent ${whatsapp.eligibleEvents} monitor WhatsApp alert(s).`);
+    return;
+  }
   if (command === "scan" && target) {
     const config = target === "all" ? await readConfig() : await readOptionalConfig();
     const scanRange = readScanRange(flags, config);
+    const heartbeatPath = process.env.MISE_PLESK_HEARTBEAT ?? config.heartbeatPath ?? ".mise-en-plesk/heartbeat.json";
+    const startedAt = new Date().toISOString();
+    await writeHeartbeat(heartbeatPath, { version: 1, target, startedAt });
     const inventory = await readInventory(inventoryPath);
     const aliases = target === "all" ? config.hosts ?? [] : [target];
     if (!aliases.length) throw new Error(`No hosts configured in ${configPath}.`);
@@ -247,6 +303,7 @@ async function main(): Promise<void> {
     });
     const result: AuditResult = { ...preliminaryResult, findings: currentFindings, findingEvents: transition.events };
     const reportPath = await writeAuditReport(result, process.env.MISE_PLESK_REPORTS ?? config.reportsDirectory ?? "reports", json);
+    await writeHeartbeat(heartbeatPath, { version: 1, target, startedAt, completedAt: new Date().toISOString(), reportPath });
     const eventSummary = transition.events.length
       ? ` ${transition.events.length} finding state change(s): ${transition.events.map((event) => event.type).join(", ")}.`
       : " No finding state changes.";
@@ -259,7 +316,16 @@ async function main(): Promise<void> {
   usage();
 }
 
-main().catch((error: unknown) => {
+main().catch(async (error: unknown) => {
+  if (process.argv[2] === "scan") {
+    try {
+      const heartbeatPath = process.env.MISE_PLESK_HEARTBEAT ?? ".mise-en-plesk/heartbeat.json";
+      const heartbeat = await readHeartbeat(heartbeatPath);
+      if (heartbeat) await writeHeartbeat(heartbeatPath, { ...heartbeat, failedAt: new Date().toISOString() });
+    } catch {
+      // Preserve the original scan failure; heartbeat diagnostics are best effort.
+    }
+  }
   console.error(error instanceof Error ? error.message : error);
   process.exitCode = 1;
 });

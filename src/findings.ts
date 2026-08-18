@@ -13,7 +13,8 @@ export type FindingCode =
   | "theme-update"
   | "core-checksum-failed"
   | "plugin-checksum-failed"
-  | "suspicious-upload-php";
+  | "suspicious-upload-php"
+  | "monitor-stale";
 
 export type FindingSeverity = "P1" | "P2" | "info";
 

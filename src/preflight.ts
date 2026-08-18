@@ -2,6 +2,7 @@ import { readFile } from "node:fs/promises";
 import { execFile } from "node:child_process";
 import { promisify } from "node:util";
 import { readInventory } from "./ssh-inventory";
+import { isHeartbeatStale, readHeartbeat } from "./monitor-health";
 
 const execFileAsync = promisify(execFile);
 
@@ -22,6 +23,9 @@ export interface PreflightOptions {
   configPath?: string;
   env?: NodeJS.ProcessEnv;
   commandRunner?: (command: string) => Promise<string>;
+  heartbeatPath?: string;
+  heartbeatMaxAgeMs?: number;
+  now?: Date;
 }
 
 export function versionArguments(command: string): string[] {
@@ -101,5 +105,23 @@ export async function runPreflight(options: PreflightOptions = {}): Promise<Pref
         : `incomplete; missing ${missingWhatsApp.join(", ")}`,
     false,
   ));
+  if (options.heartbeatPath) {
+    try {
+      const heartbeat = await readHeartbeat(options.heartbeatPath);
+      const stale = isHeartbeatStale(heartbeat, options.now ?? new Date(), options.heartbeatMaxAgeMs);
+      checks.push(check(
+        "monitor-heartbeat",
+        !stale,
+        !heartbeat
+          ? `missing; no completed scan recorded at ${options.heartbeatPath}`
+          : stale
+            ? `stale; last completed scan is ${heartbeat.completedAt ?? "unknown"}`
+            : `last completed scan: ${heartbeat.completedAt}`,
+        false,
+      ));
+    } catch (error: unknown) {
+      checks.push(check("monitor-heartbeat", false, error instanceof Error ? error.message : "invalid heartbeat", false));
+    }
+  }
   return { ok: checks.filter((item) => item.blocking).every((item) => item.ok), checks };
 }

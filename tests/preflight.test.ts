@@ -1,5 +1,9 @@
+import { mkdtemp } from "node:fs/promises";
+import { tmpdir } from "node:os";
+import { join } from "node:path";
 import { describe, expect, it } from "vitest";
 import { runPreflight, versionArguments } from "../src/preflight";
+import { writeHeartbeat } from "../src/monitor-health";
 
 describe("local preflight", () => {
   it("uses OpenSSH's single-dash version flag", () => {
@@ -53,5 +57,28 @@ describe("local preflight", () => {
     expect(whatsapp).toMatchObject({ ok: false, blocking: false });
     expect(whatsapp?.detail).toContain("MISE_PLESK_WHATSAPP_RECIPIENT");
     expect(whatsapp?.detail).not.toContain("do-not-print");
+  });
+
+  it("reports a stale monitor heartbeat without making doctor fail", async () => {
+    const directory = await mkdtemp(join(tmpdir(), "mise-en-plesk-preflight-"));
+    const heartbeatPath = join(directory, "heartbeat.json");
+    await writeHeartbeat(heartbeatPath, {
+      version: 1,
+      target: "all",
+      startedAt: "2026-08-18T07:00:00.000Z",
+      completedAt: "2026-08-18T08:00:00.000Z",
+    });
+    const result = await runPreflight({
+      inventoryPath: "/tmp/mise-en-plesk-no-inventory.json",
+      configPath: "/tmp/mise-en-plesk-no-config.json",
+      heartbeatPath,
+      heartbeatMaxAgeMs: 60 * 60 * 1000,
+      now: new Date("2026-08-18T10:00:00.000Z"),
+      env: { BW_SESSION: "short-lived" },
+      commandRunner: async () => "available",
+    });
+
+    expect(result.checks).toContainEqual(expect.objectContaining({ name: "monitor-heartbeat", ok: false, blocking: false }));
+    expect(result.ok).toBe(false);
   });
 });

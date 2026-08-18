@@ -11,11 +11,11 @@ checks on Node.js 20 and 22 through GitHub Actions.
 pnpm install
 pnpm typecheck
 pnpm test
-pnpm mise-plesk-audit doctor
+pnpm run mise-plesk-audit doctor
 source scripts/setup-bw-session.sh
-pnpm mise-plesk-audit sync-ssh
-pnpm mise-plesk-audit scan master-ssh --json --max-sites=20 --all-chunks
-pnpm mise-plesk-audit scan all --json
+pnpm run mise-plesk-audit sync-ssh
+pnpm run mise-plesk-audit scan master-ssh --json --max-sites=20 --all-chunks
+pnpm run mise-plesk-audit scan all --json
 ```
 
 Bitwarden items must be searchable with `mise-en-plesk`, contain a login
@@ -105,9 +105,16 @@ from the process environment and never persisted.
 
 Run `mise-plesk-audit doctor` before a scheduled scan. It checks local
 prerequisites, session presence, inventory/config readability, and reports
-whether alerting is enabled. Alerting is informational and does not make a
-scan fail by itself. It also reports whether the WhatsApp configuration is
-disabled, complete, or partially configured without printing secret values.
+whether alerting is enabled. It also reports the monitor heartbeat as an
+informational check. Alerting and heartbeat checks do not make a scan fail by
+themselves. It also reports whether the WhatsApp configuration is disabled,
+complete, or partially configured without printing secret values.
+
+`pnpm run mise-plesk-audit monitor-health --json` evaluates the last completed scan
+against `monitorMaxAgeHours` (default two hours), records a deduplicated P1
+`monitor-stale` finding, and uses the configured webhook/WhatsApp adapters for
+the alert. It is safe to run before every scheduled scan and returns normally
+so a stale monitor can still recover by starting the next scan.
 
 For a simple cron/systemd timer integration, run
 `scripts/run-scheduled-scan.sh`. It runs `doctor` first and then defaults to
