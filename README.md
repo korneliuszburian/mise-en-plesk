@@ -67,6 +67,15 @@ WhatsApp Business adapter. Notification failures are logged briefly and never
 fail the read-only scan. The URL is read at runtime and is never written to
 reports or inventory.
 
+Direct WhatsApp Business Cloud API delivery is also opt-in. Set
+`MISE_PLESK_WHATSAPP_ACCESS_TOKEN`, `MISE_PLESK_WHATSAPP_PHONE_NUMBER_ID`,
+`MISE_PLESK_WHATSAPP_RECIPIENT`, and
+`MISE_PLESK_WHATSAPP_TEMPLATE_NAME`, and
+`MISE_PLESK_WHATSAPP_GRAPH_VERSION`; optionally set
+`MISE_PLESK_WHATSAPP_TEMPLATE_LANGUAGE`. The template must be approved in
+WhatsApp Manager and provide one body text parameter. Tokens are read only
+from the process environment and never persisted.
+
 Run `mise-plesk-audit doctor` before a scheduled scan. It checks local
 prerequisites, session presence, inventory/config readability, and reports
 whether alerting is enabled. Alerting is informational and does not make a
