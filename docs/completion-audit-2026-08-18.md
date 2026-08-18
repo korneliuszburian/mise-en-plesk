@@ -30,7 +30,7 @@ the implementation, automated check, and operational evidence agree.
 | Stale monitor signal | done | `src/monitor-health.ts`, CLI and tests |
 | Locking and concurrent-run protection | done | local lock, scheduler `flock`, lock tests |
 | Bounded scan and per-host rotation | done | streamed/deduplicated paginated filesystem discovery, `scan-cursor.ts` plus `scan-cycle.ts`, scheduler, cursor/cycle tests and bounded runtime proof on master/dev |
-| Production scheduler packaging | partial | non-root systemd service/timer examples, encrypted `LoadCredentialEncrypted` contract, explicit runtime `inventory.json`/config paths under `/var/lib/mise-en-plesk`, optional non-secret Hermes `EnvironmentFile`, repeatable credential rotation helper, checkout read-only policy with mutable state under `/var/lib/mise-en-plesk`, scheduler integration coverage including custom `reportsDirectory`, and README provisioning/install instructions; deployment on the operator's actual always-on runner remains unverified |
+| Production scheduler packaging | partial | non-root systemd service/timer examples, encrypted `LoadCredentialEncrypted` contract, explicit runtime `inventory.json`/config paths under `/var/lib/mise-en-plesk`, optional non-secret Hermes `EnvironmentFile`, repeatable credential rotation helper, checkout read-only policy with mutable state under `/var/lib/mise-en-plesk`, scheduler integration coverage including custom `reportsDirectory`, README provisioning/install instructions, and bounded `maxScanChunksPerHost`/`--max-chunks`; deployment on the operator's actual always-on runner remains unverified |
 | Master and dev real-host proof | done | current checkout completed fresh bounded read-only scans through `pnpm --silent`: `master-ssh` reported 216 subscriptions/1 candidate and `runtime-incompatible` (PHP 7.2.24 vs WP 7.0.4), `dev-ssh` reported 92 subscriptions/1 candidate and `wp-cli-broken` (`/usr/local/bin/wp: 404`); both SSH hosts were reachable, stdout parsed as JSON, and no credentials were written to reports |
 | WhatsApp production delivery proof | partial | direct Cloud adapter plus Hermes CLI adapter, fake-client/process tests, and recipient-bound `whatsapp-test`/`hermes-test` confirmations are implemented; approved template, Hermes session, target, and runtime env are operator-owned |
 | Full-fleet rotation proof | done | current checkout completed two scheduler cycles across both configured hosts; each host advanced independently from offset `0` to `2`, with four unique timestamped reports and persistent findings/outbox state |
@@ -43,11 +43,22 @@ the implementation, automated check, and operational evidence agree.
 - `doctor --json`: `ok: true`; Node, `bw`, SSH, `sshpass`, `BW_SESSION`, inventory,
   and config all passed. Hermes and direct WhatsApp were correctly disabled because
   no provider target/credentials were configured in this shell.
-- `pnpm test`: 28 files / 128 tests passed.
+- `pnpm test`: 32 files / 144 tests passed.
 - `pnpm typecheck`, `pnpm build`, `git diff --check`, `bash -n scripts/*.sh`, and
   `systemd-analyze verify` on copied unit examples passed.
 - GitHub Actions run `32134127563` passed both Node 20 and Node 22 jobs for
   commit `d8abbfa`.
+- GitHub Actions runs `32137998740`, `32141783099`, and `32142483046` passed
+  both Node 20 and Node 22 jobs for commits `f33f0a6`, `e01bca3`, and `55e3837`.
+- A fresh bounded runtime scan with `--max-sites=20 --all-chunks
+  --max-chunks=1` reached both `master-ssh` and `dev-ssh`, audited 20
+  installations per host, emitted JSON with `complete: false`, and left the
+  persisted scan cycles pending as intended. The full master sweep was not
+  repeated because the host exposes hundreds of filesystem candidates and the
+  bounded scheduler path is the production-safe mode.
+- `systemctl is-system-running` reports `running` in this WSL, but
+  `mise-en-plesk.timer` is `not-found`; the example units have not been
+  installed or enabled on the actual runner.
 
 ## Completion gates
 
