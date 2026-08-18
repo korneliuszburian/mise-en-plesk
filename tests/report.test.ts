@@ -49,4 +49,17 @@ describe("audit reports", () => {
 
     expect(markdown).toContain("> Warning: Plesk CLI unavailable; filesystem discovery only");
   });
+
+  it("renders read-only host facts", () => {
+    const markdown = auditMarkdown({
+      ...result,
+      hosts: [{
+        ...result.hosts[0],
+        hostFacts: { pleskVersion: "Plesk Obsidian 18.0.67", phpVersion: "8.2.29", disk: { filesystem: "/dev/vda1", availableKb: 35000, usedPercent: 65 } },
+      }],
+    });
+
+    expect(markdown).toContain("- Plesk: Plesk Obsidian 18.0.67");
+    expect(markdown).toContain("- Disk: 65% used, 35000 KiB available on /dev/vda1");
+  });
 });

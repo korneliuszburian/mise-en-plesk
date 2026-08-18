@@ -7,6 +7,11 @@ export function auditMarkdown(result: AuditResult): string {
   for (const host of result.hosts) {
     lines.push(`## ${host.host}`, ``);
     for (const warning of host.warnings ?? []) lines.push(`> Warning: ${warning}`, ``);
+    if (host.hostFacts) {
+      lines.push(`- Plesk: ${host.hostFacts.pleskVersion ?? "unknown"}`, `- PHP: ${host.hostFacts.phpVersion ?? "unknown"}`);
+      if (host.hostFacts.disk) lines.push(`- Disk: ${host.hostFacts.disk.usedPercent}% used, ${host.hostFacts.disk.availableKb} KiB available on ${host.hostFacts.disk.filesystem}`);
+      lines.push("");
+    }
     for (const site of host.wordpress) {
       lines.push(`### ${site.installation.domain ?? site.installation.path}`, ``, `- Core: ${site.coreVersion}`, `- Reachable: ${site.health.reachable ? "yes" : "no"}`);
       if (site.installation.classification) {

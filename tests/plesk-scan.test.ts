@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { buildSshInvocation, classifyWordPressInstallation, scanPleskHost, type SshCommandRunner } from "../src/plesk-scan";
+import { buildSshInvocation, classifyWordPressInstallation, parseDiskUsage, parsePhpVersion, parsePleskVersion, scanPleskHost, type SshCommandRunner } from "../src/plesk-scan";
 import type { HostConfig } from "../src/ssh-inventory";
 
 const host: HostConfig = {
@@ -13,6 +13,35 @@ const host: HostConfig = {
 };
 
 describe("plesk scan", () => {
+  it("parses read-only host fact output", () => {
+    expect(parsePleskVersion("Plesk Obsidian 18.0.67 Update #3\n")).toBe("Plesk Obsidian 18.0.67");
+    expect(parsePhpVersion("PHP 8.2.29 (cli) (built: Jun 12 2026 10:00:00)\n")).toBe("8.2.29");
+    expect(parseDiskUsage("Filesystem 1024-blocks Used Available Capacity Mounted on\n/dev/vda1 100000 65000 35000 65% /var/www/vhosts\n")).toEqual({
+      filesystem: "/dev/vda1",
+      availableKb: 35000,
+      usedPercent: 65,
+    });
+  });
+
+  it("collects host facts through fixed read-only commands", async () => {
+    const calls: string[] = [];
+    const runner: SshCommandRunner = async (_host, command) => {
+      calls.push(command);
+      if (command.startsWith("plesk bin subscription")) return "example.test\n";
+      if (command.startsWith("find /var/www/vhosts")) return "/var/www/vhosts/example.test/httpdocs/wp-config.php\n";
+      if (command === "plesk version") return "Plesk Obsidian 18.0.67 Update #3\n";
+      if (command === "php -v") return "PHP 8.2.29 (cli)\n";
+      return "Filesystem 1024-blocks Used Available Capacity Mounted on\n/dev/vda1 100000 65000 35000 65% /var/www/vhosts\n";
+    };
+
+    await expect(scanPleskHost(host, runner, { collectHostFacts: true })).resolves.toMatchObject({
+      hostFacts: { pleskVersion: "Plesk Obsidian 18.0.67", phpVersion: "8.2.29", disk: { availableKb: 35000, usedPercent: 65 } },
+    });
+    expect(calls).toContain("plesk version");
+    expect(calls).toContain("php -v");
+    expect(calls).toContain("df -P -k /var/www/vhosts");
+  });
+
   it("classifies WordPress locations without claiming certainty for unknown paths", () => {
     expect(classifyWordPressInstallation("/var/www/vhosts/example.test/httpdocs", "example.test")).toEqual({
       kind: "production",

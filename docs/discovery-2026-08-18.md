@@ -34,6 +34,9 @@ be a separate, explicitly confirmed command.
   discovery of `wp-config.php`.
 - WordPress checks run remotely through WP-CLI: core version, plugin metadata,
   checksum verification, and PHP files below `wp-content/uploads`.
+- Host context is collected through fixed SSH-only commands for Plesk version,
+  default PHP CLI version, and `/var/www/vhosts` disk usage; failures become
+  warnings instead of aborting the site scan.
 - Vulnerability enrichment is opt-in through `MISE_PLESK_ENABLE_VULNS=1` and
   uses the public WPVulnerability API. The API describes itself as free/open,
   provides core/plugin/theme endpoints, and does not require an API key:

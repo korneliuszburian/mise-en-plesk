@@ -79,6 +79,11 @@ verifies core and plugin checksums. A checksum failure is a review signal, not
 an automatic cleanup action; custom or premium plugins may not have matching
 WordPress.org checksums.
 
+Each host report also includes best-effort SSH-only facts: Plesk version, the
+default PHP CLI version, and disk usage for `/var/www/vhosts`. Fact collection
+is informational; an unavailable fact never turns a reachable host into a
+failed scan.
+
 Every discovered WordPress location includes a conservative classification in
 JSON: `production`, `staging`, `backup`, or `unknown`, with the reason for the
 classification. Standard Plesk `httpdocs` and `public_html` paths are treated

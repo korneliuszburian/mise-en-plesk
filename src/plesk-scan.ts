@@ -44,13 +44,26 @@ export interface PleskScanResult {
   subscriptions: string[];
   wordpress: WordPressInstallation[];
   wordpressHasMore?: boolean;
+  hostFacts?: HostFacts;
+  pleskCliAvailable?: boolean;
   warnings?: string[];
+}
+
+export interface HostFacts {
+  pleskVersion?: string;
+  phpVersion?: string;
+  disk?: {
+    filesystem: string;
+    availableKb: number;
+    usedPercent: number;
+  };
 }
 
 export interface PleskScanOptions {
   wordpressOffset?: number;
   wordpressLimit?: number;
   useSudo?: boolean;
+  collectHostFacts?: boolean;
 }
 
 export type SshCommandRunner = (host: HostConfig, command: string) => Promise<string>;
@@ -130,6 +143,27 @@ export function parseLineList(output: string): string[] {
   return output.split(/\r?\n/).map((line) => line.trim()).filter(Boolean);
 }
 
+export function parsePleskVersion(output: string): string | undefined {
+  return output.match(/Plesk(?:\s+\w+)?\s+\d+\.\d+\.\d+/i)?.[0];
+}
+
+export function parsePhpVersion(output: string): string | undefined {
+  return output.match(/PHP\s+(\d+\.\d+\.\d+)/i)?.[1];
+}
+
+export function parseDiskUsage(output: string): HostFacts["disk"] | undefined {
+  for (const line of output.split(/\r?\n/)) {
+    const fields = line.trim().split(/\s+/);
+    if (fields.length < 5 || !/^\d+%$/.test(fields[4])) continue;
+    const availableKb = Number(fields[3]);
+    const usedPercent = Number(fields[4].slice(0, -1));
+    if (fields[0] && Number.isSafeInteger(availableKb) && Number.isInteger(usedPercent)) {
+      return { filesystem: fields[0], availableKb, usedPercent };
+    }
+  }
+  return undefined;
+}
+
 function wordpressPath(configPath: string): WordPressInstallation {
   const path = dirname(configPath);
   const marker = "/var/www/vhosts/";
@@ -177,9 +211,11 @@ export async function scanPleskHost(
   let prefix = options.useSudo ? "sudo -S -p '' -- " : "";
   const warnings: string[] = [];
   let subscriptions: string[] = [];
+  let pleskCliAvailable = true;
   try {
     subscriptions = parseLineList(await runner(host, `${prefix}plesk bin subscription --list`));
   } catch (error: unknown) {
+    pleskCliAvailable = false;
     warnings.push(`Plesk CLI subscription discovery unavailable; using filesystem discovery only: ${shortError(error)}`);
     prefix = "";
   }
@@ -190,11 +226,31 @@ export async function scanPleskHost(
     await runner(host, discoveryCommand),
   );
   const wordpressHasMore = limit === undefined ? undefined : configPaths.length > limit;
+  let hostFacts: HostFacts | undefined;
+  if (options.collectHostFacts) {
+    hostFacts = {};
+    const facts = [
+      ["Plesk version", `${prefix}plesk version`, (output: string) => { hostFacts!.pleskVersion = parsePleskVersion(output); }],
+      ["PHP version", `${prefix}php -v`, (output: string) => { hostFacts!.phpVersion = parsePhpVersion(output); }],
+      ["disk usage", `${prefix}df -P -k /var/www/vhosts`, (output: string) => { hostFacts!.disk = parseDiskUsage(output); }],
+    ] as const;
+    for (const [name, command, assign] of facts) {
+      try {
+        const output = await runner(host, command);
+        assign(output);
+      } catch (error: unknown) {
+        warnings.push(`Host fact ${name.toLowerCase()} unavailable: ${shortError(error)}`);
+      }
+    }
+    if (!hostFacts.pleskVersion && !hostFacts.phpVersion && !hostFacts.disk) hostFacts = undefined;
+  }
   return {
     host: host.alias,
     subscriptions,
     wordpress: (wordpressHasMore ? configPaths.slice(0, limit) : configPaths).map(wordpressPath),
     ...(limit === undefined ? {} : { wordpressHasMore }),
+    ...(hostFacts ? { hostFacts } : {}),
+    ...(pleskCliAvailable ? {} : { pleskCliAvailable: false }),
     ...(warnings.length ? { warnings } : {}),
   };
 }

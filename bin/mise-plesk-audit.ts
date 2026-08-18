@@ -134,9 +134,10 @@ async function scanHost(
       wordpressOffset: offset,
       wordpressLimit: maxSites,
       useSudo,
+      collectHostFacts: offset === 0,
     });
     for (const warning of scan.warnings ?? []) console.error(`[${alias}] warning: ${warning}`);
-    const effectiveSudo = useSudo && !scan.warnings?.length;
+    const effectiveSudo = useSudo && scan.pleskCliAvailable !== false;
     const selectedWordPress = maxSites === undefined ? scan.wordpress.slice(offset) : scan.wordpress;
     const scannedInstallationPaths = selectedWordPress.map((installation) => installation.path);
     const wordpress = [];
@@ -165,7 +166,12 @@ async function scanHost(
     }
     console.error(`[${alias}] found ${scan.subscriptions.length} subscription(s), ${scan.wordpress.length} WordPress installation(s); selected ${selectedWordPress.length} at offset ${offset}`);
     return {
-      report: { host: scan.host, wordpress, ...(scan.warnings ? { warnings: scan.warnings } : {}) },
+      report: {
+        host: scan.host,
+        wordpress,
+        ...(scan.hostFacts ? { hostFacts: scan.hostFacts } : {}),
+        ...(scan.warnings ? { warnings: scan.warnings } : {}),
+      },
       scannedInstallationPaths,
       complete: maxSites === undefined
         ? offset === 0
@@ -280,7 +286,11 @@ async function main(): Promise<void> {
     const hostsByAlias = new Map<string, AuditResult["hosts"][number]>();
     for (const execution of executions) {
       const existing = hostsByAlias.get(execution.report.host);
-      if (existing) existing.wordpress.push(...execution.report.wordpress);
+      if (existing) {
+        existing.wordpress.push(...execution.report.wordpress);
+        if (!existing.hostFacts && execution.report.hostFacts) existing.hostFacts = execution.report.hostFacts;
+        if (execution.report.warnings?.length) existing.warnings = [...new Set([...(existing.warnings ?? []), ...execution.report.warnings])];
+      }
       else hostsByAlias.set(execution.report.host, { ...execution.report, wordpress: [...execution.report.wordpress] });
     }
     const hosts = [...hostsByAlias.values()];

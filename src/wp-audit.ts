@@ -1,4 +1,4 @@
-import type { WordPressInstallation } from "./plesk-scan";
+import type { HostFacts, WordPressInstallation } from "./plesk-scan";
 import {
   lookupPluginVulnerabilities,
   lookupVulnerabilities,
@@ -57,7 +57,7 @@ export interface WordPressAudit {
 
 export interface AuditResult {
   generatedAt: string;
-  hosts: Array<{ host: string; wordpress: WordPressAudit[]; warnings?: string[] }>;
+  hosts: Array<{ host: string; wordpress: WordPressAudit[]; hostFacts?: HostFacts; warnings?: string[] }>;
   findings?: Finding[];
   findingEvents?: FindingEvent[];
 }
