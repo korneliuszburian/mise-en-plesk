@@ -17,6 +17,7 @@ export function auditMarkdown(result: AuditResult): string {
       if (site.installation.classification) {
         lines.push(`- Site classification: ${site.installation.classification.kind} (${site.installation.classification.reason})`);
       }
+      if (site.installation.detectionSignals?.length) lines.push(`- Detection signals: ${site.installation.detectionSignals.join(", ")}`);
       if (site.health.status) lines.push(`- Health status: ${site.health.status}`);
       if (site.health.detail) lines.push(`- Health detail: ${site.health.detail}`);
       if (site.coreUpdateAvailable !== undefined) lines.push(`- Core update available: ${site.coreUpdateAvailable ? "yes" : "no"}`);

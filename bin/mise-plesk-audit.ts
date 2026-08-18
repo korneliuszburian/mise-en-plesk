@@ -135,6 +135,7 @@ async function scanHost(
       wordpressLimit: maxSites,
       useSudo,
       collectHostFacts: offset === 0,
+      includeAlternateWordPressDetection: true,
     });
     for (const warning of scan.warnings ?? []) console.error(`[${alias}] warning: ${warning}`);
     const effectiveSudo = useSudo && scan.pleskCliAvailable !== false;

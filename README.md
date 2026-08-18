@@ -88,7 +88,10 @@ Every discovered WordPress location includes a conservative classification in
 JSON: `production`, `staging`, `backup`, or `unknown`, with the reason for the
 classification. Standard Plesk `httpdocs` and `public_html` paths are treated
 as production only when no staging or backup marker is present. The scanner
-does not infer production status from a `wp-config.php` file alone.
+does not infer production status from a `wp-config.php` file alone. Discovery
+also accepts `wp-includes/version.php` as an alternate WordPress candidate
+signal and preserves the signal in JSON; WP-CLI health still determines
+whether the candidate is operational.
 
 Each scan also writes a local, gitignored finding state file at
 `.mise-en-plesk/findings.json` (override with `MISE_PLESK_FINDINGS` or

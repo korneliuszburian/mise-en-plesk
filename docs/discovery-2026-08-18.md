@@ -31,7 +31,9 @@ be a separate, explicitly confirmed command.
 - SSH uses `sshpass` when required, a local ControlMaster socket, and bounded
   connection/command timeouts. Passwords are kept out of argv and inventory.
 - Plesk discovery uses read-only `plesk bin subscription --list` and filesystem
-  discovery of `wp-config.php`.
+  discovery of `wp-config.php` and, in the CLI path, the alternate
+  `wp-includes/version.php` signal. Candidate signals are preserved so a
+  filesystem match is not confused with a healthy live site.
 - WordPress checks run remotely through WP-CLI: core version, plugin metadata,
   checksum verification, and PHP files below `wp-content/uploads`.
 - Host context is collected through fixed SSH-only commands for Plesk version,

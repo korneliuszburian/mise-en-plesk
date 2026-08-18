@@ -30,7 +30,10 @@ export interface WordPressInstallation {
   path: string;
   domain?: string;
   classification?: WordPressInstallationClassification;
+  detectionSignals?: WordPressDetectionSignal[];
 }
+
+export type WordPressDetectionSignal = "wp-config.php" | "wp-includes/version.php";
 
 export type WordPressSiteKind = "production" | "staging" | "backup" | "unknown";
 
@@ -64,6 +67,7 @@ export interface PleskScanOptions {
   wordpressLimit?: number;
   useSudo?: boolean;
   collectHostFacts?: boolean;
+  includeAlternateWordPressDetection?: boolean;
 }
 
 export type SshCommandRunner = (host: HostConfig, command: string) => Promise<string>;
@@ -164,12 +168,34 @@ export function parseDiskUsage(output: string): HostFacts["disk"] | undefined {
   return undefined;
 }
 
-function wordpressPath(configPath: string): WordPressInstallation {
-  const path = dirname(configPath);
+function wordpressPath(candidatePath: string, includeDetectionSignal = false): WordPressInstallation {
+  const isVersionFile = candidatePath.endsWith("/wp-includes/version.php");
+  const path = isVersionFile ? dirname(dirname(candidatePath)) : dirname(candidatePath);
   const marker = "/var/www/vhosts/";
   const relative = path.startsWith(marker) ? path.slice(marker.length) : "";
   const domain = relative.split("/")[0] || undefined;
-  return { path, domain, classification: classifyWordPressInstallation(path, domain) };
+  return {
+    path,
+    domain,
+    classification: classifyWordPressInstallation(path, domain),
+    ...(includeDetectionSignal ? { detectionSignals: [isVersionFile ? "wp-includes/version.php" : "wp-config.php"] } : {}),
+  };
+}
+
+function parseWordPressCandidates(paths: string[], includeDetectionSignal: boolean): WordPressInstallation[] {
+  const installations = new Map<string, WordPressInstallation>();
+  for (const candidatePath of paths) {
+    const installation = wordpressPath(candidatePath, includeDetectionSignal);
+    const existing = installations.get(installation.path);
+    if (!existing) {
+      installations.set(installation.path, installation);
+      continue;
+    }
+    if (installation.detectionSignals?.[0] && !existing.detectionSignals?.includes(installation.detectionSignals[0])) {
+      existing.detectionSignals = [...(existing.detectionSignals ?? []), installation.detectionSignals[0]];
+    }
+  }
+  return [...installations.values()];
 }
 
 function hasPathMarker(value: string, marker: string): boolean {
@@ -220,8 +246,8 @@ export async function scanPleskHost(
     prefix = "";
   }
   const discoveryCommand = limit === undefined
-    ? `${prefix}find /var/www/vhosts -xdev -maxdepth 4 -type f -name wp-config.php -print`
-    : `${prefix}find /var/www/vhosts -xdev -maxdepth 4 -type f -name wp-config.php -print | sort | awk 'NR > ${offset} && NR <= ${offset + limit + 1} { print }'`;
+    ? `${prefix}find /var/www/vhosts -xdev -maxdepth 4 -type f ${options.includeAlternateWordPressDetection ? "\\( -name wp-config.php -o -path '*/wp-includes/version.php' \\)" : "-name wp-config.php"} -print`
+    : `${prefix}find /var/www/vhosts -xdev -maxdepth 4 -type f ${options.includeAlternateWordPressDetection ? "\\( -name wp-config.php -o -path '*/wp-includes/version.php' \\)" : "-name wp-config.php"} -print | sort | awk 'NR > ${offset} && NR <= ${offset + limit + 1} { print }'`;
   const configPaths = parseLineList(
     await runner(host, discoveryCommand),
   );
@@ -247,7 +273,7 @@ export async function scanPleskHost(
   return {
     host: host.alias,
     subscriptions,
-    wordpress: (wordpressHasMore ? configPaths.slice(0, limit) : configPaths).map(wordpressPath),
+    wordpress: parseWordPressCandidates(wordpressHasMore ? configPaths.slice(0, limit) : configPaths, Boolean(options.includeAlternateWordPressDetection)),
     ...(limit === undefined ? {} : { wordpressHasMore }),
     ...(hostFacts ? { hostFacts } : {}),
     ...(pleskCliAvailable ? {} : { pleskCliAvailable: false }),

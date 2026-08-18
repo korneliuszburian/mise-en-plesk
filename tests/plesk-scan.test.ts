@@ -42,6 +42,20 @@ describe("plesk scan", () => {
     expect(calls).toContain("df -P -k /var/www/vhosts");
   });
 
+  it("detects alternate WordPress roots from wp-includes/version.php", async () => {
+    const runner: SshCommandRunner = async (_host, command) => {
+      if (command.startsWith("plesk bin subscription")) return "example.test\n";
+      return "/var/www/vhosts/example.test/httpdocs/wp-includes/version.php\n/var/www/vhosts/other.test/httpdocs/wp-config.php\n";
+    };
+
+    await expect(scanPleskHost(host, runner, { includeAlternateWordPressDetection: true })).resolves.toMatchObject({
+      wordpress: [
+        { path: "/var/www/vhosts/example.test/httpdocs", detectionSignals: ["wp-includes/version.php"] },
+        { path: "/var/www/vhosts/other.test/httpdocs", detectionSignals: ["wp-config.php"] },
+      ],
+    });
+  });
+
   it("classifies WordPress locations without claiming certainty for unknown paths", () => {
     expect(classifyWordPressInstallation("/var/www/vhosts/example.test/httpdocs", "example.test")).toEqual({
       kind: "production",
