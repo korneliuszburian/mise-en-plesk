@@ -26,13 +26,13 @@ the implementation, automated check, and operational evidence agree.
 | Suspicious uploads and integrity signals | done | independent uploads PHP probe, including WP-CLI failure fallback, checksum findings, tests, and real master runtime evidence |
 | Stable findings and resolved/reopened state | done | `src/findings.ts`, `src/finding-state.ts`, `src/scan-cycle.ts`, atomic persistence and multi-chunk cycle tests |
 | Markdown and JSON reports | done | `src/report.ts`, additive `AuditResult`, report tests, and CLI JSON-stream coverage |
-| P1 alert delivery and retry/outbox | done | webhook + chunked WhatsApp adapters, bounded retry/outbox tests, partial-ack coverage, disabled-channel backlog proof, and crash-safe enqueue-before-state replay coverage |
+| P1 alert delivery and retry/outbox | done | webhook + chunked WhatsApp Cloud + Hermes CLI adapters, bounded retry/outbox tests, partial-ack coverage, disabled-channel backlog proof, and crash-safe enqueue-before-state replay coverage |
 | Stale monitor signal | done | `src/monitor-health.ts`, CLI and tests |
 | Locking and concurrent-run protection | done | local lock, scheduler `flock`, lock tests |
 | Bounded scan and per-host rotation | done | streamed/deduplicated paginated filesystem discovery, `scan-cursor.ts` plus `scan-cycle.ts`, scheduler, cursor/cycle tests and bounded runtime proof on master/dev |
-| Production scheduler packaging | partial | non-root systemd service/timer examples, encrypted `LoadCredentialEncrypted` contract, repeatable credential rotation helper, hardened filesystem policy, scheduler integration coverage including custom `reportsDirectory`, and README install/stop instructions; deployment on the operator's actual always-on runner remains unverified |
+| Production scheduler packaging | partial | non-root systemd service/timer examples, encrypted `LoadCredentialEncrypted` contract, repeatable credential rotation helper, checkout read-only policy with mutable state under `/var/lib/mise-en-plesk`, scheduler integration coverage including custom `reportsDirectory`, and README install/stop instructions; deployment on the operator's actual always-on runner remains unverified |
 | Master and dev real-host proof | done | current checkout completed bounded read-only scans: `master-ssh` reported 216 subscriptions/1 candidate and classified the site as runtime-incompatible, `dev-ssh` reported 92 subscriptions/1 candidate and classified the site as WP-CLI-broken; no credentials were written to reports |
-| WhatsApp production delivery proof | partial | adapter, fake-client tests, and recipient-bound `whatsapp-test --confirm=<recipient>` are implemented; approved template and runtime env are operator-owned |
+| WhatsApp production delivery proof | partial | direct Cloud adapter plus Hermes CLI adapter, fake-client/process tests, and recipient-bound `whatsapp-test`/`hermes-test` confirmations are implemented; approved template, Hermes session, target, and runtime env are operator-owned |
 | Full-fleet rotation proof | done | current checkout completed two scheduler cycles across both configured hosts; each host advanced independently from offset `0` to `2`, with four unique timestamped reports and persistent findings/outbox state |
 | CI on supported Node versions | done | `.github/workflows/ci.yml`, Node 20/22 matrix; current `master` CI history has passed both jobs |
 | Public repository / review trail | done | GitHub remote, semantic commit history, two-axis review required per major slice |
@@ -51,8 +51,9 @@ checkout:
    chmod, or arbitrary sudo).
 4. A standards/spec review of the final implementation diff, followed by
    fixes, a semantic commit, push, and green GitHub CI.
-5. A documented operator deployment check for the scheduler and WhatsApp
-   adapter, followed by `whatsapp-test --confirm=<recipient>` and one recovery delivery.
+5. A documented operator deployment check for the scheduler and selected WhatsApp
+   adapter, followed by `whatsapp-test --confirm=<recipient>` or
+   `hermes-test --confirm=<target>` and one recovery delivery.
    Missing production secrets are an infrastructure prerequisite, not a reason
    to weaken the read-only scanner or fake delivery evidence.
 
