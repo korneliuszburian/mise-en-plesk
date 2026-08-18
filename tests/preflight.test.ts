@@ -1,4 +1,4 @@
-import { mkdtemp } from "node:fs/promises";
+import { mkdtemp, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { describe, expect, it } from "vitest";
@@ -80,5 +80,18 @@ describe("local preflight", () => {
 
     expect(result.checks).toContainEqual(expect.objectContaining({ name: "monitor-heartbeat", ok: false, blocking: false }));
     expect(result.ok).toBe(false);
+  });
+
+  it("rejects malformed config values during preflight", async () => {
+    const directory = await mkdtemp(join(tmpdir(), "mise-en-plesk-config-"));
+    const configPath = join(directory, "config.json");
+    await writeFile(configPath, JSON.stringify({ hosts: ["master ssh"], maxConcurrentSitesPerHost: 0 }));
+    const result = await runPreflight({
+      inventoryPath: "/tmp/mise-en-plesk-no-inventory.json",
+      configPath,
+      env: { BW_SESSION: "short-lived" },
+      commandRunner: async () => "available",
+    });
+    expect(result.checks).toContainEqual(expect.objectContaining({ name: "config", ok: false, detail: expect.stringContaining("aliases") }));
   });
 });

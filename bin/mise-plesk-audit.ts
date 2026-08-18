@@ -1,5 +1,4 @@
 #!/usr/bin/env node
-import { readFile } from "node:fs/promises";
 import { getInventoryHostItem, readInventory, syncFromBitwarden } from "../src/ssh-inventory";
 import { extractSecureNoteSshCredentials } from "../src/bitwarden";
 import { createSshSession, scanPleskHost } from "../src/plesk-scan";
@@ -21,24 +20,10 @@ import {
 import { runPreflight } from "../src/preflight";
 import { createMonitorStaleFinding, readHeartbeat, writeHeartbeat } from "../src/monitor-health";
 import { parseCliArguments } from "../src/cli-args";
+import { readConfigFile, type MisePleskConfig } from "../src/config";
 
 const inventoryPath = process.env.MISE_PLESK_INVENTORY ?? "inventory.json";
 const configPath = process.env.MISE_PLESK_CONFIG ?? "config.mise-en-plesk.json";
-
-interface MisePleskConfig {
-  reportsDirectory?: string;
-  hosts?: string[];
-  sudoHosts?: string[];
-  maxVulnerabilityLookupsPerHost?: number;
-  vulnerabilityCachePath?: string;
-  vulnerabilityCacheTtlHours?: number;
-  maxConcurrentSitesPerHost?: number;
-  maxSitesPerHost?: number;
-  findingsStatePath?: string;
-  notificationOutboxPath?: string;
-  heartbeatPath?: string;
-  monitorMaxAgeHours?: number;
-}
 
 interface VulnerabilityLookupBudget {
   used: number;
@@ -95,21 +80,7 @@ function readScanRange(flags: string[], config: MisePleskConfig): { json: boolea
 }
 
 async function readConfig(): Promise<MisePleskConfig> {
-  const value: unknown = JSON.parse(await readFile(configPath, "utf8"));
-  if (!value || typeof value !== "object" || Array.isArray(value)) {
-    throw new Error(`Config must be a JSON object: ${configPath}`);
-  }
-  const config = value as MisePleskConfig;
-  if (config.hosts && (!Array.isArray(config.hosts) || config.hosts.some((host) => typeof host !== "string"))) {
-    throw new Error(`Config hosts must be an array of aliases: ${configPath}`);
-  }
-  if (config.sudoHosts && (!Array.isArray(config.sudoHosts) || config.sudoHosts.some((host) => typeof host !== "string"))) {
-    throw new Error(`Config sudoHosts must be an array of aliases: ${configPath}`);
-  }
-  if (config.monitorMaxAgeHours !== undefined && (!Number.isFinite(config.monitorMaxAgeHours) || config.monitorMaxAgeHours <= 0)) {
-    throw new Error(`Config monitorMaxAgeHours must be a positive number: ${configPath}`);
-  }
-  return config;
+  return readConfigFile(configPath);
 }
 
 async function readOptionalConfig(): Promise<MisePleskConfig> {

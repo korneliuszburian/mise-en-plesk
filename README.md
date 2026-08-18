@@ -120,7 +120,7 @@ WhatsApp Manager and provide one body text parameter. Tokens are read only
 from the process environment and never persisted.
 
 Run `mise-plesk-audit doctor` before a scheduled scan. It checks local
-prerequisites, session presence, inventory/config readability, and reports
+prerequisites, session presence, inventory/config validity, and reports
 whether alerting is enabled. It also reports the monitor heartbeat as an
 informational check. Alerting and heartbeat checks do not make a scan fail by
 themselves. It also reports whether the WhatsApp configuration is disabled,

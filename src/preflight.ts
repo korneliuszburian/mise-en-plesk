@@ -1,8 +1,8 @@
-import { readFile } from "node:fs/promises";
 import { execFile } from "node:child_process";
 import { promisify } from "node:util";
 import { readInventory } from "./ssh-inventory";
 import { isHeartbeatStale, readHeartbeat } from "./monitor-health";
+import { readConfigFile } from "./config";
 
 const execFileAsync = promisify(execFile);
 
@@ -74,10 +74,10 @@ export async function runPreflight(options: PreflightOptions = {}): Promise<Pref
 
   const configPath = options.configPath ?? "config.mise-en-plesk.json";
   try {
-    const config = JSON.parse(await readFile(configPath, "utf8")) as unknown;
-    checks.push(check("config", Boolean(config && typeof config === "object" && !Array.isArray(config)), `${configPath} is readable`));
-  } catch {
-    checks.push(check("config", false, `${configPath} is missing or invalid`));
+    await readConfigFile(configPath);
+    checks.push(check("config", true, `${configPath} is readable and valid`));
+  } catch (error: unknown) {
+    checks.push(check("config", false, error instanceof Error ? error.message : `${configPath} is missing or invalid`));
   }
 
   checks.push(check(
