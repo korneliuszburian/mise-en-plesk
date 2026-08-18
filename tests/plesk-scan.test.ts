@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { buildSshInvocation, scanPleskHost, type SshCommandRunner } from "../src/plesk-scan";
+import { buildSshInvocation, classifyWordPressInstallation, scanPleskHost, type SshCommandRunner } from "../src/plesk-scan";
 import type { HostConfig } from "../src/ssh-inventory";
 
 const host: HostConfig = {
@@ -13,6 +13,25 @@ const host: HostConfig = {
 };
 
 describe("plesk scan", () => {
+  it("classifies WordPress locations without claiming certainty for unknown paths", () => {
+    expect(classifyWordPressInstallation("/var/www/vhosts/example.test/httpdocs", "example.test")).toEqual({
+      kind: "production",
+      reason: "standard Plesk httpdocs path without staging or backup markers",
+    });
+    expect(classifyWordPressInstallation("/var/www/vhosts/staging.example.test/httpdocs", "staging.example.test")).toEqual({
+      kind: "staging",
+      reason: "staging marker found in the domain or path",
+    });
+    expect(classifyWordPressInstallation("/var/www/vhosts/example.test/httpdocs/backup-2026", "example.test")).toEqual({
+      kind: "backup",
+      reason: "backup marker found in the domain or path",
+    });
+    expect(classifyWordPressInstallation("/srv/sites/example.test/current", "example.test")).toEqual({
+      kind: "unknown",
+      reason: "path does not provide a reliable production, staging, or backup signal",
+    });
+  });
+
   it("keeps SSH passwords in the child environment and out of argv", () => {
     const invocation = buildSshInvocation(host, "secret-password");
 
@@ -50,7 +69,11 @@ describe("plesk scan", () => {
     await expect(scanPleskHost(host, runner)).resolves.toEqual({
       host: "master",
       subscriptions: ["example.test", "shop.test"],
-      wordpress: [{ path: "/var/www/vhosts/example.test/httpdocs", domain: "example.test" }],
+      wordpress: [{
+        path: "/var/www/vhosts/example.test/httpdocs",
+        domain: "example.test",
+        classification: { kind: "production", reason: "standard Plesk httpdocs path without staging or backup markers" },
+      }],
     });
     expect(calls).toEqual([
       "plesk bin subscription --list",

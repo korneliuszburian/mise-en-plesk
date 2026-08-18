@@ -29,6 +29,14 @@ function execFileWithInput(
 export interface WordPressInstallation {
   path: string;
   domain?: string;
+  classification?: WordPressInstallationClassification;
+}
+
+export type WordPressSiteKind = "production" | "staging" | "backup" | "unknown";
+
+export interface WordPressInstallationClassification {
+  kind: WordPressSiteKind;
+  reason: string;
 }
 
 export interface PleskScanResult {
@@ -127,7 +135,27 @@ function wordpressPath(configPath: string): WordPressInstallation {
   const marker = "/var/www/vhosts/";
   const relative = path.startsWith(marker) ? path.slice(marker.length) : "";
   const domain = relative.split("/")[0] || undefined;
-  return { path, domain };
+  return { path, domain, classification: classifyWordPressInstallation(path, domain) };
+}
+
+function hasPathMarker(value: string, marker: string): boolean {
+  return new RegExp(`(?:^|[\\/._-])${marker}(?:[0-9]*)?(?=$|[\\/._-])`, "i").test(value);
+}
+
+export function classifyWordPressInstallation(path: string, domain?: string): WordPressInstallationClassification {
+  const value = `${path} ${domain ?? ""}`.toLowerCase();
+  if (["backup", "backups", "old", "copy", "trash"].some((marker) => hasPathMarker(value, marker))) {
+    return { kind: "backup", reason: "backup marker found in the domain or path" };
+  }
+  if (["staging", "stage", "dev", "development", "testing", "qa", "uat", "preprod", "preview", "sandbox"].some((marker) => hasPathMarker(value, marker))
+    || /(?:^|\/)test(?:$|[\\/._-])/i.test(path)
+    || domain?.split(".")[0].toLowerCase() === "test") {
+    return { kind: "staging", reason: "staging marker found in the domain or path" };
+  }
+  if (/(?:^|\/)httpdocs(?:$|\/)/i.test(path) || /(?:^|\/)public_html(?:$|\/)/i.test(path)) {
+    return { kind: "production", reason: "standard Plesk httpdocs path without staging or backup markers" };
+  }
+  return { kind: "unknown", reason: "path does not provide a reliable production, staging, or backup signal" };
 }
 
 function shortError(error: unknown): string {

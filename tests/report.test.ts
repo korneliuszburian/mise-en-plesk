@@ -10,7 +10,11 @@ const result: AuditResult = {
   hosts: [{
     host: "master",
     wordpress: [{
-      installation: { path: "/var/www/vhosts/example.test/httpdocs", domain: "example.test" },
+      installation: {
+        path: "/var/www/vhosts/example.test/httpdocs",
+        domain: "example.test",
+        classification: { kind: "production", reason: "standard Plesk httpdocs path without staging or backup markers" },
+      },
       coreVersion: "5.9.0",
       plugins: [{ name: "sample", version: "1.0", active: true, hasUpdate: true, vulnerabilities: [] }],
       vulnerabilities: [],
@@ -24,6 +28,7 @@ const result: AuditResult = {
 describe("audit reports", () => {
   it("renders useful Markdown sections and priorities", () => {
     expect(auditMarkdown(result)).toContain("## master");
+    expect(auditMarkdown(result)).toContain("Site classification: production");
     expect(auditMarkdown(result)).toContain("Plugin risk: 1 with updates, 0 abandoned, 0 with known vulnerabilities");
     expect(auditMarkdown(result)).toContain("- Priorities: core is very old");
   });

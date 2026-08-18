@@ -74,6 +74,12 @@ verifies core and plugin checksums. A checksum failure is a review signal, not
 an automatic cleanup action; custom or premium plugins may not have matching
 WordPress.org checksums.
 
+Every discovered WordPress location includes a conservative classification in
+JSON: `production`, `staging`, `backup`, or `unknown`, with the reason for the
+classification. Standard Plesk `httpdocs` and `public_html` paths are treated
+as production only when no staging or backup marker is present. The scanner
+does not infer production status from a `wp-config.php` file alone.
+
 Each scan also writes a local, gitignored finding state file at
 `.mise-en-plesk/findings.json` (override with `MISE_PLESK_FINDINGS` or
 `findingsStatePath`). Finding IDs are stable per host/site/signal, so unchanged

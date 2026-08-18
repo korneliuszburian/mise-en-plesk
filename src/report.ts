@@ -9,6 +9,9 @@ export function auditMarkdown(result: AuditResult): string {
     for (const warning of host.warnings ?? []) lines.push(`> Warning: ${warning}`, ``);
     for (const site of host.wordpress) {
       lines.push(`### ${site.installation.domain ?? site.installation.path}`, ``, `- Core: ${site.coreVersion}`, `- Reachable: ${site.health.reachable ? "yes" : "no"}`);
+      if (site.installation.classification) {
+        lines.push(`- Site classification: ${site.installation.classification.kind} (${site.installation.classification.reason})`);
+      }
       if (site.health.status) lines.push(`- Health status: ${site.health.status}`);
       if (site.health.detail) lines.push(`- Health detail: ${site.health.detail}`);
       if (site.coreUpdateAvailable !== undefined) lines.push(`- Core update available: ${site.coreUpdateAvailable ? "yes" : "no"}`);

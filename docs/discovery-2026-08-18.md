@@ -59,9 +59,10 @@ scan is too slow and too noisy to be the alerting unit by itself.
 
 `wp-config.php` is a strong candidate signal, not proof that every path is a
 live customer site. The inventory can include staging, backups, `.trash`,
-nested copies, and abandoned directories. Each installation needs a stable
-identity and a classification such as `production`, `staging`, `backup`, or
-`unknown`.
+nested copies, and abandoned directories. The scanner now emits a conservative
+classification (`production`, `staging`, `backup`, or `unknown`) with a reason.
+Standard `httpdocs`/`public_html` paths become production only when no staging
+or backup marker is present; ambiguous paths remain unknown.
 
 ### Finding model
 
