@@ -26,6 +26,11 @@ Bitwarden items must be searchable with `mise-en-plesk`, contain a login
 username and SSH URI, and use fields for optional metadata such as
 `identitySource`. The local `inventory.json` is a cache and is gitignored.
 
+The cache is validated before use: aliases must be safe SSH config names, the
+stored alias must match its object key, ports must be valid TCP ports, and host
+metadata may not contain control characters or shell-target separators. A
+corrupt or hand-edited inventory fails closed before any SSH session starts.
+
 The current organization also stores `master ssh` and `dev ssh` as Secure
 Notes. Their read-only SSH shape is `host:port\nuser:password` (the separator
 may be a literal `\\n`). `sync-ssh` understands these two notes and writes only

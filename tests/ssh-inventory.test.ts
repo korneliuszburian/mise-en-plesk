@@ -1,4 +1,4 @@
-import { mkdtemp, readFile } from "node:fs/promises";
+import { mkdtemp, readFile, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { describe, expect, it } from "vitest";
@@ -71,5 +71,35 @@ describe("ssh inventory", () => {
     expect(searches).toEqual(["mise-en-plesk", ""]);
     expect(Object.keys(inventory)).toEqual(["master-ssh", "dev-ssh"]);
     expect(inventory["master-ssh"]).not.toHaveProperty("password");
+  });
+
+  it("rejects a cached inventory entry with an invalid SSH boundary", async () => {
+    const directory = await mkdtemp(join(tmpdir(), "mise-en-plesk-"));
+    const path = join(directory, "inventory.json");
+    await writeFile(path, JSON.stringify({
+      master: { ...descriptor, alias: "master", port: 0 },
+    }));
+
+    await expect(readInventory(path)).rejects.toThrow("master.port must be a valid TCP port");
+  });
+
+  it("rejects an inventory key that does not match the host alias", async () => {
+    const directory = await mkdtemp(join(tmpdir(), "mise-en-plesk-"));
+    const path = join(directory, "inventory.json");
+    await writeFile(path, JSON.stringify({
+      other: { ...descriptor, alias: "master" },
+    }));
+
+    await expect(readInventory(path)).rejects.toThrow("Inventory key must match host alias");
+  });
+
+  it("rejects an SSH username containing separators", async () => {
+    const directory = await mkdtemp(join(tmpdir(), "mise-en-plesk-"));
+    const path = join(directory, "inventory.json");
+    await writeFile(path, JSON.stringify({
+      master: { ...descriptor, alias: "master", user: "root@example" },
+    }));
+
+    await expect(readInventory(path)).rejects.toThrow("master.user contains unsafe SSH username characters");
   });
 });
