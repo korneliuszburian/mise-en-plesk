@@ -194,6 +194,17 @@ systemctl status mise-en-plesk.timer
 journalctl -u mise-en-plesk.service
 ```
 
+After installing the units, run the read-only deployment verifier on that
+runner:
+
+```sh
+scripts/verify-systemd-install.sh
+```
+
+It checks unit syntax, timer state, the dedicated non-root service account,
+the encrypted Bitwarden credential, and the systemd filesystem hardening. It
+does not start, stop, reload, or modify any unit.
+
 The timer runs the incremental one-chunk-per-host mode. It never performs
 remote remediation; `systemctl stop mise-en-plesk.timer` is the local stop
 switch. Rotate the encrypted `bw-session.cred` before the session expires by
