@@ -140,6 +140,11 @@ events are retained in the local gitignored notification outbox and retried on
 the next run, so a temporary alerting outage does not lose a finding. Disabled
 channels are discarded from the outbox rather than creating an old-alert
 backlog; configure a channel before the scan if it must receive the event.
+Delivery history is stored separately in the gitignored notification history
+file and applies a 24-hour per-finding, per-channel cooldown by default. Set
+`notificationCooldownHours` in config to change it; set it to `0` to disable
+the cooldown. Pending events are grouped by site in provider messages while
+remaining individually represented in JSON and the outbox.
 Notification failures are logged briefly and never fail the read-only scan. The
 URL is read at runtime and is never written to reports or inventory.
 

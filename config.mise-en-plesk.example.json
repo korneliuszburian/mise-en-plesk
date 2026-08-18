@@ -9,6 +9,8 @@
   "maxConcurrentSitesPerHost": 4,
   "maxSitesPerHost": 20,
   "scanCycleStatePath": ".mise-en-plesk/scan-cycles.json",
+  "notificationHistoryPath": ".mise-en-plesk/notification-history.json",
+  "notificationCooldownHours": 24,
   "heartbeatPath": ".mise-en-plesk/heartbeat.json",
   "monitorMaxAgeHours": 2
 }

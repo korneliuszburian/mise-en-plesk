@@ -2,6 +2,7 @@ import { execFile } from "node:child_process";
 import { promisify } from "node:util";
 import type { FindingEvent } from "./finding-state";
 import type { RetryOptions } from "./retry";
+import { chunkFindingEvents } from "./notification-format";
 
 const execFileAsync = promisify(execFile);
 const DEFAULT_MAX_MESSAGE_LENGTH = 900;
@@ -35,30 +36,6 @@ function requireHermesWhatsAppTarget(value: string | undefined): string {
 function eligible(events: FindingEvent[]): FindingEvent[] {
   return events.filter((event) =>
     (event.type === "opened" || event.type === "reopened") && event.finding.severity === "P1");
-}
-
-function eventText(event: FindingEvent, maxLength: number): string {
-  const site = event.finding.domain ?? event.finding.installationPath;
-  const text = `[${event.finding.severity}] ${event.type} on ${event.finding.host}/${site}: ${event.finding.message}`;
-  return text.length <= maxLength ? text : `${text.slice(0, Math.max(0, maxLength - 1))}…`;
-}
-
-function chunks(events: FindingEvent[], maxLength: number): FindingEvent[][] {
-  const result: FindingEvent[][] = [];
-  let current: FindingEvent[] = [];
-  let length = 0;
-  for (const event of events) {
-    const eventLength = eventText(event, maxLength).length;
-    if (current.length && length + 1 + eventLength > maxLength) {
-      result.push(current);
-      current = [];
-      length = 0;
-    }
-    current.push(event);
-    length += (current.length > 1 ? 1 : 0) + eventLength;
-  }
-  if (current.length) result.push(current);
-  return result;
 }
 
 async function defaultCommandRunner(binary: string, args: string[], timeoutMs: number): Promise<void> {
@@ -113,8 +90,8 @@ export async function sendFindingEventsViaHermes(
   const timeoutMs = options.timeoutMs ?? 15_000;
   const maxLength = Math.max(1, Math.floor(options.maxMessageLength ?? DEFAULT_MAX_MESSAGE_LENGTH));
   const sentEvents: FindingEvent[] = [];
-  for (const chunk of chunks(selected, maxLength)) {
-    const message = chunk.map((event) => eventText(event, maxLength)).join("\n");
+  for (const chunk of chunkFindingEvents(selected, maxLength)) {
+    const message = chunk.text;
     try {
       await runWithRetry(
         options.commandRunner ?? defaultCommandRunner,
@@ -123,7 +100,7 @@ export async function sendFindingEventsViaHermes(
         timeoutMs,
         options,
       );
-      sentEvents.push(...chunk);
+      sentEvents.push(...chunk.events);
     } catch (error: unknown) {
       options.debug?.(`Hermes notification skipped: ${error instanceof Error ? error.message : "command failed"}`);
       return { sent: false, eligibleEvents: selected.length, sentEvents };

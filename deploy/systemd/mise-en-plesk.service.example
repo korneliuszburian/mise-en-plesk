@@ -21,6 +21,7 @@ Environment=MISE_PLESK_SCAN_CURSOR=/var/lib/mise-en-plesk/scan-cursor.json
 Environment=MISE_PLESK_FINDINGS=/var/lib/mise-en-plesk/findings.json
 Environment=MISE_PLESK_SCAN_CYCLES=/var/lib/mise-en-plesk/scan-cycles.json
 Environment=MISE_PLESK_NOTIFICATION_OUTBOX=/var/lib/mise-en-plesk/notification-outbox.json
+Environment=MISE_PLESK_NOTIFICATION_HISTORY=/var/lib/mise-en-plesk/notification-history.json
 Environment=MISE_PLESK_HEARTBEAT=/var/lib/mise-en-plesk/heartbeat.json
 Environment=MISE_PLESK_VULN_CACHE=/var/lib/mise-en-plesk/vulnerabilities.json
 Environment=HOME=/var/lib/mise-en-plesk

@@ -11,6 +11,8 @@ export interface NotificationOutboxEntry {
   hermesSent: boolean;
 }
 
+export type NotificationChannel = "webhook" | "whatsapp" | "hermes";
+
 export interface NotificationOutbox {
   version: 1;
   entries: NotificationOutboxEntry[];
@@ -57,7 +59,7 @@ export function compactNotificationOutbox(outbox: NotificationOutbox): Notificat
 
 export function pendingNotificationEvents(
   outbox: NotificationOutbox,
-  channel: "webhook" | "whatsapp" | "hermes",
+  channel: NotificationChannel,
 ): FindingEvent[] {
   return outbox.entries
     .filter((entry) => channel === "webhook" ? !entry.webhookSent : channel === "whatsapp" ? !entry.whatsappSent : !entry.hermesSent)
@@ -66,7 +68,7 @@ export function pendingNotificationEvents(
 
 export function markNotificationChannelSent(
   outbox: NotificationOutbox,
-  channel: "webhook" | "whatsapp" | "hermes",
+  channel: NotificationChannel,
   events: FindingEvent[],
 ): NotificationOutbox {
   const sent = new Set(events.flatMap((event) => [eventId(event), legacyEventId(event)]));

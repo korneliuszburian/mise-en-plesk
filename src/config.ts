@@ -12,6 +12,8 @@ export interface MisePleskConfig {
   findingsStatePath?: string;
   scanCycleStatePath?: string;
   notificationOutboxPath?: string;
+  notificationHistoryPath?: string;
+  notificationCooldownHours?: number;
   heartbeatPath?: string;
   monitorMaxAgeHours?: number;
   sshCommandTimeoutMs?: number;
@@ -65,6 +67,8 @@ export function validateConfig(value: unknown, source = "config.mise-en-plesk.js
     findingsStatePath: pathValue(value.findingsStatePath, "findingsStatePath", source),
     scanCycleStatePath: pathValue(value.scanCycleStatePath, "scanCycleStatePath", source),
     notificationOutboxPath: pathValue(value.notificationOutboxPath, "notificationOutboxPath", source),
+    notificationHistoryPath: pathValue(value.notificationHistoryPath, "notificationHistoryPath", source),
+    notificationCooldownHours: numberValue(value.notificationCooldownHours, "notificationCooldownHours", source, 0),
     heartbeatPath: pathValue(value.heartbeatPath, "heartbeatPath", source),
     monitorMaxAgeHours: numberValue(value.monitorMaxAgeHours, "monitorMaxAgeHours", source, Number.MIN_VALUE),
     sshCommandTimeoutMs: integerValue(value.sshCommandTimeoutMs, "sshCommandTimeoutMs", source, 1_000),

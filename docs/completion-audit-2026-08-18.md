@@ -26,7 +26,7 @@ the implementation, automated check, and operational evidence agree.
 | Suspicious uploads and integrity signals | done | independent uploads PHP probe, including WP-CLI failure fallback, checksum findings, tests, and real master runtime evidence |
 | Stable findings and resolved/reopened state | done | `src/findings.ts`, `src/finding-state.ts`, `src/scan-cycle.ts`, atomic persistence and multi-chunk cycle tests |
 | Markdown and JSON reports | done | `src/report.ts`, additive `AuditResult`, report tests, and CLI JSON-stream coverage |
-| P1 alert delivery and retry/outbox | done | webhook + chunked WhatsApp Cloud + Hermes CLI adapters, bounded retry/outbox tests, partial-ack coverage, disabled-channel backlog proof, and crash-safe enqueue-before-state replay coverage |
+| P1 alert delivery and retry/outbox | done | webhook + grouped/chunked WhatsApp Cloud + Hermes CLI adapters, per-finding/per-channel cooldown history, bounded retry/outbox tests, partial-ack coverage, disabled-channel backlog proof, and crash-safe enqueue-before-state replay coverage |
 | Stale monitor signal | done | `src/monitor-health.ts`, CLI and tests |
 | Locking and concurrent-run protection | done | local lock, scheduler `flock`, lock tests |
 | Bounded scan and per-host rotation | done | streamed/deduplicated paginated filesystem discovery, `scan-cursor.ts` plus `scan-cycle.ts`, scheduler, cursor/cycle tests and bounded runtime proof on master/dev |

@@ -1,5 +1,6 @@
 import type { FindingEvent } from "./finding-state";
 import { fetchWithRetry, type RetryOptions } from "./retry";
+import { chunkFindingEvents } from "./notification-format";
 
 export interface NotificationOptions extends RetryOptions {
   webhookUrl?: string;
@@ -18,11 +19,6 @@ function actionableEvents(events: FindingEvent[]): FindingEvent[] {
     (event.type === "opened" || event.type === "reopened") && event.finding.severity === "P1");
 }
 
-function eventText(event: FindingEvent): string {
-  const site = event.finding.domain ?? event.finding.installationPath;
-  return `[${event.finding.severity}] ${event.type} on ${event.finding.host}/${site}: ${event.finding.message}`;
-}
-
 export async function notifyFindingEvents(
   events: FindingEvent[],
   options: NotificationOptions = {},
@@ -37,7 +33,7 @@ export async function notifyFindingEvents(
       body: JSON.stringify({
         source: "mise-en-plesk",
         kind: "wordpress-risk-alert",
-        text: eligible.map(eventText).join("\n"),
+        text: chunkFindingEvents(eligible, 1_000_000).map((chunk) => chunk.text).join("\n"),
         events: eligible.map((event) => ({
           type: event.type,
           occurredAt: event.occurredAt,
