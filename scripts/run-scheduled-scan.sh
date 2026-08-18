@@ -20,5 +20,6 @@ log_path="$log_dir/scan-$(date -u +%Y%m%dT%H%M%SZ).log"
 exec > >(tee -a "$log_path") 2>&1
 echo "[$(date -u +%Y-%m-%dT%H:%M:%SZ)] starting read-only scan target=$target"
 cd "$repo_root"
+"$runner_bin" mise-plesk-audit doctor --json
 "$runner_bin" mise-plesk-audit scan "$target" --json
 echo "[$(date -u +%Y-%m-%dT%H:%M:%SZ)] scan finished successfully"

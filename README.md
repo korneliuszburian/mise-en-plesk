@@ -84,7 +84,8 @@ scan fail by itself. It also reports whether the WhatsApp configuration is
 disabled, complete, or partially configured without printing secret values.
 
 For a simple cron/systemd timer integration, run
-`scripts/run-scheduled-scan.sh`. It defaults to `scan all --json`, writes
+`scripts/run-scheduled-scan.sh`. It runs `doctor` first and then defaults to
+`scan all --json`, writes
 0600 logs under `.mise-en-plesk/logs/`, and uses a process-backed `flock`. Set
 `MISE_PLESK_SCHEDULED_TARGET`, `MISE_PLESK_SCHEDULE_LOG_DIR`, or
 `MISE_PLESK_SCHEDULE_LOCK_FILE` to override the defaults. Exit code `75` means
