@@ -23,6 +23,7 @@ Environment=MISE_PLESK_SCAN_CYCLES=/var/lib/mise-en-plesk/scan-cycles.json
 Environment=MISE_PLESK_NOTIFICATION_OUTBOX=/var/lib/mise-en-plesk/notification-outbox.json
 Environment=MISE_PLESK_HEARTBEAT=/var/lib/mise-en-plesk/heartbeat.json
 Environment=MISE_PLESK_VULN_CACHE=/var/lib/mise-en-plesk/vulnerabilities.json
+Environment=HOME=/var/lib/mise-en-plesk
 Environment=PATH=/usr/local/bin:/usr/bin:/bin
 # Install pnpm system-wide at this path, or change this explicit runner path.
 Environment=MISE_PLESK_RUNNER_BIN=/usr/local/bin/pnpm

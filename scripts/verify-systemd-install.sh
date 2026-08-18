@@ -35,6 +35,8 @@ grep -Fqx "ProtectSystem=strict" "$service_unit" \
   || fail "service is missing ProtectSystem=strict"
 grep -Fqx "ReadWritePaths=$state_directory" "$service_unit" \
   || fail "service does not restrict writes to $state_directory"
+grep -Fqx "Environment=HOME=$state_directory" "$service_unit" \
+  || fail "service does not pin HOME to the service account state directory"
 
 state_owner="$(stat -c '%U' "$state_directory" 2>/dev/null || true)"
 [[ "$state_owner" == "mise-en-plesk" ]] \

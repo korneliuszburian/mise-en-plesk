@@ -240,7 +240,9 @@ does not start, stop, reload, or modify any unit.
 The checkout is mounted read-only by systemd. Runtime state, reports, logs,
 locks, cursors, findings, and notification outbox data live under
 `/var/lib/mise-en-plesk`, owned by the dedicated service account. The timer
-runs the incremental one-chunk-per-host mode. It never performs
+runs with `HOME=/var/lib/mise-en-plesk`, so an optional Hermes CLI uses that
+account's own `~/.hermes` configuration. The timer runs the incremental
+one-chunk-per-host mode. It never performs
 remote remediation; `systemctl stop mise-en-plesk.timer` is the local stop
 switch. Rotate the encrypted `bw-session.cred` before the session expires by
 running `source scripts/setup-bw-session.sh` followed by

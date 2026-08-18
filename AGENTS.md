@@ -25,9 +25,10 @@ WPVulnerability API; otherwise it performs no vulnerability API requests. The
 monitor heartbeat and `monitor-stale` finding are local operational signals;
 they never trigger remote commands or remediation.
 
-`whatsapp-test --confirm=<configured recipient>` is the only intentional
-outbound test message. Never run it without checking the configured recipient
-in the current task.
+`whatsapp-test --confirm=<configured recipient>` and
+`hermes-test --confirm=<configured target>` are the only intentional outbound
+test messages. Never run either without checking the configured destination in
+the current task.
 
 Hermes WhatsApp delivery is optional and explicit. It uses the operator-owned
 Hermes CLI only when `MISE_PLESK_HERMES_WHATSAPP_TARGET` is configured; the
