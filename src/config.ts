@@ -10,6 +10,7 @@ export interface MisePleskConfig {
   maxConcurrentSitesPerHost?: number;
   maxSitesPerHost?: number;
   findingsStatePath?: string;
+  scanCycleStatePath?: string;
   notificationOutboxPath?: string;
   heartbeatPath?: string;
   monitorMaxAgeHours?: number;
@@ -62,6 +63,7 @@ export function validateConfig(value: unknown, source = "config.mise-en-plesk.js
     maxConcurrentSitesPerHost: integerValue(value.maxConcurrentSitesPerHost, "maxConcurrentSitesPerHost", source, 1),
     maxSitesPerHost: integerValue(value.maxSitesPerHost, "maxSitesPerHost", source, 1),
     findingsStatePath: pathValue(value.findingsStatePath, "findingsStatePath", source),
+    scanCycleStatePath: pathValue(value.scanCycleStatePath, "scanCycleStatePath", source),
     notificationOutboxPath: pathValue(value.notificationOutboxPath, "notificationOutboxPath", source),
     heartbeatPath: pathValue(value.heartbeatPath, "heartbeatPath", source),
     monitorMaxAgeHours: numberValue(value.monitorMaxAgeHours, "monitorMaxAgeHours", source, Number.MIN_VALUE),

@@ -290,9 +290,10 @@ export async function scanPleskHost(
     warnings.push(`Plesk CLI subscription discovery unavailable; using filesystem discovery only: ${shortError(error)}`);
     prefix = "";
   }
+  const findCandidates = `${prefix}find /var/www/vhosts -xdev -maxdepth 4 -type f ${options.includeAlternateWordPressDetection ? "\\( -name wp-config.php -o -path '*/wp-includes/version.php' \\)" : "-name wp-config.php"} -print`;
   const discoveryCommand = limit === undefined
-    ? `${prefix}find /var/www/vhosts -xdev -maxdepth 4 -type f ${options.includeAlternateWordPressDetection ? "\\( -name wp-config.php -o -path '*/wp-includes/version.php' \\)" : "-name wp-config.php"} -print`
-    : `${prefix}find /var/www/vhosts -xdev -maxdepth 4 -type f ${options.includeAlternateWordPressDetection ? "\\( -name wp-config.php -o -path '*/wp-includes/version.php' \\)" : "-name wp-config.php"} -print | awk 'NR > ${offset} && NR <= ${offset + limit + 1} { print; if (NR >= ${offset + limit + 1}) exit }'`;
+    ? findCandidates
+    : `${findCandidates} | ${String.raw`awk '{ candidate=$0; sub(/\/wp-config\.php$/, "", candidate); sub(/\/wp-includes\/version\.php$/, "", candidate); if (seen[candidate]++) next; position++; if (position > ${offset} && position <= ${offset + limit + 1}) { print; if (position >= ${offset + limit + 1}) exit } }'`}`;
   let configPaths: string[];
   try {
     configPaths = parseLineList(await runner(host, discoveryCommand));

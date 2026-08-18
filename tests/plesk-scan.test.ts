@@ -151,7 +151,7 @@ describe("plesk scan", () => {
     const runner: SshCommandRunner = async (_host, command) => {
       calls.push(command);
       if (command.startsWith("plesk bin subscription")) return "example.test\n";
-      if (command.includes("awk 'NR > 2")) return "/var/www/vhosts/three.test/httpdocs/wp-config.php\n";
+      if (command.includes("position > 2")) return "/var/www/vhosts/three.test/httpdocs/wp-config.php\n";
       return [
         "/var/www/vhosts/one.test/httpdocs/wp-config.php",
         "/var/www/vhosts/two.test/httpdocs/wp-config.php",
@@ -163,8 +163,9 @@ describe("plesk scan", () => {
       wordpress: [{ domain: "three.test" }],
       wordpressHasMore: false,
     });
-    expect(calls[1]).toContain("awk 'NR > 2 && NR <= 5");
-    expect(calls[1]).toContain("if (NR >= 5) exit");
+    expect(calls[1]).toContain("candidate=$0");
+    expect(calls[1]).toContain("position > 2 && position <= 5");
+    expect(calls[1]).toContain("if (position >= 5) exit");
   });
 
   it("rejects unsafe discovery ranges before building a remote command", async () => {

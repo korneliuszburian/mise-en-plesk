@@ -7,6 +7,8 @@ import { writeAuditReport } from "../src/report";
 import { createFileVulnerabilityCache, lookupVulnerabilities, type VulnerabilityCache } from "../src/vulnerabilities";
 import { findingsFromAudits } from "../src/findings";
 import { readFindingState, reconcileFindings, writeFindingState, type FindingScope, type FindingEvent } from "../src/finding-state";
+import { appendScanCycleFindings, completeScanCycle, prepareScanCycle, readScanCycleState, writeScanCycleState } from "../src/scan-cycle";
+import type { Finding } from "../src/findings";
 import { notifyFindingEvents } from "../src/notifications";
 import { notifyFindingEventsToWhatsApp } from "../src/whatsapp";
 import {
@@ -127,15 +129,15 @@ async function deliverNotifications(
   return { webhookSent: notification.sent, whatsappSent: whatsapp.sent };
 }
 
-async function persistFindingBatch(
-  hosts: AuditResult["hosts"],
+async function persistFindingList(
   findingState: Awaited<ReturnType<typeof readFindingState>>,
+  findings: Finding[],
   findingStatePath: string,
   scope: FindingScope,
   occurredAt: string,
   config: MisePleskConfig,
 ): Promise<{ state: Awaited<ReturnType<typeof readFindingState>>; events: FindingEvent[]; notificationSent: boolean; whatsappSent: boolean }> {
-  const transition = reconcileFindings(findingState, findingsFromAudits(hosts), occurredAt, scope);
+  const transition = reconcileFindings(findingState, findings, occurredAt, scope);
   await writeFindingState(findingStatePath, transition.state);
   const delivery = await deliverNotifications(transition.events, config);
   return {
@@ -341,7 +343,9 @@ async function main(): Promise<void> {
     }
     const executions: Array<Awaited<ReturnType<typeof scanHost>>> = [];
     const findingStatePath = process.env.MISE_PLESK_FINDINGS ?? config.findingsStatePath ?? ".mise-en-plesk/findings.json";
+    const scanCycleStatePath = process.env.MISE_PLESK_SCAN_CYCLES ?? config.scanCycleStatePath ?? ".mise-en-plesk/scan-cycles.json";
     let findingState = await readFindingState(findingStatePath);
+    let scanCycleState = await readScanCycleState(scanCycleStatePath);
     const findingEvents: FindingEvent[] = [];
     let alertSent = false;
     let whatsappSent = false;
@@ -351,14 +355,19 @@ async function main(): Promise<void> {
       const useSudo = config.sudoHosts?.includes(alias) ?? false;
       const hostWordPress: WordPressAudit[] = [];
       const hostExecutions: Array<Awaited<ReturnType<typeof scanHost>>> = [];
+      scanCycleState = prepareScanCycle(scanCycleState, alias, scanRange.offset, startedAt);
+      await writeScanCycleState(scanCycleStatePath, scanCycleState);
       while (true) {
         const execution = await scanHost(alias, inventory, maxLookups, maxConcurrentSites, scanRange.maxSites, offset, vulnerabilityBudget, useSudo, vulnerabilityCache, config.sshCommandTimeoutMs ?? DEFAULT_SSH_COMMAND_TIMEOUT_MS);
         executions.push(execution);
         hostExecutions.push(execution);
         hostWordPress.push(...execution.report.wordpress);
-        const batchTransition = await persistFindingBatch(
-          [execution.report],
+        const batchFindings = findingsFromAudits([execution.report]);
+        scanCycleState = appendScanCycleFindings(scanCycleState, alias, batchFindings);
+        await writeScanCycleState(scanCycleStatePath, scanCycleState);
+        const batchTransition = await persistFindingList(
           findingState,
+          batchFindings,
           findingStatePath,
           { installationPaths: new Set(execution.scannedInstallationPaths) },
           new Date().toISOString(),
@@ -373,19 +382,24 @@ async function main(): Promise<void> {
         offset += execution.scannedInstallationPaths.length;
       }
       const finalExecution = hostExecutions.at(-1);
-      if (scanRange.offset === 0 && finalExecution?.complete) {
-        const completeTransition = await persistFindingBatch(
-          [{ ...finalExecution.report, wordpress: hostWordPress }],
-          findingState,
-          findingStatePath,
-          { completeHosts: new Set([finalExecution.report.host]) },
-          new Date().toISOString(),
-          config,
-        );
-        findingState = completeTransition.state;
-        findingEvents.push(...completeTransition.events);
-        alertSent ||= completeTransition.notificationSent;
-        whatsappSent ||= completeTransition.whatsappSent;
+      if (finalExecution?.complete) {
+        const completedCycle = completeScanCycle(scanCycleState, alias);
+        scanCycleState = completedCycle.state;
+        await writeScanCycleState(scanCycleStatePath, scanCycleState);
+        if (completedCycle.findings) {
+          const completeTransition = await persistFindingList(
+            findingState,
+            completedCycle.findings,
+            findingStatePath,
+            { completeHosts: new Set([finalExecution.report.host]) },
+            new Date().toISOString(),
+            config,
+          );
+          findingState = completeTransition.state;
+          findingEvents.push(...completeTransition.events);
+          alertSent ||= completeTransition.notificationSent;
+          whatsappSent ||= completeTransition.whatsappSent;
+        }
       }
     }
     const hostsByAlias = new Map<string, AuditResult["hosts"][number]>();

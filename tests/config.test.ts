@@ -12,7 +12,8 @@ describe("mise-en-plesk config", () => {
       vulnerabilityCacheTtlHours: 12,
       sshCommandTimeoutMs: 60000,
       findingsStatePath: ".mise-en-plesk/findings.json",
-    })).toMatchObject({ hosts: ["master-ssh", "dev-ssh"], maxConcurrentSitesPerHost: 4, sshCommandTimeoutMs: 60000 });
+      scanCycleStatePath: ".mise-en-plesk/scan-cycles.json",
+    })).toMatchObject({ hosts: ["master-ssh", "dev-ssh"], maxConcurrentSitesPerHost: 4, sshCommandTimeoutMs: 60000, scanCycleStatePath: ".mise-en-plesk/scan-cycles.json" });
   });
 
   it("rejects invalid numeric limits and duplicate aliases", () => {

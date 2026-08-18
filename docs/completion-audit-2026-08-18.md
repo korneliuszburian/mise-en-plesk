@@ -24,12 +24,12 @@ the implementation, automated check, and operational evidence agree.
 | WP core/plugin/theme audit | done | `src/wp-audit.ts`, batched WP-CLI probes, tests |
 | Vulnerability enrichment | done | opt-in WPVulnerability adapter, cache/budget/error handling, tests |
 | Suspicious uploads and integrity signals | done | independent uploads PHP probe, including WP-CLI failure fallback, checksum findings, tests, and real master runtime evidence |
-| Stable findings and resolved/reopened state | done | `src/findings.ts`, `src/finding-state.ts`, atomic persistence/tests |
+| Stable findings and resolved/reopened state | done | `src/findings.ts`, `src/finding-state.ts`, `src/scan-cycle.ts`, atomic persistence and multi-chunk cycle tests |
 | Markdown and JSON reports | done | `src/report.ts`, additive `AuditResult`, report tests |
 | P1 alert delivery and retry/outbox | done | webhook + WhatsApp adapters, retry/outbox tests |
 | Stale monitor signal | done | `src/monitor-health.ts`, CLI and tests |
 | Locking and concurrent-run protection | done | local lock, scheduler `flock`, lock tests |
-| Bounded scan and per-host rotation | done | streamed paginated filesystem discovery, `scan-cursor.ts`, scheduler, cursor tests and bounded runtime proof on master/dev |
+| Bounded scan and per-host rotation | done | streamed/deduplicated paginated filesystem discovery, `scan-cursor.ts` plus `scan-cycle.ts`, scheduler, cursor/cycle tests and bounded runtime proof on master/dev |
 | Production scheduler packaging | partial | non-root systemd service/timer examples, encrypted `LoadCredentialEncrypted` contract, repeatable credential rotation helper, hardened filesystem policy, and README install/stop instructions; deployment on the operator's actual always-on runner remains unverified |
 | Master and dev real-host proof | done | current checkout completed bounded read-only scans: `master-ssh` reported 216 subscriptions/1 candidate and classified the site as runtime-incompatible, `dev-ssh` reported 92 subscriptions/1 candidate and classified the site as WP-CLI-broken; no credentials were written to reports |
 | WhatsApp production delivery proof | partial | adapter, fake-client tests, and recipient-bound `whatsapp-test --confirm=<recipient>` are implemented; approved template and runtime env are operator-owned |

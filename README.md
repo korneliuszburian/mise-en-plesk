@@ -61,8 +61,11 @@ the number of simultaneous site batches per host; the default is 4. For large
 hosts, bound a run with `--max-sites=20 --offset=0` and repeat with the next
 offset. `maxSitesPerHost` in config provides the same default for every run;
 CLI flags take precedence. A bounded run only reconciles findings for the
-installations it actually scanned, and only the final chunk can resolve stale
-findings for the whole host.
+installations it actually scanned. The scheduler accumulates findings in the
+gitignored `.mise-en-plesk/scan-cycles.json` state (override with
+`MISE_PLESK_SCAN_CYCLES` or `scanCycleStatePath`) and resolves stale findings
+only after a complete host cycle. If that cycle state is missing or corrupt,
+the scanner fails closed and does not emit false resolutions.
 SSH commands have a bounded 60-second timeout by default; set
 `sshCommandTimeoutMs` when a large Plesk filesystem needs a different explicit
 limit. This changes only the local wait bound, never the remote command set.

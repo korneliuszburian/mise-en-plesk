@@ -8,6 +8,7 @@
   "vulnerabilityCacheTtlHours": 12,
   "maxConcurrentSitesPerHost": 4,
   "maxSitesPerHost": 20,
+  "scanCycleStatePath": ".mise-en-plesk/scan-cycles.json",
   "heartbeatPath": ".mise-en-plesk/heartbeat.json",
   "monitorMaxAgeHours": 2
 }
