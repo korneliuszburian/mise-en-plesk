@@ -180,12 +180,9 @@ committed:
 
 ```sh
 sudo useradd --system --home-dir /var/lib/mise-en-plesk --create-home --shell /usr/sbin/nologin mise-en-plesk
-sudo install -d -m 0700 /etc/mise-en-plesk
-# Feed the current short-lived BW_SESSION through protected stdin; never pass
-# it as a shell argument or write a plaintext file.
-sudo systemd-creds encrypt --name=BW_SESSION - /etc/mise-en-plesk/bw-session.cred
-sudo chown root:root /etc/mise-en-plesk/bw-session.cred
-sudo chmod 0600 /etc/mise-en-plesk/bw-session.cred
+# With BW_SESSION present only in the current shell, rotate the encrypted
+# credential without putting it in argv or a plaintext file.
+scripts/update-systemd-bw-credential.sh
 sudo systemctl daemon-reload
 sudo systemctl enable --now mise-en-plesk.timer
 systemctl status mise-en-plesk.timer
@@ -194,5 +191,7 @@ journalctl -u mise-en-plesk.service
 
 The timer runs the incremental one-chunk-per-host mode. It never performs
 remote remediation; `systemctl stop mise-en-plesk.timer` is the local stop
-switch. Rotate the encrypted `bw-session.cred` before the session expires. Do
-not put a Bitwarden master password or any Plesk credential in the unit files.
+switch. Rotate the encrypted `bw-session.cred` before the session expires by
+running `source scripts/setup-bw-session.sh` followed by
+`scripts/update-systemd-bw-credential.sh`. Do not put a Bitwarden master
+password or any Plesk credential in the unit files.
