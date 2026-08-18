@@ -109,7 +109,7 @@ export function assertReadOnlyRenderedCommand(command: string): void {
   if (
     /\bsudo\b/i.test(normalizedCommand)
     || executableNames.some((name) => !allowedRemoteExecutables.has(name))
-    || /\s(?:>>?|<)\s*(?!&\d)\S+|<\(/i.test(shellOnlyCommand)
+    || />>|>(?!&1)|</i.test(shellOnlyCommand)
     || forbiddenRemoteMutation.some((pattern) => pattern.test(normalizedCommand))
   ) {
     throw new Error("Refusing remote command: mutation detected in read-only SSH policy.");

@@ -88,8 +88,12 @@ describe("remote read-only safety contract", () => {
     expect(() => assertReadOnlyRenderedCommand("python3 -c \"import os; os.unlink('/tmp/x')\"")).toThrow("mutation detected");
     expect(() => assertReadOnlyRenderedCommand("printf ok > /tmp/mise-test")).toThrow("mutation detected");
     expect(() => assertReadOnlyRenderedCommand("printf ok >> /tmp/mise-test")).toThrow("mutation detected");
+    expect(() => assertReadOnlyRenderedCommand("printf ok>tmp")).toThrow("mutation detected");
+    expect(() => assertReadOnlyRenderedCommand("printf ok 2>tmp")).toThrow("mutation detected");
     expect(() => assertReadOnlyRenderedCommand("awk 'BEGIN { print \"x\" > \"/tmp/mise-test\" }'")).toThrow("mutation detected");
     expect(() => assertReadOnlyRenderedCommand("cat < /tmp/mise-test")).toThrow("mutation detected");
+    expect(() => assertReadOnlyRenderedCommand("printf '%s' <(secret-command)")).toThrow("mutation detected");
+    expect(() => assertReadOnlyRenderedCommand("printf '%s' >(secret-command)")).toThrow("mutation detected");
     expect(() => assertReadOnlyRenderedCommand(":")).not.toThrow();
   });
 
