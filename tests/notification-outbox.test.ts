@@ -69,4 +69,14 @@ describe("notification outbox", () => {
     await writeFile(path, JSON.stringify({ version: 1, entries: [{ id: "broken", webhookSent: false, whatsappSent: false, event: {} }] }));
     await expect(readNotificationOutbox(path)).rejects.toThrow("Invalid notification outbox");
   });
+
+  it("migrates a legacy outbox entry without Hermes state", async () => {
+    const directory = await mkdtemp(join(tmpdir(), "mise-en-plesk-outbox-legacy-"));
+    const path = join(directory, "outbox.json");
+    const queued = enqueueNotificationEvents(emptyNotificationOutbox(), [event()]);
+    const { hermesSent: _ignored, ...legacyEntry } = queued.entries[0]!;
+    await writeFile(path, JSON.stringify({ version: 1, entries: [legacyEntry] }));
+
+    await expect(readNotificationOutbox(path)).resolves.toMatchObject({ entries: [{ hermesSent: false }] });
+  });
 });

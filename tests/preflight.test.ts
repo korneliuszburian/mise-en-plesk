@@ -128,4 +128,20 @@ describe("local preflight", () => {
     });
     expect(result.checks).toContainEqual(expect.objectContaining({ name: "config", ok: false, detail: expect.stringContaining("aliases") }));
   });
+
+  it("checks the Hermes executable only when a target is configured", async () => {
+    const commands: string[] = [];
+    const result = await runPreflight({
+      inventoryPath: "/tmp/mise-en-plesk-no-inventory.json",
+      configPath: "/tmp/mise-en-plesk-no-config.json",
+      env: { BW_SESSION: "short-lived", MISE_PLESK_HERMES_WHATSAPP_TARGET: "whatsapp:123@s.whatsapp.net" },
+      commandRunner: async (command) => {
+        commands.push(command);
+        return command === "hermes" ? "Hermes Agent 0.1" : "available";
+      },
+    });
+
+    expect(commands).toContain("hermes");
+    expect(result.checks.find((item) => item.name === "hermes")).toMatchObject({ ok: true, blocking: false });
+  });
 });
