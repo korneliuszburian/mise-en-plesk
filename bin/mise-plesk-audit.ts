@@ -23,6 +23,7 @@ import { createWhatsAppTestEvent, requireWhatsAppTestConfirmation } from "../src
 import { formatScanOutput } from "../src/cli-output";
 import { isCompleteScanCycle, isCompleteScanPage, nextScanOffset } from "../src/scan-lifecycle";
 import { shouldContinueScanChunks } from "../src/scan-budget";
+import { readRemoteCapabilities } from "../src/remote-preflight";
 
 const inventoryPath = process.env.MISE_PLESK_INVENTORY ?? "inventory.json";
 const configPath = process.env.MISE_PLESK_CONFIG ?? "config.mise-en-plesk.json";
@@ -33,7 +34,7 @@ interface VulnerabilityLookupBudget {
 
 function usage(): never {
   console.error("Scan options: [--max-sites=N] [--offset=N] [--max-chunks=N] [--all-chunks]");
-  console.error("Usage: mise-plesk-audit doctor [--json] | monitor-health [--json] [--max-age-hours=N] | sync-ssh | whatsapp-test --confirm=<recipient> | hermes-test --confirm=<target> | scan <target|all> [--json] [--max-sites=N] [--offset=N] [--all-chunks]");
+  console.error("Usage: mise-plesk-audit doctor [--json] | remote-preflight <target> [--json] | monitor-health [--json] [--max-age-hours=N] | sync-ssh | whatsapp-test --confirm=<recipient> | hermes-test --confirm=<target> | scan <target|all> [--json] [--max-sites=N] [--offset=N] [--all-chunks]");
   process.exit(1);
 }
 
@@ -289,6 +290,32 @@ async function main(): Promise<void> {
       binary: process.env.MISE_PLESK_HERMES_BIN,
     });
     console.log("Hermes test message delivered.");
+    return;
+  }
+  if (command === "remote-preflight" && target) {
+    if (flags.some((flag) => flag !== "--json")) usage();
+    const preflight = await runPreflight({ inventoryPath, configPath, env: process.env });
+    const blockingFailures = preflight.checks
+      .filter((check) => check.blocking && !check.ok)
+      .map((check) => `${check.name}: ${check.detail}`);
+    if (blockingFailures.length) throw new Error(`Preflight failed: ${blockingFailures.join("; ")}`);
+    const inventory = await readInventory(inventoryPath);
+    const host = inventory[target];
+    if (!host) throw new Error(`Unknown inventory target: ${target}`);
+    const item = await getInventoryHostItem(host);
+    const credentials = extractSecureNoteSshCredentials(item);
+    const session = await createSshSession(host, credentials?.password, undefined, DEFAULT_SSH_COMMAND_TIMEOUT_MS);
+    try {
+      const capabilities = await readRemoteCapabilities(host, (_host, readOnlyCommand) => session.run(readOnlyCommand));
+      if (json) console.log(JSON.stringify({ target, host: host.host, capabilities }, null, 2));
+      else {
+        console.log(`${target}: ${capabilities.username ?? "unknown user"} (uid ${capabilities.uid ?? "unknown"})`);
+        console.log(`kernel: ${capabilities.kernel ?? "unknown"}`);
+        for (const [name, path] of Object.entries(capabilities.commands)) console.log(`${name}: ${path ?? "not found"}`);
+      }
+    } finally {
+      await session.close();
+    }
     return;
   }
   if (command === "monitor-health") {

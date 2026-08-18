@@ -4,6 +4,7 @@ import { renderReadOnlyCommand, type ReadOnlyCommand } from "../src/ssh-transpor
 describe("read-only SSH command transport", () => {
   it("renders the fixed Plesk discovery probes", () => {
     expect(renderReadOnlyCommand({ kind: "ssh-handshake" })).toBe(":");
+    expect(renderReadOnlyCommand({ kind: "remote-capabilities" })).toContain("id -u");
     expect(renderReadOnlyCommand({ kind: "plesk-subscriptions", useSudo: true })).toBe("sudo -S -p '' -- plesk bin subscription --list");
     expect(renderReadOnlyCommand({ kind: "plesk-version", useSudo: false })).toBe("plesk version");
     expect(renderReadOnlyCommand({ kind: "php-version", useSudo: false })).toBe("php -v");

@@ -86,6 +86,12 @@ describe("remote read-only safety contract", () => {
     expect(() => assertReadOnlyRenderedCommand("plesk bin subscription --list; python3 -c \"import os; os.unlink('/tmp/x')\"")).toThrow("mutation detected");
     expect(() => assertReadOnlyRenderedCommand("wp core version; node -e \"require('fs').unlinkSync('/tmp/x')\"")).toThrow("mutation detected");
     expect(() => assertReadOnlyRenderedCommand("python3 -c \"import os; os.unlink('/tmp/x')\"")).toThrow("mutation detected");
+    expect(() => assertReadOnlyRenderedCommand("command python3 -c \"open('/tmp/x','w').write('x')\"")).toThrow("mutation detected");
+    expect(() => assertReadOnlyRenderedCommand("php -f /tmp/mutator.php")).toThrow("mutation detected");
+    expect(() => assertReadOnlyRenderedCommand("find /tmp -exec php -f /tmp/mutator.php \\\\;")).toThrow("mutation detected");
+    expect(() => assertReadOnlyRenderedCommand("awk 'BEGIN { system(\"python3 -c \\\"open(\\\x27/tmp/x\\\x27,\\\x27w\\\x27).write(\\\x27x\\\x27)\\\"\") }'")).toThrow("mutation detected");
+    expect(() => assertReadOnlyRenderedCommand("find /var/www/vhosts -print | awk '{ candidate=$0; sub(/\\/wp-config\\.php$/, \"\", candidate); sub(/\\/wp-includes\\/version\\.php$/, \"\", candidate); if (seen[candidate]++) next; position++; if (position > 0 && position <= 2) { system(\"python3 -c \\\"open(\\\x27/tmp/x\\\x27,\\\x27w\\\x27).write(\\\x27x\\\x27)\\\"\"); print; if (position >= 2) exit } }'")).toThrow("mutation detected");
+    expect(() => assertReadOnlyRenderedCommand("printf `python3 -c \"open('/tmp/x','w').write('x')\"`")).toThrow("mutation detected");
     expect(() => assertReadOnlyRenderedCommand("printf ok > /tmp/mise-test")).toThrow("mutation detected");
     expect(() => assertReadOnlyRenderedCommand("printf ok >> /tmp/mise-test")).toThrow("mutation detected");
     expect(() => assertReadOnlyRenderedCommand("printf ok>tmp")).toThrow("mutation detected");

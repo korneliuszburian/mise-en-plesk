@@ -36,14 +36,18 @@ the implementation, automated check, and operational evidence agree.
 | Full-fleet rotation proof | done | current checkout completed two scheduler cycles across both configured hosts; each host advanced independently from offset `0` to `2`, with four unique timestamped reports and persistent findings/outbox state |
 | CI on supported Node versions | done | `.github/workflows/ci.yml`, Node 20/22 matrix; current `master` CI history has passed both jobs |
 | Public repository / review trail | done | GitHub remote, semantic commit history, two-axis review required per major slice |
-| Remote mutation safety audit | done | `tests/read-only-safety.test.ts` checks generated Plesk/WP commands against the forbidden mutation set |
+| Remote mutation safety audit | done | `src/ssh-transport.ts` uses a finite executable/command-shape allowlist; `tests/read-only-safety.test.ts` covers mutators, interpreters, sudo composition, and shell redirections |
 
 ## Latest local gate evidence
 
 - `doctor --json`: `ok: true`; Node, `bw`, SSH, `sshpass`, `BW_SESSION`, inventory,
   and config all passed. Hermes and direct WhatsApp were correctly disabled because
   no provider target/credentials were configured in this shell.
-- `pnpm test`: 34 files / 150 tests passed.
+- `pnpm test`: 35 files / 156 tests passed.
+- `remote-preflight dev-ssh --json`: the real dev host is reachable as the
+  non-root `szymon` account (UID 1000); Node and systemd are present, while
+  `bw`, pnpm, and sshpass are absent. No installation or remote write was
+  attempted.
 - `pnpm typecheck`, `pnpm build`, `git diff --check`, `bash -n scripts/*.sh`, and
   `systemd-analyze verify` on copied unit examples passed.
 - GitHub Actions run `32134127563` passed both Node 20 and Node 22 jobs for

@@ -1,5 +1,6 @@
 export type ReadOnlyCommand =
   | { kind: "ssh-handshake" }
+  | { kind: "remote-capabilities" }
   | { kind: "plesk-subscriptions"; useSudo?: boolean }
   | { kind: "wordpress-candidates"; useSudo?: boolean; includeAlternateDetection?: boolean; offset?: number; limit?: number }
   | { kind: "plesk-version"; useSudo?: boolean }
@@ -79,6 +80,16 @@ export function renderWpCliCommand(installationPath: string, command: ReadOnlyWp
 export function renderReadOnlyCommand(command: ReadOnlyCommand): string {
   switch (command.kind) {
     case "ssh-handshake": return ":";
+    case "remote-capabilities": return [
+      "printf '%s\\n' '__MISE_REMOTE_UID__'; id -u 2>&1;",
+      "printf '%s\\n' '__MISE_REMOTE_USER__'; id -un 2>&1;",
+      "printf '%s\\n' '__MISE_REMOTE_KERNEL__'; uname -srm 2>&1;",
+      "printf '%s\\n' '__MISE_REMOTE_BW__'; command -v bw 2>&1;",
+      "printf '%s\\n' '__MISE_REMOTE_NODE__'; command -v node 2>&1;",
+      "printf '%s\\n' '__MISE_REMOTE_PNPM__'; command -v pnpm 2>&1;",
+      "printf '%s\\n' '__MISE_REMOTE_SSHPASS__'; command -v sshpass 2>&1;",
+      "printf '%s\\n' '__MISE_REMOTE_SYSTEMCTL__'; command -v systemctl 2>&1; :",
+    ].join(" ");
     case "plesk-subscriptions": return `${sudoPrefix(command.useSudo)}plesk bin subscription --list`;
     case "wordpress-candidates": return renderWordPressCandidates(command);
     case "plesk-version": return `${sudoPrefix(command.useSudo)}plesk version`;
@@ -95,20 +106,35 @@ const forbiddenRemoteMutation = [
   /\bwp\s+.*(?:--exec|--require|--eval)(?:=|\s)/i,
   /\bplesk\s+(?!(?:bin\s+subscription\s+--list|version)\b)/i,
   /\bplesk\s+bin\s+subscription\s+--list\s+\S|\bplesk\s+version\s+\S/i,
-  /\bphp\s+-[rce]\b/i,
+  /(?:^|[;&|]\s*|\$\(\s*)php\s+-[rce]\b/i,
+  /(?:^|[;&|]\s*|\$\(\s*)php\s+(?!-v(?:\s|$))/i,
+  /(?:^|[;&|]\s*|\$\(\s*)php\s+-v\s+\S/i,
   /\b(?:sh|bash|dash|zsh|ksh)\s+-c\b/i,
+  /\bfind\b.*\s-(?:exec|execdir|delete|fls|fprint|fprintf|ok|okdir)\b/i,
   />>\s*\S|>\s*(?:[~/.]|["'])|<\s*(?:[~/.]|["'])|<\(/i,
 ];
-const allowedRemoteExecutables = new Set(["printf", "wp", "plesk", "php", "df", "find", "awk", ":"]);
+const allowedRemoteExecutables = new Set(["printf", "wp", "plesk", "php", "df", "find", "awk", "id", "uname", ":"]);
+const allowedAwkPrefix = "awk '{ candidate=$0; sub(/\\/wp-config\\.php$/, \"\", candidate); sub(/\\/wp-includes\\/version\\.php$/, \"\", candidate); if (seen[candidate]++) next; position++; if (position > ";
+const allowedAwkRemainder = /^\d+ && position <= \d+\) \{ print; if \(position >= \d+\) exit \} \}'$/;
 
 export function assertReadOnlyRenderedCommand(command: string): void {
   const normalizedCommand = command.replace(/sudo\s+-S\s+-p\s+(?:''|"")\s+--\s+/gi, "");
-  const commandForExecutableScan = normalizedCommand.replace(/\d*>&\d+/g, "").replace(/'[^']*'/g, "''");
+  const commandForExecutableScan = normalizedCommand
+    .replace(/\d*>&\d+/g, "")
+    .replace(/'[^']*'/g, "''")
+    .replace(/\bcommand\s+-v\s+(?:bw|node|pnpm|sshpass|systemctl)\b/gi, "");
   const shellOnlyCommand = normalizedCommand.replace(/'[^']*'/g, "''");
   const executableNames = [...commandForExecutableScan.matchAll(/(?:^|[;&|]\s*|\$\(\s*)(?![A-Za-z_][A-Za-z0-9_]*=)([A-Za-z0-9_./-]+)/gm)].map((match) => match[1]);
+  const awkIndex = normalizedCommand.indexOf("awk ");
+  const containsAwk = awkIndex >= 0;
+  const allowedAwk = containsAwk
+    && normalizedCommand.slice(awkIndex).startsWith(allowedAwkPrefix)
+    && allowedAwkRemainder.test(normalizedCommand.slice(awkIndex + allowedAwkPrefix.length));
   if (
     /\bsudo\b/i.test(normalizedCommand)
     || executableNames.some((name) => !allowedRemoteExecutables.has(name))
+    || /`/.test(normalizedCommand)
+    || (containsAwk && !allowedAwk)
     || />>|>(?!&1)|</i.test(shellOnlyCommand)
     || forbiddenRemoteMutation.some((pattern) => pattern.test(normalizedCommand))
   ) {

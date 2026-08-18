@@ -16,6 +16,7 @@ pnpm install
 pnpm typecheck
 pnpm test
 pnpm --silent run mise-plesk-audit doctor
+pnpm --silent run mise-plesk-audit remote-preflight dev-ssh --json
 source scripts/setup-bw-session.sh
 pnpm --silent run mise-plesk-audit sync-ssh
 pnpm --silent run mise-plesk-audit scan master-ssh --json --max-sites=20 --all-chunks
@@ -39,6 +40,12 @@ Bitwarden at scan time and passed to `sshpass` through the child environment.
 The cache records only the non-secret `credentialMode` marker for Secure Note
 password hosts, so `doctor` can fail early if `sshpass` is unavailable. Install
 `sshpass` locally when password-authenticated SSH is required.
+
+`remote-preflight <target>` is a read-only capability check over the same
+typed SSH transport. It reports the remote UID, account name, kernel, and
+presence of `bw`, Node, pnpm, sshpass, and systemd without installing or
+changing anything. Use it before selecting a trusted scheduler runner; a
+Plesk dev host is normally a scan target, not automatically a runner.
 
 The `scan <target>` command runs a read-only SSH/Plesk/WordPress scan and writes
 a Markdown report under `reports/`. Plesk commands are intentionally

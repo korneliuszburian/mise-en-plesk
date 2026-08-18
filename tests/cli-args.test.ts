@@ -17,4 +17,12 @@ describe("CLI argument parsing", () => {
       flags: ["--json", "--max-sites=2"],
     });
   });
+
+  it("parses remote preflight target separately from flags", () => {
+    expect(parseCliArguments(["remote-preflight", "dev-ssh", "--json"])).toEqual({
+      command: "remote-preflight",
+      target: "dev-ssh",
+      flags: ["--json"],
+    });
+  });
 });
