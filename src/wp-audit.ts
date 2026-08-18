@@ -37,7 +37,7 @@ export interface WordPressAudit {
   health: {
     reachable: boolean;
     lastUpdate?: string;
-    status?: "runtime-incompatible" | "wp-cli-error" | "unreachable";
+    status?: "runtime-incompatible" | "wp-cli-error" | "wp-cli-missing" | "wp-cli-permission-denied" | "wp-cli-broken" | "unreachable";
     detail?: string;
   };
   priorities: string[];
@@ -235,10 +235,26 @@ function classifyAuditError(error: unknown): WordPressAudit["health"] {
   if (/PHP version.*requires at least|requires PHP/i.test(detail)) {
     return { reachable: true, status: "runtime-incompatible", detail: shortDetail };
   }
+  if (/sudo:|must be run as root/i.test(detail)) {
+    return { reachable: true, status: "wp-cli-permission-denied", detail: shortDetail };
+  }
   if (/connection refused|connection reset|connection closed|permission denied|timed out|could not resolve|kex_exchange|wp unavailable|no route to host/i.test(detail)) {
     return { reachable: false, status: "unreachable", detail: shortDetail };
   }
+  if (/command not found|no such file or directory/i.test(detail)) {
+    return { reachable: true, status: "wp-cli-missing", detail: shortDetail };
+  }
+  if (/404.*not found|parse error|syntax error|fatal error|unexpected token/i.test(detail)) {
+    return { reachable: true, status: "wp-cli-broken", detail: shortDetail };
+  }
   return { reachable: true, status: "wp-cli-error", detail: shortDetail };
+}
+
+function isWpCliFailure(status?: WordPressAudit["health"]["status"]): boolean {
+  return status === "wp-cli-error"
+    || status === "wp-cli-missing"
+    || status === "wp-cli-permission-denied"
+    || status === "wp-cli-broken";
 }
 
 export function parseSuspiciousFiles(output: string): string[] {
@@ -262,7 +278,7 @@ export function applyHeuristics(
   if (!audit.health.reachable) priorities.push("installation is unreachable");
   if (audit.health.status === "runtime-incompatible") {
     priorities.push("WordPress runtime is incompatible with the installed PHP version");
-  } else if (audit.health.status === "wp-cli-error") {
+  } else if (isWpCliFailure(audit.health.status)) {
     priorities.push("WP-CLI audit failed; manual review required");
   }
   const now = options.now ?? new Date();

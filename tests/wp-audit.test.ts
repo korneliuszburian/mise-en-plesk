@@ -106,7 +106,7 @@ describe("WordPress audit", () => {
     });
   });
 
-  it("treats PHP/plugin failures as reachable WP-CLI errors", async () => {
+  it("treats PHP/plugin failures as reachable broken WP-CLI", async () => {
     const runner: WpCommandRunner = async (_installation, command) => {
       if (command === "core version") return "6.6.1";
       throw new Error("PHP Parse error: syntax error, unexpected ')' in plugin.php");
@@ -116,9 +116,27 @@ describe("WordPress audit", () => {
 
     expect(result).toMatchObject({
       coreVersion: "6.6.1",
-      health: { reachable: true, status: "wp-cli-error" },
+      health: { reachable: true, status: "wp-cli-broken" },
     });
     expect(result.priorities).toContain("WP-CLI audit failed; manual review required");
+  });
+
+  it("classifies missing, permission-denied, and broken WP-CLI separately", async () => {
+    const cases = [
+      ["wp: command not found", "wp-cli-missing"],
+      ["sudo: a password is required", "wp-cli-permission-denied"],
+      ["/usr/local/bin/wp: 1: 404: not found", "wp-cli-broken"],
+    ] as const;
+
+    for (const [message, status] of cases) {
+      const result = await auditWordPressInstallation({ path: "/srv/site" }, async (_installation, command) => {
+        if (command === "core version") return "6.6.1";
+        throw new Error(message);
+      });
+
+      expect(result.health).toMatchObject({ reachable: true, status });
+      expect(result.priorities).toContain("WP-CLI audit failed; manual review required");
+    }
   });
 
   it("distinguishes a reachable site with an incompatible PHP runtime", async () => {

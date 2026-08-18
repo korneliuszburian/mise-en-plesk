@@ -75,7 +75,7 @@ export function findingsFromAudits(hosts: AuditedHost[], now = new Date()): Find
       if (audit.health.status === "runtime-incompatible") {
         findings.push(makeFinding(host, audit, "runtime-incompatible", "P1", "WordPress runtime is incompatible with the installed PHP version", "runtime", { evidence: audit.health.detail }));
       }
-      if (audit.health.status === "wp-cli-error") {
+      if (audit.health.status === "wp-cli-error" || audit.health.status === "wp-cli-missing" || audit.health.status === "wp-cli-permission-denied" || audit.health.status === "wp-cli-broken") {
         findings.push(makeFinding(host, audit, "wp-cli-error", "P1", "WP-CLI audit failed; manual review required", "wp-cli", { evidence: audit.health.detail }));
       }
       if (isVeryOldCore(audit.coreVersion)) {
