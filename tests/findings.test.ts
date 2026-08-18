@@ -87,6 +87,34 @@ describe("structured findings", () => {
     ]));
   });
 
+  it("preserves the precise WP-CLI health status in finding codes", () => {
+    const statuses = ["wp-cli-missing", "wp-cli-permission-denied", "wp-cli-broken"] as const;
+    const findings = findingsFromAudits([{
+      host: "dev-ssh",
+      wordpress: statuses.map((status, index) => baseAudit({
+        installation: { path: `/srv/site-${index}` },
+        health: { reachable: true, status, detail: `${status} detail` },
+      })),
+    }]);
+
+    expect(findings.map((finding) => finding.code)).toEqual([...statuses]);
+    expect(findings.map((finding) => finding.evidence)).toEqual(statuses.map((status) => `${status} detail`));
+  });
+
+  it("keeps the legacy WP-CLI finding identity during status refinement", () => {
+    const legacy = findingsFromAudits([{
+      host: "dev-ssh",
+      wordpress: [baseAudit({ health: { reachable: true, status: "wp-cli-error", detail: "old detail" } })],
+    }])[0];
+    const refined = findingsFromAudits([{
+      host: "dev-ssh",
+      wordpress: [baseAudit({ health: { reachable: true, status: "wp-cli-missing", detail: "new detail" } })],
+    }])[0];
+
+    expect(refined).toMatchObject({ code: "wp-cli-missing", evidence: "new detail" });
+    expect(refined.id).toBe(legacy.id);
+  });
+
   it("creates a stable P1 finding when the SSH host cannot be reached", () => {
     const hosts = [{
       host: "master-ssh",

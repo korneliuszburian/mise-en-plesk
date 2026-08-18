@@ -1,11 +1,14 @@
 import { createHash } from "node:crypto";
-import { isPluginAbandoned, isVeryOldCore, type WordPressAudit } from "./wp-audit";
+import { isPluginAbandoned, isVeryOldCore, isWpCliFailure, type WordPressAudit } from "./wp-audit";
 
 export type FindingCode =
   | "host-unreachable"
   | "unreachable"
   | "runtime-incompatible"
   | "wp-cli-error"
+  | "wp-cli-missing"
+  | "wp-cli-permission-denied"
+  | "wp-cli-broken"
   | "core-outdated"
   | "core-update"
   | "plugin-update"
@@ -22,7 +25,7 @@ export type FindingCode =
 export type FindingSeverity = "P1" | "P2" | "info";
 
 const findingCodes = new Set<FindingCode>([
-  "host-unreachable", "unreachable", "runtime-incompatible", "wp-cli-error", "core-outdated", "core-update",
+  "host-unreachable", "unreachable", "runtime-incompatible", "wp-cli-error", "wp-cli-missing", "wp-cli-permission-denied", "wp-cli-broken", "core-outdated", "core-update",
   "plugin-update", "plugin-abandoned", "plugin-vulnerable", "theme-update",
   "core-checksum-failed", "plugin-checksum-failed", "suspicious-upload-php",
   "monitor-stale", "core-vulnerable", "theme-vulnerable",
@@ -60,9 +63,10 @@ function makeFinding(
   message: string,
   identity: string,
   extra: Partial<Pick<Finding, "plugin" | "vulnerabilityId" | "evidence">> = {},
+  stableIdentityCode: FindingCode = code,
 ): Finding {
   return {
-    id: stableId([host, audit.installation.path, code, identity]),
+    id: stableId([host, audit.installation.path, stableIdentityCode, identity]),
     code,
     severity,
     host,
@@ -101,8 +105,17 @@ export function findingsFromAudits(hosts: AuditedHost[], now = new Date()): Find
       if (audit.health.status === "runtime-incompatible") {
         findings.push(makeFinding(host, audit, "runtime-incompatible", "P1", "WordPress runtime is incompatible with the installed PHP version", "runtime", { evidence: audit.health.detail }));
       }
-      if (audit.health.status === "wp-cli-error" || audit.health.status === "wp-cli-missing" || audit.health.status === "wp-cli-permission-denied" || audit.health.status === "wp-cli-broken") {
-        findings.push(makeFinding(host, audit, "wp-cli-error", "P1", "WP-CLI audit failed; manual review required", "wp-cli", { evidence: audit.health.detail }));
+      if (isWpCliFailure(audit.health.status)) {
+        findings.push(makeFinding(
+          host,
+          audit,
+          audit.health.status,
+          "P1",
+          "WP-CLI audit failed; manual review required",
+          "wp-cli",
+          { evidence: audit.health.detail },
+          "wp-cli-error",
+        ));
       }
       if (isVeryOldCore(audit.coreVersion)) {
         findings.push(makeFinding(host, audit, "core-outdated", "P1", "core is very old", "core"));

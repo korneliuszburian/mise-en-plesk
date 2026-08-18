@@ -289,7 +289,9 @@ function classifyAuditError(error: unknown): WordPressAudit["health"] {
   return { reachable: true, status: "wp-cli-error", detail: shortDetail };
 }
 
-function isWpCliFailure(status?: WordPressAudit["health"]["status"]): boolean {
+export function isWpCliFailure(
+  status?: WordPressAudit["health"]["status"],
+): status is "wp-cli-error" | "wp-cli-missing" | "wp-cli-permission-denied" | "wp-cli-broken" {
   return status === "wp-cli-error"
     || status === "wp-cli-missing"
     || status === "wp-cli-permission-denied"

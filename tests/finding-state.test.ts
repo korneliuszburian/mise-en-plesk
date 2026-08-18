@@ -55,6 +55,19 @@ describe("finding state transitions", () => {
     await expect(readFindingState(path)).rejects.toThrow("Invalid finding state");
   });
 
+  it("accepts precise WP-CLI finding codes in persisted state", async () => {
+    const directory = await mkdtemp(join(tmpdir(), "mise-en-plesk-findings-health-"));
+    const path = join(directory, "findings.json");
+    const state = reconcileFindings(emptyFindingState(), [{
+      ...finding("missing-wp-cli"),
+      code: "wp-cli-missing",
+      message: "WP-CLI audit failed; manual review required",
+    }], "2026-08-12T00:00:00.000Z").state;
+
+    await writeFindingState(path, state);
+    await expect(readFindingState(path)).resolves.toEqual(state);
+  });
+
   it("does not resolve findings belonging to hosts outside the scan scope", () => {
     const master = finding("master-finding");
     const dev = { ...finding("dev-finding"), host: "dev-ssh" };
