@@ -19,6 +19,7 @@ interface MisePleskConfig {
   reportsDirectory?: string;
   hosts?: string[];
   maxVulnerabilityLookupsPerHost?: number;
+  maxConcurrentSitesPerHost?: number;
   findingsStatePath?: string;
 }
 
@@ -52,6 +53,7 @@ async function scanHost(
   alias: string,
   inventory: Awaited<ReturnType<typeof readInventory>>,
   maxVulnerabilityLookups?: number,
+  maxConcurrentSites = 4,
 ): Promise<AuditResult["hosts"][number]> {
   const host = inventory[alias];
   const item = process.env.BW_SESSION ? await getInventoryHostItem(host) : null;
@@ -63,8 +65,8 @@ async function scanHost(
     const scan = await scanPleskHost(host, (_host, command) => ssh(command));
     let vulnerabilityLookups = 0;
     const wordpress = [];
-    for (let index = 0; index < scan.wordpress.length; index += 4) {
-      const batch = scan.wordpress.slice(index, index + 4);
+    for (let index = 0; index < scan.wordpress.length; index += maxConcurrentSites) {
+      const batch = scan.wordpress.slice(index, index + maxConcurrentSites);
       wordpress.push(...await Promise.all(batch.map(async (installation) => {
         const batched = createBatchedWpRunners(installation, ssh);
         return auditWordPressInstallation(installation, batched.runner, {
@@ -78,6 +80,7 @@ async function scanHost(
           suspiciousFileRunner: batched.suspiciousFileRunner,
         });
       })));
+      console.error(`[${alias}] audited ${Math.min(index + batch.length, scan.wordpress.length)}/${scan.wordpress.length} WordPress installation(s)`);
     }
     console.error(`[${alias}] found ${scan.subscriptions.length} subscription(s), ${scan.wordpress.length} WordPress installation(s)`);
     return { host: scan.host, wordpress };
@@ -114,8 +117,12 @@ async function main(): Promise<void> {
     if (maxLookups !== undefined && (!Number.isInteger(maxLookups) || maxLookups < 0)) {
       throw new Error("maxVulnerabilityLookupsPerHost must be a non-negative integer.");
     }
+    const maxConcurrentSites = config.maxConcurrentSitesPerHost ?? 4;
+    if (!Number.isInteger(maxConcurrentSites) || maxConcurrentSites < 1) {
+      throw new Error("maxConcurrentSitesPerHost must be a positive integer.");
+    }
     const hosts = [];
-    for (const alias of aliases) hosts.push(await scanHost(alias, inventory, maxLookups));
+    for (const alias of aliases) hosts.push(await scanHost(alias, inventory, maxLookups, maxConcurrentSites));
     const preliminaryResult: AuditResult = {
       generatedAt: new Date().toISOString(),
       hosts,

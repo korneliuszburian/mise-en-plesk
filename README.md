@@ -40,7 +40,8 @@ them sequentially, and writes one aggregate report. Progress is written to
 stderr so machine consumers can use the command without mixing progress into
 the report. Add `--json` to write the machine-readable report instead of
 Markdown. Set `maxVulnerabilityLookupsPerHost` in the config to cap opt-in
-WPVulnerability requests per host.
+WPVulnerability requests per host. Set `maxConcurrentSitesPerHost` to tune
+the number of simultaneous site batches per host; the default is 4.
 
 Online plugin vulnerability lookups are opt-in. Set
 `MISE_PLESK_ENABLE_VULNS=1` before running `scan` to query the public
