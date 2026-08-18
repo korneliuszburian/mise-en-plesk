@@ -14,8 +14,8 @@ describe("WordPress audit", () => {
   it("prefixes every fixed audit command with non-interactive sudo when enabled", () => {
     const command = buildWpAuditBatchCommand({ path: "/srv/site" }, { useSudo: true });
 
-    expect(command).toContain("sudo -n -- wp core version");
-    expect(command).toContain("sudo -n -- find '/srv/site/wp-content/uploads'");
+    expect(command).toContain("sudo -S -p '' -- wp core version");
+    expect(command).toContain("sudo -S -p '' -- find '/srv/site/wp-content/uploads'");
   });
 
   it("builds one read-only batch for all per-installation checks", () => {

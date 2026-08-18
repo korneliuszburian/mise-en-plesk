@@ -117,7 +117,7 @@ async function scanHost(
   const item = process.env.BW_SESSION ? await getInventoryHostItem(host) : null;
   const credentials = item ? extractSecureNoteSshCredentials(item) : null;
   console.error(`[${alias}] scanning Plesk host ${host.host}`);
-  const session = await createSshSession(host, credentials?.password);
+  const session = await createSshSession(host, credentials?.password, useSudo ? credentials?.password : undefined);
   try {
     const ssh = (command: string) => session.run(command);
     const scan = await scanPleskHost(host, (_host, command) => ssh(command), {

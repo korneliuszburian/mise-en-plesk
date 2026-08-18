@@ -59,7 +59,7 @@ interface BatchSection {
 }
 
 export function buildWpAuditBatchCommand(installation: WordPressInstallation, options: { useSudo?: boolean } = {}): string {
-  const prefix = options.useSudo ? "sudo -n -- " : "";
+  const prefix = options.useSudo ? "sudo -S -p '' -- " : "";
   const commands = {
     core: buildWpCliCommand(installation, "core version", options),
     coreUpdate: buildWpCliCommand(installation, "core check-update --minor --format=json", options),
@@ -130,7 +130,7 @@ function shellQuote(value: string): string {
 }
 
 export function buildWpCliCommand(installation: WordPressInstallation, command: string, options: { useSudo?: boolean } = {}): string {
-  return `${options.useSudo ? "sudo -n -- " : ""}wp ${command} --path=${shellQuote(installation.path)} --allow-root`;
+  return `${options.useSudo ? "sudo -S -p '' -- " : ""}wp ${command} --path=${shellQuote(installation.path)} --allow-root`;
 }
 
 export function pluginSlug(name: string): string {

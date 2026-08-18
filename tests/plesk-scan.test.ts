@@ -94,8 +94,8 @@ describe("plesk scan", () => {
 
     await scanPleskHost(host, runner, { wordpressLimit: 1, useSudo: true });
 
-    expect(calls[0]).toBe("sudo -n -- plesk bin subscription --list");
-    expect(calls[1]).toContain("sudo -n -- find /var/www/vhosts");
+    expect(calls[0]).toBe("sudo -S -p '' -- plesk bin subscription --list");
+    expect(calls[1]).toContain("sudo -S -p '' -- find /var/www/vhosts");
   });
 
   it("falls back to non-root filesystem discovery when Plesk CLI is unavailable", async () => {
@@ -112,7 +112,7 @@ describe("plesk scan", () => {
       warnings: [expect.stringContaining("filesystem discovery only")],
     });
     expect(calls).toEqual([
-      "sudo -n -- plesk bin subscription --list",
+      "sudo -S -p '' -- plesk bin subscription --list",
       "find /var/www/vhosts -xdev -maxdepth 4 -type f -name wp-config.php -print",
     ]);
   });

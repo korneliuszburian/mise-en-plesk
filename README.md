@@ -35,9 +35,11 @@ read-only; this project does not delete anything, update plugins/themes, or
 change databases.
 
 Some non-root SSH accounts can read WordPress files but cannot invoke Plesk
-CLI. Add that alias to `sudoHosts` in the local config to enable `sudo -n --`
-for the fixed read-only Plesk/WP commands on that host. The flag is opt-in,
-never prompts for a password, and is not used for hosts absent from the list.
+CLI. Add that alias to `sudoHosts` in the local config to enable non-interactive
+`sudo -S` for the fixed read-only Plesk/WP commands on that host. The scanner
+feeds the short-lived SSH Secure Note password through stdin only; it never
+appears in argv, logs, reports, or files. If the sudo password differs, the
+scan falls back to non-root filesystem discovery and records a warning.
 
 `scan all` reads the selected aliases from `config.mise-en-plesk.json` (the
 example uses `master-ssh` and `dev-ssh`), scans

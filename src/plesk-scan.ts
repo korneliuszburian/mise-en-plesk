@@ -7,6 +7,25 @@ import type { HostConfig } from "./ssh-inventory";
 
 const execFileAsync = promisify(execFile);
 
+function execFileWithInput(
+  executable: string,
+  args: string[],
+  options: Parameters<typeof execFileAsync>[2],
+  input?: string,
+): Promise<{ stdout: string; stderr: string }> {
+  return new Promise((resolve, reject) => {
+    const child = execFile(executable, args, options, (error, stdout, stderr) => {
+      if (error) {
+        Object.assign(error, { stdout: stdout.toString(), stderr: stderr.toString() });
+        reject(error);
+        return;
+      }
+      resolve({ stdout: stdout.toString(), stderr: stderr.toString() });
+    });
+    if (input !== undefined) child.stdin?.end(input);
+  });
+}
+
 export interface WordPressInstallation {
   path: string;
   domain?: string;
@@ -30,6 +49,7 @@ export type SshCommandRunner = (host: HostConfig, command: string) => Promise<st
 
 interface SshInvocationOptions {
   controlPath?: string;
+  stdin?: string;
 }
 
 export function buildSshInvocation(host: HostConfig, password?: string, options: SshInvocationOptions = {}): {
@@ -52,10 +72,10 @@ export function buildSshInvocation(host: HostConfig, password?: string, options:
 export async function runSshCommand(host: HostConfig, command: string, password?: string, options: SshInvocationOptions = {}): Promise<string> {
   const invocation = buildSshInvocation(host, password, options);
   try {
-    const result = await execFileAsync(invocation.executable, [...invocation.args, command], {
+    const result = await execFileWithInput(invocation.executable, [...invocation.args, command], {
       env: invocation.env,
       timeout: 20_000,
-    });
+    }, options.stdin);
     return result.stdout;
   } catch (error: unknown) {
     const failure = error as { stdout?: string; stderr?: string; message?: string; code?: string | number };
@@ -72,10 +92,13 @@ export interface SshSession {
   close(): Promise<void>;
 }
 
-export async function createSshSession(host: HostConfig, password?: string): Promise<SshSession> {
+export async function createSshSession(host: HostConfig, password?: string, sudoPassword?: string): Promise<SshSession> {
   const directory = await mkdtemp(`${tmpdir()}/mise-en-plesk-`);
   const controlPath = `${directory}/control`;
-  const run = (command: string) => runSshCommand(host, command, password, { controlPath });
+  const run = (command: string) => runSshCommand(host, command, password, {
+    controlPath,
+    stdin: sudoPassword === undefined ? undefined : `${sudoPassword}\n`,
+  });
   await run(":");
 
   return {
@@ -123,7 +146,7 @@ export async function scanPleskHost(
   if (limit !== undefined && (!Number.isSafeInteger(limit) || limit < 1)) {
     throw new Error("wordpressLimit must be a positive safe integer.");
   }
-  let prefix = options.useSudo ? "sudo -n -- " : "";
+  let prefix = options.useSudo ? "sudo -S -p '' -- " : "";
   const warnings: string[] = [];
   let subscriptions: string[] = [];
   try {
