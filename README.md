@@ -97,9 +97,11 @@ are cached locally for 12 hours by default in the ignored
 `vulnerabilityCacheTtlHours` to change this. Lookup budgets also include core
 and theme resources, and a budget-exhausted result is reported as `partial`.
 
-The following findings are P1 manual-review signals, not automatic repairs:
-very old core, abandoned plugins, known-vulnerable plugins, and PHP files under
-`wp-content/uploads`.
+The following are manual-review signals, never automatic repairs: very old
+core, abandoned plugins, known-vulnerable plugins, and PHP files under
+`wp-content/uploads`. Finding severity controls alert routing: abandoned
+plugins and ordinary update signals are P2, while critical/high vulnerabilities,
+integrity anomalies, runtime failures, and possible backdoors are P1.
 
 The read-only WP-CLI batch also checks for available core/theme updates and
 verifies core and plugin checksums. A checksum failure is a review signal, not

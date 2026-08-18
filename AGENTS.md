@@ -16,8 +16,10 @@ source. `sudoHosts` is an explicit exception only for the fixed read-only
 Plesk/WP/find commands; its short-lived Secure Note password is sent through
 stdin, never argv/logs/files. Never add arbitrary sudo command execution.
 
-Risk priorities are P1 manual-review signals: very old core, abandoned plugin,
-vulnerable plugin, or PHP files under `wp-content/uploads`. With
+Risk signals requiring manual review include very old core, abandoned plugin,
+vulnerable plugin, or PHP files under `wp-content/uploads`; their finding
+severity determines alert routing (for example, abandoned plugins are P2,
+while critical/high vulnerabilities and backdoor indicators are P1). With
 `MISE_PLESK_ENABLE_VULNS=1`, the audit performs opt-in lookups against the
 WPVulnerability API; otherwise it performs no vulnerability API requests. The
 monitor heartbeat and `monitor-stale` finding are local operational signals;
