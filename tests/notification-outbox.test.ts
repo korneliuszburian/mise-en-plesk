@@ -25,7 +25,7 @@ const event = (type: "opened" | "resolved" = "opened"): FindingEvent => ({
 
 describe("notification outbox", () => {
   it("deduplicates actionable events and keeps failed delivery pending", () => {
-    const queued = enqueueNotificationEvents(emptyNotificationOutbox(), [event(), event("resolved")]);
+    const queued = enqueueNotificationEvents(emptyNotificationOutbox(), [event(), event()]);
     expect(queued.entries).toHaveLength(1);
     expect(pendingNotificationEvents(queued, "webhook")).toHaveLength(1);
 
@@ -35,6 +35,12 @@ describe("notification outbox", () => {
 
     const fullyDelivered = markNotificationChannelSent(markNotificationChannelSent(delivered, "whatsapp", [event()]), "hermes", [event()]);
     expect(compactNotificationOutbox(fullyDelivered).entries).toHaveLength(0);
+  });
+
+  it("queues a P1 resolved transition for recovery delivery", () => {
+    const queued = enqueueNotificationEvents(emptyNotificationOutbox(), [event("resolved")]);
+    expect(queued.entries).toHaveLength(1);
+    expect(pendingNotificationEvents(queued, "hermes")).toHaveLength(1);
   });
 
   it("deduplicates a replayed transition after a crash with a new timestamp", () => {

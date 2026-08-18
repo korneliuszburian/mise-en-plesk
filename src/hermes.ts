@@ -35,7 +35,7 @@ function requireHermesWhatsAppTarget(value: string | undefined): string {
 
 function eligible(events: FindingEvent[]): FindingEvent[] {
   return events.filter((event) =>
-    (event.type === "opened" || event.type === "reopened") && event.finding.severity === "P1");
+    (event.type === "opened" || event.type === "reopened" || event.type === "resolved") && event.finding.severity === "P1");
 }
 
 async function defaultCommandRunner(binary: string, args: string[], timeoutMs: number): Promise<void> {

@@ -145,6 +145,8 @@ file and applies a 24-hour per-finding, per-channel cooldown by default. Set
 `notificationCooldownHours` in config to change it; set it to `0` to disable
 the cooldown. Pending events are grouped by site in provider messages while
 remaining individually represented in JSON and the outbox.
+New and reopened P1 findings alert immediately; a resolved P1 emits a separate
+`recovered` notification so the operator can close the incident loop.
 Notification failures are logged briefly and never fail the read-only scan. The
 URL is read at runtime and is never written to reports or inventory.
 

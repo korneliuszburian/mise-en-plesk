@@ -31,7 +31,7 @@ function legacyEventId(event: FindingEvent): string {
 }
 
 function actionable(event: FindingEvent): boolean {
-  return (event.type === "opened" || event.type === "reopened") && event.finding.severity === "P1";
+  return (event.type === "opened" || event.type === "reopened" || event.type === "resolved") && event.finding.severity === "P1";
 }
 
 export function enqueueNotificationEvents(

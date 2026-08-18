@@ -34,4 +34,9 @@ describe("notification formatting", () => {
     expect(chunks.every((chunk) => chunk.text.length <= 20)).toBe(true);
     expect(chunks.flatMap((chunk) => chunk.events).map((item) => item.finding.id)).toEqual(["one", "two"]);
   });
+
+  it("labels resolved findings as recovered", () => {
+    const resolved = { ...event("resolved", "example.test", "risk cleared"), type: "resolved" } satisfies FindingEvent;
+    expect(chunkFindingEvents([resolved], 500)[0]?.text).toContain("recovered");
+  });
 });

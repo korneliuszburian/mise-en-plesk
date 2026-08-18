@@ -40,11 +40,14 @@ describe("finding notifications", () => {
       },
     });
 
-    expect(result).toEqual({ sent: true, eligibleEvents: 1 });
+    expect(result).toEqual({ sent: true, eligibleEvents: 2 });
     expect(request?.method).toBe("POST");
     expect(JSON.parse(String(request?.body))).toMatchObject({
       kind: "wordpress-risk-alert",
-      events: [{ type: "opened", finding: { severity: "P1", domain: "example.test" } }],
+      events: [
+        { type: "opened", finding: { severity: "P1", domain: "example.test" } },
+        { type: "resolved", finding: { severity: "P1", domain: "example.test" } },
+      ],
     });
   });
 

@@ -10,7 +10,8 @@ function siteKey(event: FindingEvent): string {
 }
 
 function eventText(event: FindingEvent, maxLength: number): string {
-  const text = `[${event.finding.severity}] ${event.type} on ${siteKey(event)}: ${event.finding.message}`;
+  const label = event.type === "resolved" ? "recovered" : event.type;
+  const text = `[${event.finding.severity}] ${label} on ${siteKey(event)}: ${event.finding.message}`;
   return text.length <= maxLength ? text : `${text.slice(0, Math.max(0, maxLength - 1))}…`;
 }
 
@@ -23,7 +24,7 @@ function groupedItems(events: FindingEvent[], maxLength: number): NotificationCh
       items.push({ events: group, text: eventText(group[0]!, maxLength) });
       continue;
     }
-    const groupedText = `${site}:\n${group.map((event) => `- ${event.type}: ${event.finding.message}`).join("\n")}`;
+    const groupedText = `${site}:\n${group.map((event) => `- ${event.type === "resolved" ? "recovered" : event.type}: ${event.finding.message}`).join("\n")}`;
     if (groupedText.length <= maxLength) {
       items.push({ events: group, text: groupedText });
       continue;

@@ -16,7 +16,7 @@ export interface NotificationResult {
 
 function actionableEvents(events: FindingEvent[]): FindingEvent[] {
   return events.filter((event) =>
-    (event.type === "opened" || event.type === "reopened") && event.finding.severity === "P1");
+    (event.type === "opened" || event.type === "reopened" || event.type === "resolved") && event.finding.severity === "P1");
 }
 
 export async function notifyFindingEvents(
