@@ -1,7 +1,12 @@
 import { describe, expect, it } from "vitest";
-import { runPreflight } from "../src/preflight";
+import { runPreflight, versionArguments } from "../src/preflight";
 
 describe("local preflight", () => {
+  it("uses OpenSSH's single-dash version flag", () => {
+    expect(versionArguments("ssh")).toEqual(["-V"]);
+    expect(versionArguments("bw")).toEqual(["--version"]);
+  });
+
   it("reports missing runtime prerequisites without throwing", async () => {
     const result = await runPreflight({
       inventoryPath: "/tmp/mise-en-plesk-no-inventory.json",

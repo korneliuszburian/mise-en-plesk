@@ -24,9 +24,13 @@ export interface PreflightOptions {
   commandRunner?: (command: string) => Promise<string>;
 }
 
+export function versionArguments(command: string): string[] {
+  return command === "ssh" ? ["-V"] : ["--version"];
+}
+
 async function defaultCommandRunner(command: string): Promise<string> {
-  const result = await execFileAsync(command, ["--version"]);
-  return result.stdout.trim();
+  const result = await execFileAsync(command, versionArguments(command));
+  return (result.stdout || result.stderr).trim();
 }
 
 function check(name: string, ok: boolean, detail: string, blocking = true): PreflightCheck {
