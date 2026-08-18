@@ -24,8 +24,12 @@ interface MisePleskConfig {
   findingsStatePath?: string;
 }
 
+interface VulnerabilityLookupBudget {
+  used: number;
+}
+
 function usage(): never {
-  console.error("Usage: mise-plesk-audit doctor [--json] | sync-ssh | scan <target|all> [--json] [--max-sites=N] [--offset=N]");
+  console.error("Usage: mise-plesk-audit doctor [--json] | sync-ssh | scan <target|all> [--json] [--max-sites=N] [--offset=N] [--all-chunks]");
   process.exit(1);
 }
 
@@ -36,13 +40,18 @@ function parseNonNegativeInteger(value: string, flag: string): number {
   return parsed;
 }
 
-function readScanRange(flags: string[], config: MisePleskConfig): { json: boolean; maxSites?: number; offset: number } {
+function readScanRange(flags: string[], config: MisePleskConfig): { json: boolean; maxSites?: number; offset: number; allChunks: boolean } {
   let json = false;
   let maxSites = config.maxSitesPerHost;
   let offset = 0;
+  let allChunks = false;
   for (const flag of flags) {
     if (flag === "--json") {
       json = true;
+      continue;
+    }
+    if (flag === "--all-chunks") {
+      allChunks = true;
       continue;
     }
     const maxSitesMatch = /^--max-sites=(.+)$/.exec(flag);
@@ -63,7 +72,10 @@ function readScanRange(flags: string[], config: MisePleskConfig): { json: boolea
   if (offset > 0 && maxSites === undefined) {
     throw new Error("--offset requires --max-sites or maxSitesPerHost in config.");
   }
-  return { json, maxSites, offset };
+  if (allChunks && maxSites === undefined) {
+    throw new Error("--all-chunks requires --max-sites or maxSitesPerHost in config.");
+  }
+  return { json, maxSites, offset, allChunks };
 }
 
 async function readConfig(): Promise<MisePleskConfig> {
@@ -94,6 +106,7 @@ async function scanHost(
   maxConcurrentSites = 4,
   maxSites?: number,
   offset = 0,
+  vulnerabilityBudget: VulnerabilityLookupBudget = { used: 0 },
 ): Promise<{ report: AuditResult["hosts"][number]; scannedInstallationPaths: string[]; complete: boolean }> {
   const host = inventory[alias];
   const item = process.env.BW_SESSION ? await getInventoryHostItem(host) : null;
@@ -108,7 +121,6 @@ async function scanHost(
     });
     const selectedWordPress = maxSites === undefined ? scan.wordpress.slice(offset) : scan.wordpress;
     const scannedInstallationPaths = selectedWordPress.map((installation) => installation.path);
-    let vulnerabilityLookups = 0;
     const wordpress = [];
     for (let index = 0; index < selectedWordPress.length; index += maxConcurrentSites) {
       const batch = selectedWordPress.slice(index, index + maxConcurrentSites);
@@ -118,8 +130,8 @@ async function scanHost(
           enabled: process.env.MISE_PLESK_ENABLE_VULNS === "1",
           vulnerabilityLookup: async (slug, options) => {
             if (process.env.MISE_PLESK_ENABLE_VULNS !== "1") return null;
-            if (maxVulnerabilityLookups !== undefined && vulnerabilityLookups >= maxVulnerabilityLookups) return null;
-            vulnerabilityLookups += 1;
+            if (maxVulnerabilityLookups !== undefined && vulnerabilityBudget.used >= maxVulnerabilityLookups) return null;
+            vulnerabilityBudget.used += 1;
             return lookupPluginVulnerabilities(slug, options);
           },
           suspiciousFileRunner: batched.suspiciousFileRunner,
@@ -173,8 +185,24 @@ async function main(): Promise<void> {
       throw new Error("maxConcurrentSitesPerHost must be a positive integer.");
     }
     const executions = [];
-    for (const alias of aliases) executions.push(await scanHost(alias, inventory, maxLookups, maxConcurrentSites, scanRange.maxSites, scanRange.offset));
-    const hosts = executions.map((execution) => execution.report);
+    for (const alias of aliases) {
+      let offset = scanRange.offset;
+      const vulnerabilityBudget = { used: 0 };
+      while (true) {
+        const execution = await scanHost(alias, inventory, maxLookups, maxConcurrentSites, scanRange.maxSites, offset, vulnerabilityBudget);
+        executions.push(execution);
+        if (!scanRange.allChunks || execution.complete) break;
+        if (!execution.scannedInstallationPaths.length) throw new Error(`[${alias}] bounded scan made no progress at offset ${offset}.`);
+        offset += execution.scannedInstallationPaths.length;
+      }
+    }
+    const hostsByAlias = new Map<string, AuditResult["hosts"][number]>();
+    for (const execution of executions) {
+      const existing = hostsByAlias.get(execution.report.host);
+      if (existing) existing.wordpress.push(...execution.report.wordpress);
+      else hostsByAlias.set(execution.report.host, { ...execution.report, wordpress: [...execution.report.wordpress] });
+    }
+    const hosts = [...hostsByAlias.values()];
     const preliminaryResult: AuditResult = {
       generatedAt: new Date().toISOString(),
       hosts,
@@ -183,7 +211,9 @@ async function main(): Promise<void> {
     const findingStatePath = process.env.MISE_PLESK_FINDINGS ?? config.findingsStatePath ?? ".mise-en-plesk/findings.json";
     const findingState = await readFindingState(findingStatePath);
     const findingScope: FindingScope = {
-      completeHosts: new Set(executions.filter((execution) => execution.complete).map((execution) => execution.report.host)),
+      completeHosts: new Set(executions
+        .filter((execution) => execution.complete && scanRange.offset === 0)
+        .map((execution) => execution.report.host)),
       installationPaths: new Set(executions.flatMap((execution) => execution.scannedInstallationPaths)),
     };
     const transition = reconcileFindings(

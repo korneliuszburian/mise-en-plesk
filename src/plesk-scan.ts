@@ -115,7 +115,7 @@ export async function scanPleskHost(
   const limit = options.wordpressLimit;
   const discoveryCommand = limit === undefined
     ? "find /var/www/vhosts -xdev -maxdepth 4 -type f -name wp-config.php -print"
-    : `find /var/www/vhosts -xdev -maxdepth 4 -type f -name wp-config.php -print | awk 'NR > ${offset} && NR <= ${offset + limit + 1} { print }'`;
+    : `find /var/www/vhosts -xdev -maxdepth 4 -type f -name wp-config.php -print | sort | awk 'NR > ${offset} && NR <= ${offset + limit + 1} { print }'`;
   const configPaths = parseLineList(
     await runner(host, discoveryCommand),
   );

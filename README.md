@@ -14,7 +14,7 @@ pnpm test
 pnpm mise-plesk-audit doctor
 source scripts/setup-bw-session.sh
 pnpm mise-plesk-audit sync-ssh
-pnpm mise-plesk-audit scan master-ssh
+pnpm mise-plesk-audit scan master-ssh --json --max-sites=20 --all-chunks
 pnpm mise-plesk-audit scan all --json
 ```
 
@@ -47,6 +47,10 @@ offset. `maxSitesPerHost` in config provides the same default for every run;
 CLI flags take precedence. A bounded run only reconciles findings for the
 installations it actually scanned, and only the final chunk can resolve stale
 findings for the whole host.
+For an unattended complete run, use `--all-chunks`; it repeats bounded
+discovery until every installation is covered and writes one aggregate report:
+`scan all --json --max-sites=20 --all-chunks`. Starting `--all-chunks` at a
+non-zero offset intentionally does not resolve findings for the omitted prefix.
 
 Online plugin vulnerability lookups are opt-in. Set
 `MISE_PLESK_ENABLE_VULNS=1` before running `scan` to query the public
@@ -97,6 +101,8 @@ For a simple cron/systemd timer integration, run
 `scan all --json`, writes
 0600 logs under `.mise-en-plesk/logs/`, and uses a process-backed `flock`. Set
 `MISE_PLESK_SCHEDULED_TARGET`, `MISE_PLESK_SCHEDULE_LOG_DIR`, or
-`MISE_PLESK_SCHEDULE_LOCK_FILE` to override the defaults. Exit code `75` means
+`MISE_PLESK_SCHEDULE_LOCK_FILE` to override the defaults. The scheduled runner
+uses bounded complete scans with 20 sites per chunk; override that with
+`MISE_PLESK_SCAN_CHUNK_SIZE`. Exit code `75` means
 another scan is already running. The lock is process-backed via `flock` and is
 released automatically when the runner exits.

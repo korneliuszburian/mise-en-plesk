@@ -6,6 +6,7 @@ target="${MISE_PLESK_SCHEDULED_TARGET:-all}"
 log_dir="${MISE_PLESK_SCHEDULE_LOG_DIR:-$repo_root/.mise-en-plesk/logs}"
 lock_file="${MISE_PLESK_SCHEDULE_LOCK_FILE:-$repo_root/.mise-en-plesk/scan.lock}"
 runner_bin="${MISE_PLESK_RUNNER_BIN:-pnpm}"
+chunk_size="${MISE_PLESK_SCAN_CHUNK_SIZE:-20}"
 
 umask 077
 mkdir -p "$log_dir"
@@ -21,5 +22,5 @@ exec > >(tee -a "$log_path") 2>&1
 echo "[$(date -u +%Y-%m-%dT%H:%M:%SZ)] starting read-only scan target=$target"
 cd "$repo_root"
 "$runner_bin" mise-plesk-audit doctor --json
-"$runner_bin" mise-plesk-audit scan "$target" --json
+"$runner_bin" mise-plesk-audit scan "$target" --json --max-sites="$chunk_size" --all-chunks
 echo "[$(date -u +%Y-%m-%dT%H:%M:%SZ)] scan finished successfully"
