@@ -2,13 +2,13 @@ import type { FindingEvent } from "./finding-state";
 import {
   compactNotificationOutbox,
   enqueueNotificationEvents,
-  markNotificationChannelSent,
+  markNotificationChannelOutcome,
   pendingNotificationEvents,
   readNotificationOutbox,
   type NotificationChannel,
   writeNotificationOutbox,
 } from "./notification-outbox";
-import { markNotificationsSent, partitionByCooldown, readNotificationHistory, writeNotificationHistory } from "./notification-history";
+import { markNotificationsAccepted, partitionByCooldown, readNotificationHistory, writeNotificationHistory } from "./notification-history";
 import type { NotificationChannelAdapter } from "./notifier";
 
 export interface NotificationDeliveryOptions {
@@ -26,13 +26,15 @@ export interface NotificationChannelDelivery {
   suppressed: number;
   pending: number;
   failed: boolean;
+  unknown: number;
   error?: string;
+  providerMessageIds?: string[];
 }
 
 export interface NotificationDeliveryResult {
-  webhookSent: boolean;
-  whatsappSent: boolean;
-  hermesSent: boolean;
+  webhookAccepted: boolean;
+  whatsappAccepted: boolean;
+  hermesAccepted: boolean;
   channels: Record<NotificationChannel, NotificationChannelDelivery>;
 }
 
@@ -42,29 +44,36 @@ export interface NotificationDelivery {
 }
 
 function emptyResult(): NotificationDeliveryResult {
-  const channel = (): NotificationChannelDelivery => ({ attempted: 0, acknowledged: 0, suppressed: 0, pending: 0, failed: false });
+  const channel = (): NotificationChannelDelivery => ({ attempted: 0, acknowledged: 0, suppressed: 0, pending: 0, failed: false, unknown: 0 });
   return {
-    webhookSent: false,
-    whatsappSent: false,
-    hermesSent: false,
+    webhookAccepted: false,
+    whatsappAccepted: false,
+    hermesAccepted: false,
     channels: { webhook: channel(), whatsapp: channel(), hermes: channel() },
   };
 }
 
-function markDelivered(result: NotificationDeliveryResult, channel: NotificationChannel): void {
-  if (channel === "webhook") result.webhookSent = true;
-  if (channel === "whatsapp") result.whatsappSent = true;
-  if (channel === "hermes") result.hermesSent = true;
+function markAccepted(result: NotificationDeliveryResult, channel: NotificationChannel): void {
+  if (channel === "webhook") result.webhookAccepted = true;
+  if (channel === "whatsapp") result.whatsappAccepted = true;
+  if (channel === "hermes") result.hermesAccepted = true;
 }
 
 export function createNotificationDelivery(options: NotificationDeliveryOptions): NotificationDelivery {
   const now = options.now ?? (() => new Date());
   const debug = options.debug ?? (() => undefined);
+  const configuredChannels = options.adapters
+    .filter((adapter) => adapter.configured)
+    .map((adapter) => adapter.channel);
 
   return {
     async enqueue(events) {
       if (!events.length) return;
-      const outbox = enqueueNotificationEvents(await readNotificationOutbox(options.outboxPath), [...events]);
+      const outbox = enqueueNotificationEvents(
+        await readNotificationOutbox(options.outboxPath),
+        [...events],
+        configuredChannels,
+      );
       await writeNotificationOutbox(options.outboxPath, outbox);
     },
 
@@ -84,20 +93,41 @@ export function createNotificationDelivery(options: NotificationDeliveryOptions)
         const partition = partitionByCooldown(pending, adapter.channel, history, now(), options.cooldownMs);
         channelResult.attempted = partition.deliverable.length;
         channelResult.suppressed = partition.suppressed.length;
-        if (partition.suppressed.length) outbox = markNotificationChannelSent(outbox, adapter.channel, partition.suppressed);
+        if (partition.suppressed.length) {
+          outbox = markNotificationChannelOutcome(outbox, adapter.channel, partition.suppressed, "suppressed");
+        }
 
         if (partition.deliverable.length) {
           try {
             const delivery = await adapter.notifier.send(partition.deliverable);
-            channelResult.acknowledged = delivery.sentEvents.length;
-            if (delivery.sentEvents.length) {
-              outbox = markNotificationChannelSent(outbox, adapter.channel, delivery.sentEvents);
-              history = markNotificationsSent(history, adapter.channel, delivery.sentEvents, now());
+            channelResult.acknowledged = delivery.acceptedEvents.length;
+            if (delivery.providerReceipts?.length) {
+              channelResult.providerMessageIds = delivery.providerReceipts.map((receipt) => receipt.providerMessageId);
+              debug(`${adapter.channel} provider accepted ${delivery.providerReceipts.length} message batch(es): ${channelResult.providerMessageIds.join(", ")}`);
             }
-            if (delivery.sentEvents.length) markDelivered(result, adapter.channel);
-            if (delivery.sent && !delivery.sentEvents.length) {
+            if (delivery.acceptedEvents.length) {
+              outbox = markNotificationChannelOutcome(outbox, adapter.channel, delivery.acceptedEvents);
+              history = markNotificationsAccepted(
+                history,
+                adapter.channel,
+                delivery.acceptedEvents,
+                now(),
+                delivery.providerReceipts,
+              );
+            }
+            if (delivery.acceptedEvents.length) markAccepted(result, adapter.channel);
+            if (delivery.outcome === "unknown") {
+              const accepted = new Set(delivery.acceptedEvents);
+              const unknownEvents = partition.deliverable.filter((event) => !accepted.has(event));
+              if (unknownEvents.length) {
+                outbox = markNotificationChannelOutcome(outbox, adapter.channel, unknownEvents, "unknown");
+                channelResult.unknown = unknownEvents.length;
+                channelResult.error = "provider outcome is unknown; automatic retry is paused";
+              }
+            }
+            if (delivery.outcome === "accepted" && !delivery.acceptedEvents.length) {
               channelResult.failed = true;
-              channelResult.error = "provider reported success without acknowledged events";
+              channelResult.error = "provider reported acceptance without acknowledged events";
             }
           } catch (error: unknown) {
             const detail = error instanceof Error ? error.message : "provider error";

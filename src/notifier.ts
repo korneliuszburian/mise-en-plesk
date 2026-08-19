@@ -2,8 +2,14 @@ import type { FindingEvent } from "./finding-state";
 import type { NotificationChannel } from "./notification-outbox";
 
 export interface NotifierResult {
-  sent: boolean;
-  sentEvents: FindingEvent[];
+  outcome: "accepted" | "failed" | "unknown";
+  acceptedEvents: FindingEvent[];
+  providerReceipts?: ProviderSubmissionReceipt[];
+}
+
+export interface ProviderSubmissionReceipt {
+  providerMessageId: string;
+  eventReferences: string[];
 }
 
 export interface Notifier {

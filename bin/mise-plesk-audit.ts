@@ -149,7 +149,7 @@ async function persistFindingList(
   scope: FindingScope,
   occurredAt: string,
   delivery: NotificationDelivery,
-): Promise<{ state: Awaited<ReturnType<typeof readFindingState>>; events: FindingEvent[]; notificationSent: boolean; whatsappSent: boolean; hermesSent: boolean }> {
+): Promise<{ state: Awaited<ReturnType<typeof readFindingState>>; events: FindingEvent[]; notificationAccepted: boolean; whatsappAccepted: boolean; hermesAccepted: boolean }> {
   const transition = reconcileFindings(findingState, findings, occurredAt, scope);
   await delivery.enqueue(transition.events);
   await writeFindingState(findingStatePath, transition.state);
@@ -157,9 +157,9 @@ async function persistFindingList(
   return {
     state: transition.state,
     events: transition.events,
-    notificationSent: notification.webhookSent,
-    whatsappSent: notification.whatsappSent,
-    hermesSent: notification.hermesSent,
+    notificationAccepted: notification.webhookAccepted,
+    whatsappAccepted: notification.whatsappAccepted,
+    hermesAccepted: notification.hermesAccepted,
   };
 }
 
@@ -368,8 +368,10 @@ async function main(): Promise<void> {
       graphVersion: process.env.MISE_PLESK_WHATSAPP_GRAPH_VERSION,
       debug: (message) => console.error(message),
     });
-    if (!result.sent) throw new Error("WhatsApp test delivery failed or is not configured.");
-    console.log("WhatsApp test message delivered.");
+    if (result.outcome !== "accepted") {
+      throw new Error(`WhatsApp test submission was not accepted (outcome: ${result.outcome}).`);
+    }
+    console.log(`WhatsApp test message accepted by Meta (${result.providerReceipts.map((receipt) => receipt.providerMessageId).join(", ")}).`);
     return;
   }
   if (command === "hermes-test") {
@@ -380,7 +382,7 @@ async function main(): Promise<void> {
       target,
       binary: process.env.MISE_PLESK_HERMES_BIN,
     });
-    console.log("Hermes test message delivered.");
+    console.log("Hermes test message accepted by Hermes.");
     return;
   }
   if (command === "remote-preflight" && target) {
@@ -443,9 +445,9 @@ async function main(): Promise<void> {
     const result = { heartbeatPath, heartbeat, stale: Boolean(staleFinding), findingEvents: transition.events };
     if (jsonOutput) console.log(JSON.stringify(result, null, 2));
     else console.log(staleFinding ? `Monitor is stale: ${heartbeatPath}` : `Monitor is healthy: ${heartbeat?.completedAt ?? "unknown"}`);
-    if (notification.webhookSent) console.error("Sent pending monitor webhook alert(s).");
-    if (notification.whatsappSent) console.error("Sent pending monitor WhatsApp alert(s).");
-    if (notification.hermesSent) console.error("Sent pending monitor Hermes alert(s).");
+    if (notification.webhookAccepted) console.error("Provider accepted pending monitor webhook alert(s).");
+    if (notification.whatsappAccepted) console.error("Provider accepted pending monitor WhatsApp alert(s).");
+    if (notification.hermesAccepted) console.error("Provider accepted pending monitor Hermes alert(s).");
     return;
   }
   if (command === "scan" && target) {
@@ -487,9 +489,9 @@ async function main(): Promise<void> {
     let scanCycleState = await readScanCycleState(scanCycleStatePath);
     const delivery = createDelivery(config);
     const findingEvents: FindingEvent[] = [];
-    let alertSent = false;
-    let whatsappSent = false;
-    let hermesSent = false;
+    let alertAccepted = false;
+    let whatsappAccepted = false;
+    let hermesAccepted = false;
     for (const alias of aliases) {
       let offset = scanRange.offset;
       const vulnerabilityBudget = { used: 0 };
@@ -519,9 +521,9 @@ async function main(): Promise<void> {
         );
         findingState = batchTransition.state;
         findingEvents.push(...batchTransition.events);
-        alertSent ||= batchTransition.notificationSent;
-        whatsappSent ||= batchTransition.whatsappSent;
-        hermesSent ||= batchTransition.hermesSent;
+        alertAccepted ||= batchTransition.notificationAccepted;
+        whatsappAccepted ||= batchTransition.whatsappAccepted;
+        hermesAccepted ||= batchTransition.hermesAccepted;
         if (!shouldContinueScanChunks(scanRange.allChunks, execution.complete, chunksProcessed, scanRange.maxChunks)) {
           if (scanRange.allChunks && !execution.complete && chunksProcessed >= scanRange.maxChunks) {
             console.error(`[${alias}] scan chunk budget reached (${scanRange.maxChunks}); leaving cycle incomplete.`);
@@ -546,9 +548,9 @@ async function main(): Promise<void> {
           );
           findingState = completeTransition.state;
           findingEvents.push(...completeTransition.events);
-          alertSent ||= completeTransition.notificationSent;
-          whatsappSent ||= completeTransition.whatsappSent;
-          hermesSent ||= completeTransition.hermesSent;
+          alertAccepted ||= completeTransition.notificationAccepted;
+          whatsappAccepted ||= completeTransition.whatsappAccepted;
+          hermesAccepted ||= completeTransition.hermesAccepted;
         }
       }
     }
@@ -583,7 +585,7 @@ async function main(): Promise<void> {
     const result: AuditResult = { ...preliminaryResult, findings: currentFindings, findingEvents };
     const reportPath = await writeAuditReport(result, process.env.MISE_PLESK_REPORTS ?? config.reportsDirectory ?? "reports", json, process.env.MISE_PLESK_REPORT_SUFFIX ?? "");
     await writeHeartbeat(heartbeatPath, { version: 1, target, startedAt, completedAt: new Date().toISOString(), scanComplete, reportPath });
-    console.log(formatScanOutput(result, { reportPath, json, alertSent, whatsappSent, hermesSent }));
+    console.log(formatScanOutput(result, { reportPath, json, alertAccepted, whatsappAccepted, hermesAccepted }));
     return;
   }
     usage();

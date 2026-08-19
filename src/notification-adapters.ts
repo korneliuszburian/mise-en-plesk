@@ -22,7 +22,10 @@ export function createNotificationAdapters(
       notifier: {
         send: async (events) => {
           const result = await notifyFindingEvents(events, { webhookUrl: env.MISE_PLESK_ALERT_WEBHOOK_URL, debug });
-          return { sent: result.sent, sentEvents: result.sent ? events : [] };
+          return {
+            outcome: result.outcome,
+            acceptedEvents: result.outcome === "accepted" ? events : [],
+          };
         },
       },
     },
@@ -40,7 +43,11 @@ export function createNotificationAdapters(
             graphVersion: env.MISE_PLESK_WHATSAPP_GRAPH_VERSION,
             debug,
           });
-          return { sent: result.sent, sentEvents: result.sentEvents };
+          return {
+            outcome: result.outcome,
+            acceptedEvents: result.acceptedEvents,
+            providerReceipts: result.providerReceipts,
+          };
         },
       },
     },
@@ -54,7 +61,7 @@ export function createNotificationAdapters(
             binary: env.MISE_PLESK_HERMES_BIN,
             debug,
           });
-          return { sent: result.sent, sentEvents: result.sentEvents };
+          return { outcome: result.outcome, acceptedEvents: result.acceptedEvents };
         },
       },
     },

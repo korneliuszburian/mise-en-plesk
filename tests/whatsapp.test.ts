@@ -15,7 +15,7 @@ const findingEvent: FindingEvent = {
 describe("WhatsApp Cloud API notifier", () => {
   it("does not call the API when configuration is incomplete", async () => {
     let calls = 0;
-    await expect(notifyFindingEventsToWhatsApp([findingEvent], { fetchImpl: async () => { calls += 1; throw new Error("must not call"); } })).resolves.toEqual({ sent: false, eligibleEvents: 1, sentEvents: [] });
+    await expect(notifyFindingEventsToWhatsApp([findingEvent], { fetchImpl: async () => { calls += 1; throw new Error("must not call"); } })).resolves.toEqual({ outcome: "failed", eligibleEvents: 1, acceptedEvents: [], providerReceipts: [] });
     expect(calls).toBe(0);
   });
 
@@ -32,11 +32,16 @@ describe("WhatsApp Cloud API notifier", () => {
       fetchImpl: async (requestUrl, requestInit) => {
         url = String(requestUrl);
         init = requestInit;
-        return new Response(null, { status: 200 });
+        return Response.json({ messages: [{ id: "wamid.accepted-1" }] });
       },
     });
 
-    expect(result).toEqual({ sent: true, eligibleEvents: 1, sentEvents: [findingEvent] });
+    expect(result).toEqual({
+      outcome: "accepted",
+      eligibleEvents: 1,
+      acceptedEvents: [findingEvent],
+      providerReceipts: [{ providerMessageId: "wamid.accepted-1", eventReferences: ["finding-1.0"] }],
+    });
     expect(url).toBe("https://graph.facebook.com/v23.0/12345/messages");
     expect(init?.headers).toMatchObject({ authorization: "Bearer runtime-token" });
     expect(JSON.parse(String(init?.body))).toMatchObject({
@@ -57,15 +62,20 @@ describe("WhatsApp Cloud API notifier", () => {
       retryDelayMs: 0,
       fetchImpl: async () => {
         calls += 1;
-        return calls === 1 ? new Response(null, { status: 429 }) : new Response(null, { status: 200 });
+        return calls === 1 ? new Response(null, { status: 429 }) : Response.json({ messages: [{ id: "wamid.retry-1" }] });
       },
     });
 
-    expect(result).toEqual({ sent: true, eligibleEvents: 1, sentEvents: [findingEvent] });
+    expect(result).toEqual({
+      outcome: "accepted",
+      eligibleEvents: 1,
+      acceptedEvents: [findingEvent],
+      providerReceipts: [{ providerMessageId: "wamid.retry-1", eventReferences: ["finding-1.0"] }],
+    });
     expect(calls).toBe(2);
   });
 
-  it("chunks long alert batches and reports only successfully delivered events", async () => {
+  it("chunks long alert batches and reports only provider-accepted events", async () => {
     const second = {
       ...findingEvent,
       finding: { ...findingEvent.finding, id: "finding-2", message: "second critical vulnerability" },
@@ -84,14 +94,51 @@ describe("WhatsApp Cloud API notifier", () => {
         calls += 1;
         const body = JSON.parse(String(init?.body)) as { template: { components: Array<{ parameters: Array<{ text: string }> }> } };
         messageLengths.push(body.template.components[0].parameters[0].text.length);
-        return calls === 1 ? new Response(null, { status: 200 }) : new Response(null, { status: 400 });
+        return calls === 1 ? Response.json({ messages: [{ id: "wamid.chunk-1" }] }) : new Response(null, { status: 400 });
       },
     });
 
-    expect(result.sent).toBe(false);
+    expect(result.outcome).toBe("failed");
     expect(result.eligibleEvents).toBe(2);
-    expect(result.sentEvents).toEqual([findingEvent]);
+    expect(result.acceptedEvents).toEqual([findingEvent]);
+    expect(result.providerReceipts).toEqual([{
+      providerMessageId: "wamid.chunk-1",
+      eventReferences: ["finding-1.0"],
+    }]);
     expect(calls).toBe(2);
     expect(messageLengths).toEqual([40, 40]);
+  });
+
+  it("does not acknowledge a 2xx response without a provider message id", async () => {
+    const result = await notifyFindingEventsToWhatsApp([findingEvent], {
+      accessToken: "runtime-token",
+      phoneNumberId: "12345",
+      recipient: "48123123123",
+      templateName: "plesk_security_alert",
+      graphVersion: "v23.0",
+      maxAttempts: 1,
+      fetchImpl: async () => Response.json({ messages: [] }),
+    });
+
+    expect(result).toEqual({ outcome: "unknown", eligibleEvents: 1, acceptedEvents: [], providerReceipts: [] });
+  });
+
+  it("returns unknown without retrying an ambiguous network failure", async () => {
+    let calls = 0;
+    const result = await notifyFindingEventsToWhatsApp([findingEvent], {
+      accessToken: "runtime-token",
+      phoneNumberId: "12345",
+      recipient: "48123123123",
+      templateName: "plesk_security_alert",
+      graphVersion: "v23.0",
+      maxAttempts: 3,
+      fetchImpl: async () => {
+        calls += 1;
+        throw new Error("connection reset after write");
+      },
+    });
+
+    expect(calls).toBe(1);
+    expect(result.outcome).toBe("unknown");
   });
 });

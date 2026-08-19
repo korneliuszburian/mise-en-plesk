@@ -183,9 +183,9 @@ The webhook is provider-neutral so it can target an internal bridge, n8n, or a
 WhatsApp Business adapter. Transient timeout/408/429/5xx failures receive a
 bounded retry with backoff; permanent 4xx failures are not retried. Pending P1
 events are retained in the local gitignored notification outbox and retried on
-the next run, so a temporary alerting outage does not lose a finding. Disabled
-channels remain pending, so enabling Hermes Agent later can deliver an alert
-that was observed while Hermes was not configured.
+the next run, so a temporary alerting outage does not lose a finding. Each
+event records only the channels enabled when it is enqueued; enabling a
+provider later never replays stale historical alerts.
 Delivery history is stored separately in the gitignored notification history
 file and applies a 24-hour per-finding, per-channel cooldown by default. Set
 `notificationCooldownHours` in config to change it; set it to `0` to disable
@@ -196,31 +196,44 @@ New and reopened P1 findings alert immediately; a resolved P1 emits a separate
 Notification failures are logged briefly and never fail the read-only scan. The
 URL is read at runtime and is never written to reports or inventory.
 
-For an operator-owned Hermes Agent setup, alerts can be delivered through
-Hermes without copying its WhatsApp credentials into this repository. Set
+Hermes/Baileys is an optional operator-only pilot, not the production critical
+alert channel. It uses an unofficial WhatsApp Web bridge with a mutable device
+session and requires a running gateway; use only a dedicated number and OS
+profile. Set
 `MISE_PLESK_HERMES_WHATSAPP_TARGET` to an explicit Hermes target such as
 `whatsapp:<chat-id>` and optionally `MISE_PLESK_HERMES_BIN` if `hermes` is not
 on `PATH`. The scanner invokes `hermes send --to <target> <message>` only when
 the target is configured. Verify it with the guarded command
 `pnpm --silent run mise-plesk-audit hermes-test --confirm=<exact-target>`. The Hermes
-channel is independent in the crash-safe outbox; a failed delivery is retried
-on the next run. No Hermes or WhatsApp process activity occurs when the target
-is unset.
+channel is independent in the crash-safe outbox; a failed submission is
+retried on the next run. No Hermes or WhatsApp process activity occurs when the
+target is unset. See
+[`docs/research-hermes-whatsapp-2026-08-19.md`](docs/research-hermes-whatsapp-2026-08-19.md)
+for the production decision and upstream limitations.
 
-Direct WhatsApp Business Cloud API delivery is also opt-in. Set
+Direct WhatsApp Business Cloud API with an approved utility template is the
+recommended production channel. For an interactive shell, set
 `MISE_PLESK_WHATSAPP_ACCESS_TOKEN`, `MISE_PLESK_WHATSAPP_PHONE_NUMBER_ID`,
 `MISE_PLESK_WHATSAPP_RECIPIENT`, and
 `MISE_PLESK_WHATSAPP_TEMPLATE_NAME`, and
 `MISE_PLESK_WHATSAPP_GRAPH_VERSION`; optionally set
 `MISE_PLESK_WHATSAPP_TEMPLATE_LANGUAGE`. The template must be approved in
-WhatsApp Manager and provide one body text parameter. Tokens are read only
-from the process environment and never persisted. Multiple pending P1 events
-are delivered as bounded messages (900 characters by default); a failed chunk
-stays pending while successfully delivered chunks are acknowledged separately.
+WhatsApp Manager and provide one body text parameter. The Graph version is
+explicit configuration: use the current version shown by the Meta app rather
+than copying an example from this repository. Tokens are read only from the
+process environment and never written to reports or state. Multiple pending P1
+events are submitted as bounded messages (900 characters by default); a
+definitive provider failure stays pending while accepted chunks are
+acknowledged separately. An ambiguous network/timeout outcome is persisted as
+`unknown` and automatic retry pauses to avoid duplicate alerts. Every message
+contains a stable event reference for manual correlation. A 2xx
+response is accepted only when Meta returns a `wamid` provider message ID. This
+proves submission, not handset delivery; `delivered`, `read`, and terminal
+`failed` require Meta status webhooks.
 
 After checking the configured recipient, verify the real provider path with
 `pnpm --silent run mise-plesk-audit whatsapp-test --confirm=<configured recipient>`. This
-is the only command that sends an intentional test message; it requires the
+is the only direct-Meta command that sends an intentional test message; it requires the
 confirmation to match the runtime recipient exactly and does not contact
 Plesk.
 
@@ -314,3 +327,29 @@ switch. Session rotation uses the same combined
 `bootstrap-systemd-bw-runtime.sh` transaction so `BW_SESSION` and CLI login
 state cannot be refreshed independently. Do not put a Bitwarden master
 password or any Plesk credential in unit files.
+
+For production Meta alerts, prepare a System User token with
+`whatsapp_business_messaging`, an approved one-body-parameter utility template,
+the sender phone-number ID, and the digits-only recipient. Feed those values as
+one JSON object on stdin to the guarded bootstrap; the access token is written
+only to `/run/mise-en-plesk/WHATSAPP_ACCESS_TOKEN` as root mode `0600`, while a
+root-owned systemd drop-in stores only validated non-secret routing:
+
+```sh
+# whatsapp-runtime.json shape (keep the real file outside this repository):
+# {"accessToken":"...","phoneNumberId":"...","recipient":"48...",
+#  "templateName":"plesk_security_alert","templateLanguage":"pl_PL",
+#  "graphVersion":"vXX.0"}
+sudo scripts/bootstrap-systemd-whatsapp-runtime.sh \
+  --apply --confirm=bootstrap-whatsapp-runtime < whatsapp-runtime.json
+sudo scripts/verify-systemd-install.sh --require-whatsapp
+sudo scripts/run-systemd-whatsapp-test.sh --confirm=<configured-recipient>
+```
+
+Keep `whatsapp-runtime.json` outside the repository, mode `0600`, and remove it
+through the operator's secret-handling procedure after bootstrap. The runtime
+credential is ephemeral and must be restored after reboot, like `BW_SESSION`.
+No message is sent by the bootstrap. The guarded systemd test runs the compiled
+CLI as the unprivileged service account with the same ephemeral credential and
+non-secret routing as the timer; it sends exactly one message only when
+`--confirm` matches the configured recipient.

@@ -9,9 +9,13 @@ function siteKey(event: FindingEvent): string {
   return `${event.finding.host}/${event.finding.domain ?? event.finding.installationPath}`;
 }
 
+export function notificationEventReference(event: FindingEvent): string {
+  return `${event.finding.id.slice(0, 12)}.${event.finding.transitionSequence ?? 0}`;
+}
+
 function eventText(event: FindingEvent, maxLength: number): string {
   const label = event.type === "resolved" ? "recovered" : event.type;
-  const text = `[${event.finding.severity}] ${label} on ${siteKey(event)}: ${event.finding.message}`;
+  const text = `[${event.finding.severity}] ${label} on ${siteKey(event)}: ${event.finding.message} [event ${notificationEventReference(event)}]`;
   return text.length <= maxLength ? text : `${text.slice(0, Math.max(0, maxLength - 1))}…`;
 }
 
@@ -24,7 +28,7 @@ function groupedItems(events: FindingEvent[], maxLength: number): NotificationCh
       items.push({ events: group, text: eventText(group[0]!, maxLength) });
       continue;
     }
-    const groupedText = `${site}:\n${group.map((event) => `- ${event.type === "resolved" ? "recovered" : event.type}: ${event.finding.message}`).join("\n")}`;
+    const groupedText = `${site}:\n${group.map((event) => `- ${event.type === "resolved" ? "recovered" : event.type}: ${event.finding.message} [event ${notificationEventReference(event)}]`).join("\n")}`;
     if (groupedText.length <= maxLength) {
       items.push({ events: group, text: groupedText });
       continue;

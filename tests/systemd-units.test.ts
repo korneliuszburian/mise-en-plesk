@@ -18,4 +18,10 @@ describe("systemd deployment contract", () => {
     expect(unit).toContain("EnvironmentFile=-/etc/mise-en-plesk/mise-en-plesk.env");
     expect(unit).not.toContain("ReadWritePaths=/opt/mise-en-plesk");
   });
+
+  it("loads an optional WhatsApp credential only through the systemd credential directory", async () => {
+    const wrapper = await readFile("scripts/run-scheduled-scan-systemd.sh", "utf8");
+    expect(wrapper).toContain('$CREDENTIALS_DIRECTORY/WHATSAPP_ACCESS_TOKEN');
+    expect(wrapper).toContain('export MISE_PLESK_WHATSAPP_ACCESS_TOKEN="$(<"$whatsapp_token_file")"');
+  });
 });

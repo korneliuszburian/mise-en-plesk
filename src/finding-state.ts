@@ -7,6 +7,7 @@ export interface StoredFinding extends Finding {
   firstSeen: string;
   lastSeen: string;
   resolvedAt?: string;
+  transitionSequence?: number;
 }
 
 export interface FindingState {
@@ -45,7 +46,9 @@ function isStoredFindingValue(value: unknown): value is StoredFinding {
     && optionalString(value.evidence)
     && (value.status === "open" || value.status === "resolved")
     && typeof value.firstSeen === "string" && typeof value.lastSeen === "string"
-    && optionalString(value.resolvedAt);
+    && optionalString(value.resolvedAt)
+    && (value.transitionSequence === undefined
+      || (Number.isSafeInteger(value.transitionSequence) && Number(value.transitionSequence) >= 1));
 }
 
 export function isFindingEvent(value: unknown): value is FindingEvent {
@@ -79,7 +82,7 @@ export function reconcileFindings(
     currentIds.add(finding.id);
     const existing = previous.findings[finding.id];
     if (!existing) {
-      const stored: StoredFinding = { ...finding, status: "open", firstSeen: now, lastSeen: now };
+      const stored: StoredFinding = { ...finding, status: "open", firstSeen: now, lastSeen: now, transitionSequence: 1 };
       next.findings[finding.id] = stored;
       events.push({ type: "opened", finding: stored, occurredAt: now });
       continue;
@@ -92,6 +95,7 @@ export function reconcileFindings(
       firstSeen: existing.firstSeen,
       lastSeen: now,
       resolvedAt: undefined,
+      transitionSequence: reopened ? (existing.transitionSequence ?? 0) + 1 : existing.transitionSequence,
     };
     next.findings[finding.id] = stored;
     if (reopened) events.push({ type: "reopened", finding: stored, occurredAt: now });
@@ -104,7 +108,12 @@ export function reconcileFindings(
         : scope.completeHosts?.has(existing.host) === true
           || scope.installationPaths?.has(existing.installationPath) === true);
     if (existing.status === "open" && inScope && !currentIds.has(existing.id)) {
-      const resolved: StoredFinding = { ...existing, status: "resolved", resolvedAt: now };
+      const resolved: StoredFinding = {
+        ...existing,
+        status: "resolved",
+        resolvedAt: now,
+        transitionSequence: (existing.transitionSequence ?? 0) + 1,
+      };
       next.findings[existing.id] = resolved;
       events.push({ type: "resolved", finding: resolved, occurredAt: now });
     }

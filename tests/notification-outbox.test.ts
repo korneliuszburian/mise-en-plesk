@@ -7,7 +7,7 @@ import {
   emptyNotificationOutbox,
   enqueueNotificationEvents,
   compactNotificationOutbox,
-  markNotificationChannelSent,
+  markNotificationChannelOutcome,
   pendingNotificationEvents,
   readNotificationOutbox,
   writeNotificationOutbox,
@@ -29,11 +29,11 @@ describe("notification outbox", () => {
     expect(queued.entries).toHaveLength(1);
     expect(pendingNotificationEvents(queued, "webhook")).toHaveLength(1);
 
-    const delivered = markNotificationChannelSent(queued, "webhook", [event()]);
+    const delivered = markNotificationChannelOutcome(queued, "webhook", [event()]);
     expect(pendingNotificationEvents(delivered, "webhook")).toHaveLength(0);
     expect(pendingNotificationEvents(delivered, "whatsapp")).toHaveLength(1);
 
-    const fullyDelivered = markNotificationChannelSent(markNotificationChannelSent(delivered, "whatsapp", [event()]), "hermes", [event()]);
+    const fullyDelivered = markNotificationChannelOutcome(markNotificationChannelOutcome(delivered, "whatsapp", [event()]), "hermes", [event()]);
     expect(compactNotificationOutbox(fullyDelivered).entries).toHaveLength(0);
   });
 
@@ -53,10 +53,25 @@ describe("notification outbox", () => {
     expect(replayed.entries[0]?.event.occurredAt).toBe(event().occurredAt);
   });
 
+  it("keeps distinct lifecycle cycles for the same finding", () => {
+    const firstResolution = {
+      ...event("resolved"),
+      finding: { ...event("resolved").finding, transitionSequence: 2 },
+    };
+    const secondResolution = {
+      ...event("resolved"),
+      occurredAt: "2026-08-20T00:00:00.000Z",
+      finding: { ...event("resolved").finding, transitionSequence: 4 },
+    };
+
+    const queued = enqueueNotificationEvents(emptyNotificationOutbox(), [firstResolution, secondResolution]);
+    expect(queued.entries).toHaveLength(2);
+  });
+
   it("allows disabled channels to be discarded without retaining an alert backlog", () => {
     const queued = enqueueNotificationEvents(emptyNotificationOutbox(), [event()]);
-    const skippedWebhook = markNotificationChannelSent(queued, "webhook", [event()]);
-    const skippedBoth = markNotificationChannelSent(markNotificationChannelSent(skippedWebhook, "whatsapp", [event()]), "hermes", [event()]);
+    const skippedWebhook = markNotificationChannelOutcome(queued, "webhook", [event()]);
+    const skippedBoth = markNotificationChannelOutcome(markNotificationChannelOutcome(skippedWebhook, "whatsapp", [event()]), "hermes", [event()]);
 
     expect(compactNotificationOutbox(skippedBoth).entries).toHaveLength(0);
   });
@@ -76,21 +91,34 @@ describe("notification outbox", () => {
     await expect(readNotificationOutbox(path)).rejects.toThrow("Invalid notification outbox");
   });
 
-  it("migrates a legacy outbox entry without Hermes state", async () => {
+  it("retires ambiguous legacy entries instead of replaying them to newly enabled channels", async () => {
     const directory = await mkdtemp(join(tmpdir(), "mise-en-plesk-outbox-legacy-"));
     const path = join(directory, "outbox.json");
-    const queued = enqueueNotificationEvents(emptyNotificationOutbox(), [event()]);
-    const { hermesSent: _ignored, ...legacyEntry } = queued.entries[0]!;
-    await writeFile(path, JSON.stringify({ version: 1, entries: [legacyEntry] }));
+    await writeFile(path, JSON.stringify({
+      version: 1,
+      entries: [{
+        id: "opened:finding-1",
+        event: event(),
+        createdAt: event().occurredAt,
+        webhookSent: false,
+        whatsappSent: false,
+      }],
+    }));
 
-    await expect(readNotificationOutbox(path)).resolves.toMatchObject({ entries: [{ hermesSent: true }] });
+    await expect(readNotificationOutbox(path)).resolves.toEqual({ version: 2, entries: [] });
   });
 
   it("rejects a malformed Hermes delivery flag", async () => {
     const directory = await mkdtemp(join(tmpdir(), "mise-en-plesk-outbox-hermes-invalid-"));
     const path = join(directory, "outbox.json");
-    const queued = enqueueNotificationEvents(emptyNotificationOutbox(), [event()]);
-    await writeFile(path, JSON.stringify({ version: 1, entries: [{ ...queued.entries[0], hermesSent: "yes" }] }));
+    await writeFile(path, JSON.stringify({ version: 1, entries: [{
+      id: "opened:finding-1",
+      event: event(),
+      createdAt: event().occurredAt,
+      webhookSent: false,
+      whatsappSent: false,
+      hermesSent: "yes",
+    }] }));
 
     await expect(readNotificationOutbox(path)).rejects.toThrow("Invalid notification outbox");
   });

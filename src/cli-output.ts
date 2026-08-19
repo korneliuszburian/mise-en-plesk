@@ -3,9 +3,9 @@ import type { AuditResult } from "./wp-audit";
 export interface ScanOutputOptions {
   reportPath: string;
   json: boolean;
-  alertSent?: boolean;
-  whatsappSent?: boolean;
-  hermesSent?: boolean;
+  alertAccepted?: boolean;
+  whatsappAccepted?: boolean;
+  hermesAccepted?: boolean;
 }
 
 export function formatScanOutput(result: AuditResult, options: ScanOutputOptions): string {
@@ -18,8 +18,8 @@ export function formatScanOutput(result: AuditResult, options: ScanOutputOptions
     `Read-only scan complete. Report written to ${options.reportPath}.`,
     `Open findings: ${result.findings?.length ?? 0}.${eventSummary}`,
   ];
-  if (options.alertSent) lines.push("Sent pending P1 alert(s).");
-  if (options.whatsappSent) lines.push("Sent pending P1 WhatsApp alert(s).");
-  if (options.hermesSent) lines.push("Sent pending P1 Hermes alert(s).");
+  if (options.alertAccepted) lines.push("Provider accepted pending P1 alert(s).");
+  if (options.whatsappAccepted) lines.push("Meta accepted pending P1 WhatsApp alert(s).");
+  if (options.hermesAccepted) lines.push("Hermes accepted pending P1 alert(s).");
   return lines.join("\n");
 }

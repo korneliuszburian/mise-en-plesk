@@ -2,6 +2,7 @@ export interface RetryOptions {
   maxAttempts?: number;
   retryDelayMs?: number;
   sleepImpl?: (milliseconds: number) => Promise<void>;
+  retryNetworkErrors?: boolean;
 }
 
 function retryableStatus(status: number): boolean {
@@ -33,7 +34,7 @@ export async function fetchWithRetry(
       lastError = new Error(`HTTP ${response.status}`);
     } catch (error: unknown) {
       lastError = error;
-      if (attempt === maxAttempts) throw error;
+      if (options.retryNetworkErrors === false || attempt === maxAttempts) throw error;
     } finally {
       clearTimeout(timeout);
     }

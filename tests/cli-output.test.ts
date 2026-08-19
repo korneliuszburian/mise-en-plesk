@@ -21,8 +21,8 @@ describe("formatScanOutput", () => {
     expect(formatScanOutput(result, {
       json: false,
       reportPath: "reports/audit.md",
-      alertSent: true,
-      whatsappSent: true,
-    })).toContain("Sent pending P1 WhatsApp alert(s).");
+      alertAccepted: true,
+      whatsappAccepted: true,
+    })).toContain("Meta accepted pending P1 WhatsApp alert(s).");
   });
 });

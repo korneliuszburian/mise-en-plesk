@@ -26,6 +26,7 @@ describe("notification formatting", () => {
     expect(chunks[0]?.events.map((item) => item.finding.id)).toEqual(["one", "two", "three"]);
     expect(chunks[0]?.text).toContain("dev-ssh/example.test:");
     expect(chunks[0]?.text).toContain("- opened: uploads risk");
+    expect(chunks[0]?.text).toContain("[event one.0]");
     expect(chunks[0]?.text).toContain("dev-ssh/other.test:");
   });
 

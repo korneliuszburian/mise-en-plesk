@@ -22,7 +22,7 @@ const event = (severity: "P1" | "P2", type: "opened" | "reopened" | "resolved"):
 describe("finding notifications", () => {
   it("does not perform network I/O when disabled", async () => {
     let calls = 0;
-    await expect(notifyFindingEvents([event("P1", "opened")], { fetchImpl: async () => { calls += 1; throw new Error("must not call"); } })).resolves.toEqual({ sent: false, eligibleEvents: 1 });
+    await expect(notifyFindingEvents([event("P1", "opened")], { fetchImpl: async () => { calls += 1; throw new Error("must not call"); } })).resolves.toEqual({ outcome: "failed", eligibleEvents: 1 });
     expect(calls).toBe(0);
   });
 
@@ -40,7 +40,7 @@ describe("finding notifications", () => {
       },
     });
 
-    expect(result).toEqual({ sent: true, eligibleEvents: 2 });
+    expect(result).toEqual({ outcome: "accepted", eligibleEvents: 2 });
     expect(request?.method).toBe("POST");
     expect(JSON.parse(String(request?.body))).toMatchObject({
       kind: "wordpress-risk-alert",
@@ -53,12 +53,14 @@ describe("finding notifications", () => {
 
   it("swallows webhook failures so scans can still finish", async () => {
     const debug: string[] = [];
+    let calls = 0;
     await expect(notifyFindingEvents([event("P1", "reopened")], {
       webhookUrl: "https://alerts.example.test/hook",
-      fetchImpl: async () => { throw new Error("network down"); },
+      fetchImpl: async () => { calls += 1; throw new Error("network down"); },
       debug: (message) => debug.push(message),
-    })).resolves.toEqual({ sent: false, eligibleEvents: 1 });
+    })).resolves.toEqual({ outcome: "unknown", eligibleEvents: 1 });
     expect(debug[0]).toContain("alert notification skipped");
+    expect(calls).toBe(1);
   });
 
   it("retries transient webhook failures but remains bounded", async () => {
@@ -72,7 +74,7 @@ describe("finding notifications", () => {
       },
     });
 
-    expect(result).toEqual({ sent: true, eligibleEvents: 1 });
+    expect(result).toEqual({ outcome: "accepted", eligibleEvents: 1 });
     expect(calls).toBe(2);
   });
 

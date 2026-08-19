@@ -31,7 +31,7 @@ describe("Hermes notifications", () => {
     const result = await sendFindingEventsViaHermes([event], {
       commandRunner: async () => { called = true; },
     });
-    expect(result.sent).toBe(false);
+    expect(result.outcome).toBe("failed");
     expect(called).toBe(false);
   });
 
@@ -41,11 +41,11 @@ describe("Hermes notifications", () => {
       target: "whatsapp:123456789@s.whatsapp.net",
       commandRunner: async (binary, args, timeout) => { calls.push({ binary, args, timeout }); },
     });
-    expect(result.sent).toBe(true);
-    expect(result.sentEvents).toEqual([event]);
+    expect(result.outcome).toBe("accepted");
+    expect(result.acceptedEvents).toEqual([event]);
     expect(calls).toEqual([{
       binary: "hermes",
-      args: ["send", "--to", "whatsapp:123456789@s.whatsapp.net", "[P1] opened on dev/example.test: PHP files found in uploads"],
+      args: ["send", "--to", "whatsapp:123456789@s.whatsapp.net", "[P1] opened on dev/example.test: PHP files found in uploads [event finding-1.0]"],
       timeout: 15000,
     }]);
   });
@@ -55,21 +55,22 @@ describe("Hermes notifications", () => {
       target: "whatsapp:123@s.whatsapp.net",
       commandRunner: async () => { throw new Error("hermes unavailable"); },
     });
-    expect(result.sent).toBe(false);
-    expect(result.sentEvents).toEqual([]);
+    expect(result.outcome).toBe("unknown");
+    expect(result.acceptedEvents).toEqual([]);
   });
 
   it("retries a failed Hermes command with bounded backoff", async () => {
     let calls = 0;
     const result = await sendFindingEventsViaHermes([event], {
       target: "whatsapp:123@s.whatsapp.net",
+      maxAttempts: 2,
       retryDelayMs: 0,
       commandRunner: async () => {
         calls += 1;
         if (calls === 1) throw new Error("temporary failure");
       },
     });
-    expect(result.sent).toBe(true);
+    expect(result.outcome).toBe("accepted");
     expect(calls).toBe(2);
   });
 
@@ -89,8 +90,8 @@ describe("Hermes notifications", () => {
       },
     });
     expect(calls).toBe(2);
-    expect(result.sent).toBe(false);
-    expect(result.sentEvents).toEqual([event]);
+    expect(result.outcome).toBe("unknown");
+    expect(result.acceptedEvents).toEqual([event]);
   });
 
   it("supports a guarded one-shot text delivery", async () => {

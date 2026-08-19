@@ -17,9 +17,9 @@ export interface HermesOptions extends RetryOptions {
 }
 
 export interface HermesResult {
-  sent: boolean;
+  outcome: "accepted" | "failed" | "unknown";
   eligibleEvents: number;
-  sentEvents: FindingEvent[];
+  acceptedEvents: FindingEvent[];
 }
 
 export function isHermesWhatsAppTarget(value: string | undefined): value is string {
@@ -53,7 +53,7 @@ async function runWithRetry(
   timeoutMs: number,
   options: RetryOptions,
 ): Promise<void> {
-  const maxAttempts = Math.max(1, Math.min(5, Math.floor(options.maxAttempts ?? 3)));
+  const maxAttempts = Math.max(1, Math.min(5, Math.floor(options.maxAttempts ?? 1)));
   const retryDelayMs = Math.max(0, options.retryDelayMs ?? 250);
   const sleepImpl = options.sleepImpl ?? sleep;
   let lastError: unknown;
@@ -76,20 +76,20 @@ export async function sendFindingEventsViaHermes(
 ): Promise<HermesResult> {
   const selected = eligible(events);
   if (!options.target?.trim() || selected.length === 0) {
-    return { sent: false, eligibleEvents: selected.length, sentEvents: [] };
+    return { outcome: "failed", eligibleEvents: selected.length, acceptedEvents: [] };
   }
   let target: string;
   try {
     target = requireHermesWhatsAppTarget(options.target);
   } catch (error: unknown) {
     options.debug?.(`Hermes notification skipped: ${error instanceof Error ? error.message : "invalid target"}`);
-    return { sent: false, eligibleEvents: selected.length, sentEvents: [] };
+    return { outcome: "failed", eligibleEvents: selected.length, acceptedEvents: [] };
   }
 
   const binary = options.binary?.trim() || "hermes";
   const timeoutMs = options.timeoutMs ?? 15_000;
   const maxLength = Math.max(1, Math.floor(options.maxMessageLength ?? DEFAULT_MAX_MESSAGE_LENGTH));
-  const sentEvents: FindingEvent[] = [];
+  const acceptedEvents: FindingEvent[] = [];
   for (const chunk of chunkFindingEvents(selected, maxLength)) {
     const message = chunk.text;
     try {
@@ -100,13 +100,13 @@ export async function sendFindingEventsViaHermes(
         timeoutMs,
         options,
       );
-      sentEvents.push(...chunk.events);
+      acceptedEvents.push(...chunk.events);
     } catch (error: unknown) {
       options.debug?.(`Hermes notification skipped: ${error instanceof Error ? error.message : "command failed"}`);
-      return { sent: false, eligibleEvents: selected.length, sentEvents };
+      return { outcome: "unknown", eligibleEvents: selected.length, acceptedEvents };
     }
   }
-  return { sent: true, eligibleEvents: selected.length, sentEvents };
+  return { outcome: "accepted", eligibleEvents: selected.length, acceptedEvents };
 }
 
 export async function sendHermesText(

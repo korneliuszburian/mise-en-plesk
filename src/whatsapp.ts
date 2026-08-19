@@ -1,6 +1,7 @@
 import type { FindingEvent } from "./finding-state";
 import { fetchWithRetry, type RetryOptions } from "./retry";
-import { chunkFindingEvents } from "./notification-format";
+import { chunkFindingEvents, notificationEventReference } from "./notification-format";
+import type { ProviderSubmissionReceipt } from "./notifier";
 
 export interface WhatsAppOptions extends RetryOptions {
   accessToken?: string;
@@ -16,12 +17,25 @@ export interface WhatsAppOptions extends RetryOptions {
 }
 
 export interface WhatsAppResult {
-  sent: boolean;
+  outcome: "accepted" | "failed" | "unknown";
   eligibleEvents: number;
-  sentEvents: FindingEvent[];
+  acceptedEvents: FindingEvent[];
+  providerReceipts: ProviderSubmissionReceipt[];
 }
 
 const DEFAULT_MAX_MESSAGE_LENGTH = 900;
+
+async function acceptedMessageIds(response: Response): Promise<string[]> {
+  const payload: unknown = await response.json();
+  if (!payload || typeof payload !== "object" || Array.isArray(payload)) return [];
+  const messages = (payload as { messages?: unknown }).messages;
+  if (!Array.isArray(messages)) return [];
+  return messages.flatMap((message) => {
+    if (!message || typeof message !== "object" || Array.isArray(message)) return [];
+    const id = (message as { id?: unknown }).id;
+    return typeof id === "string" && id.trim().startsWith("wamid.") ? [id.trim()] : [];
+  });
+}
 
 function eligible(events: FindingEvent[]): FindingEvent[] {
   return events.filter((event) =>
@@ -34,12 +48,15 @@ export async function notifyFindingEventsToWhatsApp(
 ): Promise<WhatsAppResult> {
   const selected = eligible(events);
   const configured = options.accessToken && options.phoneNumberId && options.recipient && options.templateName && options.graphVersion;
-  if (!configured || selected.length === 0) return { sent: false, eligibleEvents: selected.length, sentEvents: [] };
+  if (!configured || selected.length === 0) {
+    return { outcome: "failed", eligibleEvents: selected.length, acceptedEvents: [], providerReceipts: [] };
+  }
 
   const version = options.graphVersion!;
   const endpoint = `https://graph.facebook.com/${version}/${encodeURIComponent(options.phoneNumberId!)}/messages`;
   const maxMessageLength = Math.max(1, Math.floor(options.maxMessageLength ?? DEFAULT_MAX_MESSAGE_LENGTH));
-  const sentEvents: FindingEvent[] = [];
+  const acceptedEvents: FindingEvent[] = [];
+  const providerReceipts: ProviderSubmissionReceipt[] = [];
   for (const chunk of chunkFindingEvents(selected, maxMessageLength)) {
     try {
       const response = await fetchWithRetry(options.fetchImpl ?? fetch, endpoint, {
@@ -58,13 +75,25 @@ export async function notifyFindingEventsToWhatsApp(
             components: [{ type: "body", parameters: [{ type: "text", text: chunk.text }] }],
           },
         }),
-      }, options.timeoutMs ?? 5000, options);
+      }, options.timeoutMs ?? 5000, { ...options, retryNetworkErrors: false });
       if (!response.ok) throw new Error(`WhatsApp API returned HTTP ${response.status}`);
-      sentEvents.push(...chunk.events);
+      const acceptedIds = await acceptedMessageIds(response);
+      if (!acceptedIds.length) throw new Error("WhatsApp API response did not contain a provider message id");
+      providerReceipts.push(...acceptedIds.map((providerMessageId) => ({
+        providerMessageId,
+        eventReferences: chunk.events.map(notificationEventReference),
+      })));
+      acceptedEvents.push(...chunk.events);
     } catch (error: unknown) {
       options.debug?.(`WhatsApp notification skipped: ${error instanceof Error ? error.message : "request failed"}`);
-      return { sent: false, eligibleEvents: selected.length, sentEvents };
+      const definitiveFailure = error instanceof Error && error.message.startsWith("WhatsApp API returned HTTP ");
+      return {
+        outcome: definitiveFailure ? "failed" : "unknown",
+        eligibleEvents: selected.length,
+        acceptedEvents,
+        providerReceipts,
+      };
     }
   }
-  return { sent: true, eligibleEvents: selected.length, sentEvents };
+  return { outcome: "accepted", eligibleEvents: selected.length, acceptedEvents, providerReceipts };
 }

@@ -10,7 +10,7 @@ export interface NotificationOptions extends RetryOptions {
 }
 
 export interface NotificationResult {
-  sent: boolean;
+  outcome: "accepted" | "failed" | "unknown";
   eligibleEvents: number;
 }
 
@@ -24,7 +24,7 @@ export async function notifyFindingEvents(
   options: NotificationOptions = {},
 ): Promise<NotificationResult> {
   const eligible = actionableEvents(events);
-  if (!options.webhookUrl || eligible.length === 0) return { sent: false, eligibleEvents: eligible.length };
+  if (!options.webhookUrl || eligible.length === 0) return { outcome: "failed", eligibleEvents: eligible.length };
 
   try {
     const response = await fetchWithRetry(options.fetchImpl ?? fetch, options.webhookUrl, {
@@ -47,11 +47,12 @@ export async function notifyFindingEvents(
           },
         })),
       }),
-    }, options.timeoutMs ?? 5000, options);
+    }, options.timeoutMs ?? 5000, { ...options, retryNetworkErrors: false });
     if (!response.ok) throw new Error(`alert webhook returned HTTP ${response.status}`);
-    return { sent: true, eligibleEvents: eligible.length };
+    return { outcome: "accepted", eligibleEvents: eligible.length };
   } catch (error: unknown) {
     options.debug?.(`alert notification skipped: ${error instanceof Error ? error.message : "request failed"}`);
-    return { sent: false, eligibleEvents: eligible.length };
+    const definitiveFailure = error instanceof Error && error.message.startsWith("alert webhook returned HTTP ");
+    return { outcome: definitiveFailure ? "failed" : "unknown", eligibleEvents: eligible.length };
   }
 }

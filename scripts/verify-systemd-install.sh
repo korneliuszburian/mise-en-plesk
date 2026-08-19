@@ -10,11 +10,25 @@ runtime_directive="LoadCredential=BW_SESSION:/run/mise-en-plesk/BW_SESSION"
 runtime_bw_data="/run/mise-en-plesk/bw-data/data.json"
 known_hosts_path="$state_directory/.ssh/known_hosts"
 scanner_lock="/run/mise-en-plesk/scan.lock"
+whatsapp_dropin="/etc/systemd/system/mise-en-plesk.service.d/whatsapp.conf"
+whatsapp_credential="/run/mise-en-plesk/WHATSAPP_ACCESS_TOKEN"
+require_whatsapp=0
 
 fail() {
   echo "systemd installation check failed: $*" >&2
   exit 1
 }
+
+for argument in "$@"; do
+  case "$argument" in
+    --require-whatsapp) require_whatsapp=1 ;;
+    --help)
+      echo "Usage: scripts/verify-systemd-install.sh [--require-whatsapp]"
+      exit 0
+      ;;
+    *) fail "unknown option: $argument" ;;
+  esac
+done
 
 command -v systemctl >/dev/null 2>&1 || fail "systemctl is not available"
 command -v systemd-analyze >/dev/null 2>&1 || fail "systemd-analyze is not available"
@@ -44,6 +58,29 @@ if [[ -e "$optional_environment_file" ]]; then
     { exit 1 }
   ' "$optional_environment_file" \
     || fail "optional environment file may contain only MISE_PLESK_HERMES_* routing keys"
+fi
+if (( require_whatsapp == 1 )) && [[ ! -e "$whatsapp_dropin" ]]; then
+  fail "production WhatsApp routing is required but not configured"
+fi
+if [[ -e "$whatsapp_dropin" ]]; then
+  [[ -f "$whatsapp_dropin" && ! -L "$whatsapp_dropin" ]] \
+    || fail "WhatsApp drop-in is not a regular file"
+  [[ "$(stat -c '%U:%G %a' "$whatsapp_dropin" 2>/dev/null || true)" == "root:root 644" ]] \
+    || fail "WhatsApp drop-in must be root-owned mode 0644"
+  grep -Fqx "LoadCredential=WHATSAPP_ACCESS_TOKEN:/run/mise-en-plesk/WHATSAPP_ACCESS_TOKEN" "$whatsapp_dropin" \
+    || fail "WhatsApp drop-in does not load the fixed runtime credential"
+  [[ -f "$whatsapp_credential" && ! -L "$whatsapp_credential" ]] \
+    || fail "WhatsApp runtime credential is missing or is a symlink"
+  [[ "$(stat -c '%U:%G %a' "$whatsapp_credential" 2>/dev/null || true)" == "root:root 600" ]] \
+    || fail "WhatsApp runtime credential must be root-owned mode 0600"
+  whatsapp_routing_count="$(grep -Ec '^Environment=MISE_PLESK_WHATSAPP_(PHONE_NUMBER_ID|RECIPIENT|TEMPLATE_NAME|TEMPLATE_LANGUAGE|GRAPH_VERSION)=[A-Za-z0-9_.]+$' "$whatsapp_dropin" || true)"
+  [[ "$whatsapp_routing_count" == "5" ]] \
+    || fail "WhatsApp drop-in must contain exactly five validated non-secret routing values"
+  if grep -Eq 'ACCESS_TOKEN|Bearer|token=' "$whatsapp_dropin"; then
+    grep -Fqx "LoadCredential=WHATSAPP_ACCESS_TOKEN:/run/mise-en-plesk/WHATSAPP_ACCESS_TOKEN" "$whatsapp_dropin" \
+      && [[ "$(grep -Ec 'ACCESS_TOKEN|Bearer|token=' "$whatsapp_dropin")" == "1" ]] \
+      || fail "WhatsApp drop-in contains secret-like material"
+  fi
 fi
 
 systemd-analyze verify "$service_unit" "$timer_unit"

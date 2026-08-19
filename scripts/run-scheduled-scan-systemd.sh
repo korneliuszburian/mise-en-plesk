@@ -14,4 +14,8 @@ if [[ ! -s "$session_file" ]]; then
 fi
 
 export BW_SESSION="$(<"$session_file")"
+whatsapp_token_file="$CREDENTIALS_DIRECTORY/WHATSAPP_ACCESS_TOKEN"
+if [[ -s "$whatsapp_token_file" ]]; then
+  export MISE_PLESK_WHATSAPP_ACCESS_TOKEN="$(<"$whatsapp_token_file")"
+fi
 exec "$repo_root/scripts/run-scheduled-scan.sh"

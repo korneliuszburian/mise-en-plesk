@@ -2,14 +2,25 @@ import { mkdir, readFile, rename, writeFile } from "node:fs/promises";
 import { dirname } from "node:path";
 import type { FindingEvent } from "./finding-state";
 import type { NotificationChannel } from "./notification-outbox";
+import type { ProviderSubmissionReceipt } from "./notifier";
 
-export interface NotificationHistory {
-  version: 1;
-  sentAt: Record<string, string>;
+export interface ProviderReceipt {
+  channel: NotificationChannel;
+  providerMessageId: string;
+  eventReferences: string[];
+  acceptedAt: string;
 }
 
+export interface NotificationHistory {
+  version: 2;
+  acceptedAt: Record<string, string>;
+  providerReceipts: ProviderReceipt[];
+}
+
+const MAX_PROVIDER_RECEIPTS = 1000;
+
 export function emptyNotificationHistory(): NotificationHistory {
-  return { version: 1, sentAt: {} };
+  return { version: 2, acceptedAt: {}, providerReceipts: [] };
 }
 
 function historyKey(channel: NotificationChannel, event: FindingEvent): string {
@@ -31,37 +42,66 @@ export function partitionByCooldown(
       deliverable.push(event);
       continue;
     }
-    const lastSent = Date.parse(history.sentAt[historyKey(channel, event)] ?? "");
-    if (Number.isFinite(lastSent) && now.getTime() - lastSent < cooldownMs) suppressed.push(event);
+    const lastAccepted = Date.parse(history.acceptedAt[historyKey(channel, event)] ?? "");
+    if (Number.isFinite(lastAccepted) && now.getTime() - lastAccepted < cooldownMs) suppressed.push(event);
     else deliverable.push(event);
   }
   return { deliverable, suppressed };
 }
 
-export function markNotificationsSent(
+export function markNotificationsAccepted(
   history: NotificationHistory,
   channel: NotificationChannel,
   events: FindingEvent[],
   now: Date,
+  receipts: readonly ProviderSubmissionReceipt[] = [],
 ): NotificationHistory {
-  const sentAt = { ...history.sentAt };
+  const acceptedAt = { ...history.acceptedAt };
   const timestamp = now.toISOString();
-  for (const event of events) sentAt[historyKey(channel, event)] = timestamp;
-  return { version: 1, sentAt };
+  for (const event of events) acceptedAt[historyKey(channel, event)] = timestamp;
+  const providerReceipts = [
+    ...history.providerReceipts,
+    ...receipts.map((receipt) => ({ channel, ...receipt, acceptedAt: timestamp })),
+  ].slice(-MAX_PROVIDER_RECEIPTS);
+  return { version: 2, acceptedAt, providerReceipts };
+}
+
+function validTimestampRecord(value: unknown): value is Record<string, string> {
+  return Boolean(value) && typeof value === "object" && !Array.isArray(value)
+    && Object.values(value as Record<string, unknown>)
+      .every((timestamp) => typeof timestamp === "string" && Number.isFinite(Date.parse(timestamp)));
+}
+
+function validReceipt(value: unknown): value is ProviderReceipt {
+  if (!value || typeof value !== "object" || Array.isArray(value)) return false;
+  const receipt = value as Partial<ProviderReceipt>;
+  return (receipt.channel === "webhook" || receipt.channel === "whatsapp" || receipt.channel === "hermes")
+    && typeof receipt.providerMessageId === "string" && receipt.providerMessageId.length > 0
+    && Array.isArray(receipt.eventReferences)
+    && receipt.eventReferences.length > 0
+    && receipt.eventReferences.every((reference) => typeof reference === "string" && reference.length > 0)
+    && typeof receipt.acceptedAt === "string" && Number.isFinite(Date.parse(receipt.acceptedAt));
 }
 
 export async function readNotificationHistory(path: string): Promise<NotificationHistory> {
   try {
     const parsed: unknown = JSON.parse(await readFile(path, "utf8"));
-    if (!parsed || typeof parsed !== "object" || Array.isArray(parsed)) throw new Error(`Invalid notification history: ${path}`);
-    const value = parsed as Partial<NotificationHistory>;
-    if (value.version !== 1 || !value.sentAt || typeof value.sentAt !== "object" || Array.isArray(value.sentAt)
-      || !Object.values(value.sentAt).every((timestamp) => typeof timestamp === "string" && Number.isFinite(Date.parse(timestamp)))) {
+    if (!parsed || typeof parsed !== "object" || Array.isArray(parsed)) {
       throw new Error(`Invalid notification history: ${path}`);
     }
-    return value as NotificationHistory;
+    const value = parsed as { version?: unknown; acceptedAt?: unknown; providerReceipts?: unknown; sentAt?: unknown };
+    if (value.version === 2
+      && validTimestampRecord(value.acceptedAt)
+      && Array.isArray(value.providerReceipts)
+      && value.providerReceipts.every(validReceipt)) return value as NotificationHistory;
+    if (value.version === 1 && validTimestampRecord(value.sentAt)) {
+      return { version: 2, acceptedAt: value.sentAt, providerReceipts: [] };
+    }
+    throw new Error(`Invalid notification history: ${path}`);
   } catch (error: unknown) {
-    if (error && typeof error === "object" && "code" in error && error.code === "ENOENT") return emptyNotificationHistory();
+    if (error && typeof error === "object" && "code" in error && error.code === "ENOENT") {
+      return emptyNotificationHistory();
+    }
     throw error;
   }
 }
