@@ -85,6 +85,10 @@ describe("plesk scan", () => {
       kind: "backup",
       reason: "backup marker found in the domain or path",
     });
+    expect(classifyWordPressInstallation("/var/www/vhosts/example.test/httpdocs-pre-clone-20260814-052804", "example.test")).toEqual({
+      kind: "backup",
+      reason: "backup marker found in the domain or path",
+    });
     expect(classifyWordPressInstallation("/srv/sites/example.test/current", "example.test")).toEqual({
       kind: "unknown",
       reason: "path does not provide a reliable production, staging, or backup signal",

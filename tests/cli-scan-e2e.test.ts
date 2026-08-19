@@ -45,35 +45,38 @@ case "$command" in
     fi
     ;;
   *"find /var/www/vhosts -xdev"*) printf '/var/www/vhosts/example.test/httpdocs/wp-config.php\\n/var/www/vhosts/second.test/httpdocs/wp-config.php\\n' ;;
-  *"__MISE_CORE_BEGIN__"*) cat <<'EOF'
-__MISE_CORE_BEGIN__
+  *"_CORE_BEGIN__"*)
+    marker_nonce="$(printf '%s' "$command" | sed -n 's/.*__MISE_\\([a-f0-9]\\{32\\}\\)_CORE_BEGIN__.*/\\1/p')"
+    [[ "$marker_nonce" =~ ^[a-f0-9]{32}$ ]] || exit 96
+    cat <<EOF
+__MISE_\${marker_nonce}_CORE_BEGIN__
 6.6.1
-__MISE_CORE_STATUS_0__
-__MISE_CORE_END__
-__MISE_CORE_UPDATE_BEGIN__
+__MISE_\${marker_nonce}_CORE_STATUS_0__
+__MISE_\${marker_nonce}_CORE_END__
+__MISE_\${marker_nonce}_CORE_UPDATE_BEGIN__
 []
-__MISE_CORE_UPDATE_STATUS_0__
-__MISE_CORE_UPDATE_END__
-__MISE_PLUGINS_BEGIN__
+__MISE_\${marker_nonce}_CORE_UPDATE_STATUS_0__
+__MISE_\${marker_nonce}_CORE_UPDATE_END__
+__MISE_\${marker_nonce}_PLUGINS_BEGIN__
 []
-__MISE_PLUGINS_STATUS_0__
-__MISE_PLUGINS_END__
-__MISE_PLUGIN_CHECKSUMS_BEGIN__
+__MISE_\${marker_nonce}_PLUGINS_STATUS_0__
+__MISE_\${marker_nonce}_PLUGINS_END__
+__MISE_\${marker_nonce}_PLUGIN_CHECKSUMS_BEGIN__
 Success: No plugins have been checked.
-__MISE_PLUGIN_CHECKSUMS_STATUS_0__
-__MISE_PLUGIN_CHECKSUMS_END__
-__MISE_THEMES_BEGIN__
+__MISE_\${marker_nonce}_PLUGIN_CHECKSUMS_STATUS_0__
+__MISE_\${marker_nonce}_PLUGIN_CHECKSUMS_END__
+__MISE_\${marker_nonce}_THEMES_BEGIN__
 []
-__MISE_THEMES_STATUS_0__
-__MISE_THEMES_END__
-__MISE_CHECKSUMS_BEGIN__
+__MISE_\${marker_nonce}_THEMES_STATUS_0__
+__MISE_\${marker_nonce}_THEMES_END__
+__MISE_\${marker_nonce}_CHECKSUMS_BEGIN__
 Success: WordPress installation verifies against checksums.
-__MISE_CHECKSUMS_STATUS_0__
-__MISE_CHECKSUMS_END__
-__MISE_UPLOADS_BEGIN__
+__MISE_\${marker_nonce}_CHECKSUMS_STATUS_0__
+__MISE_\${marker_nonce}_CHECKSUMS_END__
+__MISE_\${marker_nonce}_UPLOADS_BEGIN__
 
-__MISE_UPLOADS_STATUS_0__
-__MISE_UPLOADS_END__
+__MISE_\${marker_nonce}_UPLOADS_STATUS_0__
+__MISE_\${marker_nonce}_UPLOADS_END__
 EOF
     ;;
   *"wp-content/uploads"*) printf '/var/www/vhosts/example.test/httpdocs/wp-content/uploads/shell.php\\n' ;;
@@ -142,7 +145,7 @@ describe("scan CLI end-to-end", () => {
       expect(report.hosts[0]?.wordpress[0]).toMatchObject({
         auditSource: "none",
         limitations: [
-          "Host WP-CLI unavailable: /usr/local/bin/wp: 1: 404: not found",
+          "Host WP-CLI unavailable: WP-CLI executable unavailable",
           "Plesk WP Toolkit has no matching installation registration",
         ],
       });
@@ -173,18 +176,20 @@ describe("scan CLI end-to-end", () => {
       await runScan([], runtime.env);
       const reportName = (await readdir(runtime.env.MISE_PLESK_REPORTS!)).find((name) => name.endsWith(".json"));
       const report = JSON.parse(await readFile(join(runtime.env.MISE_PLESK_REPORTS!, reportName!), "utf8")) as {
-        hosts: Array<{ wordpress: Array<{ coreVersion: string; auditSource?: string; integrity?: Record<string, string>; suspiciousFiles: string[] }> }>;
+        hosts: Array<{ wordpress: Array<{ coreVersion: string; auditSource?: string; wpCliTransport?: string; integrity?: Record<string, string>; suspiciousFiles: string[] }> }>;
         findings: Array<{ code: string }>;
       };
 
       expect(report.hosts[0]?.wordpress[0]).toMatchObject({
-        coreVersion: "7.0",
-        auditSource: "plesk-wp-toolkit",
-        integrity: { coreChecksums: "unavailable", pluginChecksums: "unavailable" },
-        suspiciousFiles: ["/var/www/vhosts/example.test/httpdocs/wp-content/uploads/shell.php"],
+        coreVersion: "6.6.1",
+        auditSource: "wp-cli",
+        wpCliTransport: "plesk-wp-toolkit",
+        integrity: { coreChecksums: "verified", pluginChecksums: "verified" },
+        suspiciousFiles: [],
       });
       expect(report.findings.some((finding) => finding.code.startsWith("wp-cli-"))).toBe(false);
-      expect(await readFile(join(runtime.root, "ssh.log"), "utf8")).not.toContain("__MISE_CORE_BEGIN__");
+      expect(await readFile(join(runtime.root, "ssh.log"), "utf8"))
+        .toContain("plesk ext wp-toolkit --wp-cli -instance-id 5 -- core version");
     } finally {
       await rm(runtime.root, { recursive: true, force: true });
     }

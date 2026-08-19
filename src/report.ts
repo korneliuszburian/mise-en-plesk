@@ -27,6 +27,7 @@ export function auditMarkdown(result: AuditResult): string {
       if (site.health.status) lines.push(`- Health status: ${site.health.status}`);
       if (site.health.detail) lines.push(`- Health detail: ${site.health.detail}`);
       if (site.auditSource) lines.push(`- Audit source: ${site.auditSource}`);
+      if (site.wpCliTransport) lines.push(`- WP-CLI transport: ${site.wpCliTransport}`);
       for (const limitation of site.limitations ?? []) lines.push(`- Audit limitation: ${limitation}`);
       if (site.toolkitSignals) {
         const alive = site.toolkitSignals.alive === undefined ? "unknown" : site.toolkitSignals.alive ? "yes" : "no";
@@ -39,7 +40,11 @@ export function auditMarkdown(result: AuditResult): string {
       if (site.coreVulnerabilities?.length) lines.push(`- Core vulnerability risk: ${site.coreVulnerabilities.length} known vulnerability record(s)`);
       if (site.vulnerabilityStatus) lines.push(`- Vulnerability lookup status: ${site.vulnerabilityStatus}`);
       if (site.vulnerabilityCheckedAt) lines.push(`- Vulnerability data checked: ${site.vulnerabilityCheckedAt}`);
-      if (site.integrity) lines.push(`- Integrity: core checksums ${site.integrity.coreChecksums}, plugin checksums ${site.integrity.pluginChecksums}`);
+      if (site.integrity) {
+        lines.push(`- Integrity: core checksums ${site.integrity.coreChecksums}, plugin checksums ${site.integrity.pluginChecksums}`);
+        if (site.integrity.coreDetail) lines.push(`- Core checksum detail: ${site.integrity.coreDetail}`);
+        if (site.integrity.pluginDetail) lines.push(`- Plugin checksum detail: ${site.integrity.pluginDetail}`);
+      }
       const updateCount = site.plugins.filter((plugin) => plugin.hasUpdate).length;
       const abandonedCount = site.plugins.filter((plugin) => plugin.wporgStatus !== undefined && plugin.wporgStatus !== "active" || plugin.wporgLastUpdated !== undefined && Date.parse(plugin.wporgLastUpdated) < Date.now() - 365 * 24 * 60 * 60 * 1000).length;
       const vulnerablePluginCount = site.plugins.filter((plugin) => plugin.vulnerabilities.length > 0).length;

@@ -1,3 +1,5 @@
+import { randomBytes } from "node:crypto";
+
 export type ReadOnlyCommand =
   | { kind: "ssh-handshake" }
   | { kind: "remote-capabilities" }
@@ -9,7 +11,16 @@ export type ReadOnlyCommand =
   | { kind: "php-version"; useSudo?: boolean }
   | { kind: "disk-usage"; useSudo?: boolean }
   | { kind: "suspicious-uploads"; installationPath: string; useSudo?: boolean }
-  | { kind: "wp-audit-batch"; installationPath: string; useSudo?: boolean };
+  | { kind: "wp-audit-batch"; installationPath: string; useSudo?: boolean; runtime?: WpCliRuntime; markerNonce?: string };
+
+export type WpCliRuntime =
+  | { kind: "host" }
+  | { kind: "plesk-wp-toolkit"; instanceId: number };
+
+export interface WpExecutionContext {
+  useSudo?: boolean;
+  runtime?: WpCliRuntime;
+}
 
 export const READ_ONLY_WP_COMMANDS = [
   "core version",
@@ -22,6 +33,17 @@ export const READ_ONLY_WP_COMMANDS = [
 
 export type ReadOnlyWpCommand = typeof READ_ONLY_WP_COMMANDS[number];
 
+export const WP_AUDIT_COMMAND_SECTIONS = [
+  { section: "core", command: READ_ONLY_WP_COMMANDS[0] },
+  { section: "core_update", command: READ_ONLY_WP_COMMANDS[1] },
+  { section: "plugins", command: READ_ONLY_WP_COMMANDS[3] },
+  { section: "plugin_checksums", command: READ_ONLY_WP_COMMANDS[4] },
+  { section: "themes", command: READ_ONLY_WP_COMMANDS[5] },
+  { section: "checksums", command: READ_ONLY_WP_COMMANDS[2] },
+] as const;
+
+export type WpAuditSection = typeof WP_AUDIT_COMMAND_SECTIONS[number]["section"] | "uploads";
+
 export function isReadOnlyWpCommand(value: string): value is ReadOnlyWpCommand {
   return (READ_ONLY_WP_COMMANDS as readonly string[]).includes(value);
 }
@@ -31,8 +53,8 @@ function shellQuote(value: string): string {
   return `'${value.replaceAll("'", "'\\''")}'`;
 }
 
-function sudoPrefix(useSudo = false): string {
-  return useSudo ? "sudo -S -p '' -- " : "";
+function sudoPrefix(useSudo = false, requireCachedCredential = false): string {
+  return useSudo ? requireCachedCredential ? "sudo -n -- " : "sudo -S -p '' -- " : "";
 }
 
 function boundedRange(offset = 0, limit?: number): { offset: number; limit?: number } {
@@ -54,29 +76,32 @@ function renderWordPressCandidates(command: Extract<ReadOnlyCommand, { kind: "wo
 }
 
 function renderWpAuditBatch(command: Extract<ReadOnlyCommand, { kind: "wp-audit-batch" }>): string {
-  const prefix = sudoPrefix(command.useSudo);
-  const wp = (value: ReadOnlyWpCommand): string => renderWpCliCommand(command.installationPath, value, command.useSudo);
-  const commands: Record<string, string> = {
-    core: wp(READ_ONLY_WP_COMMANDS[0]),
-    coreUpdate: wp(READ_ONLY_WP_COMMANDS[1]),
-    plugins: wp(READ_ONLY_WP_COMMANDS[3]),
-    pluginChecksums: wp(READ_ONLY_WP_COMMANDS[4]),
-    themes: wp(READ_ONLY_WP_COMMANDS[5]),
-    checksums: wp(READ_ONLY_WP_COMMANDS[2]),
-    uploads: `${prefix}find ${shellQuote(`${command.installationPath}/wp-content/uploads`)} -type f -name '*.php' -print`,
-  };
-  return Object.entries(commands).map(([name, value]) => [
-    `printf '%s\\n' '__MISE_${name.toUpperCase()}_BEGIN__'`,
-    `value=$(${value} 2>&1)`,
+  const markerNonce = command.markerNonce ?? randomBytes(16).toString("hex");
+  if (!/^[a-f0-9]{32}$/.test(markerNonce)) throw new Error("WP audit marker nonce must be 32 lowercase hexadecimal characters");
+  const prefix = sudoPrefix(command.useSudo, true);
+  const wp = (value: ReadOnlyWpCommand): string => renderWpCliCommand(command.installationPath, value, command.useSudo, command.runtime, true);
+  const commands: Array<{ section: WpAuditSection; rendered: string }> = [
+    ...WP_AUDIT_COMMAND_SECTIONS.map(({ section, command: wpCommand }) => ({ section, rendered: wp(wpCommand) })),
+    { section: "uploads", rendered: `${prefix}find ${shellQuote(`${command.installationPath}/wp-content/uploads`)} -type f -name '*.php' -print` },
+  ];
+  const batch = commands.map(({ section, rendered }) => [
+    `printf '%s\\n' '__MISE_${markerNonce}_${section.toUpperCase()}_BEGIN__'`,
+    `${rendered} 2>&1`,
     "status=$?",
-    "printf '%s\\n' \"$value\"",
-    `printf '%s\\n' "__MISE_${name.toUpperCase()}_STATUS_\${status}__"`,
-    `printf '%s\\n' '__MISE_${name.toUpperCase()}_END__'`,
+    `printf '\\n%s\\n' "__MISE_${markerNonce}_${section.toUpperCase()}_STATUS_\${status}__"`,
+    `printf '%s\\n' '__MISE_${markerNonce}_${section.toUpperCase()}_END__'`,
   ].join("; ")).join("; ");
+  return command.useSudo ? `sudo -S -p '' -v; ${batch}` : batch;
 }
 
-export function renderWpCliCommand(installationPath: string, command: ReadOnlyWpCommand, useSudo = false): string {
-  return `${sudoPrefix(useSudo)}wp ${command} --path=${shellQuote(installationPath)} --allow-root`;
+export function renderWpCliCommand(installationPath: string, command: ReadOnlyWpCommand, useSudo = false, runtime: WpCliRuntime = { kind: "host" }, cachedSudo = false): string {
+  if (runtime.kind === "plesk-wp-toolkit") {
+    if (!Number.isSafeInteger(runtime.instanceId) || runtime.instanceId < 1) {
+      throw new Error("WP Toolkit instance ID must be a positive safe integer");
+    }
+    return `${sudoPrefix(useSudo, cachedSudo)}plesk ext wp-toolkit --wp-cli -instance-id ${runtime.instanceId} -- ${command}`;
+  }
+  return `${sudoPrefix(useSudo, cachedSudo)}wp ${command} --path=${shellQuote(installationPath)} --allow-root`;
 }
 
 export function renderReadOnlyCommand(command: ReadOnlyCommand): string {
@@ -130,7 +155,16 @@ const allowedAwkPrefix = "awk '{ candidate=$0; sub(/\\/wp-config\\.php$/, \"\", 
 const allowedAwkRemainder = /^\d+ && position <= \d+\) \{ print; if \(position >= \d+\) exit \} \}'$/;
 
 export function assertReadOnlyRenderedCommand(command: string): void {
-  const normalizedCommand = command.replace(/sudo\s+-S\s+-p\s+(?:''|"")\s+--\s+/gi, "");
+  let invalidToolkitBridge = false;
+  const normalizedCommand = command
+    .replace(/^sudo\s+-S\s+-p\s+(?:''|"")\s+-v;\s*/i, "")
+    .replace(/sudo\s+-S\s+-p\s+(?:''|"")\s+--\s+/gi, "")
+    .replace(/sudo\s+-n\s+--\s+/gi, "")
+    .replace(/plesk\s+ext\s+wp-toolkit\s+--wp-cli\s+-instance-id\s+\d+\s+--\s+([^;\n]+?)(?=\s+2>&1|;|$)/gi, (_match, subcommand: string) => {
+      const candidate = subcommand.trim();
+      if (!isReadOnlyWpCommand(candidate)) invalidToolkitBridge = true;
+      return `wp ${candidate}`;
+    });
   const commandForExecutableScan = normalizedCommand
     .replace(/\d*>&\d+/g, "")
     .replace(/'[^']*'/g, "''")
@@ -143,7 +177,8 @@ export function assertReadOnlyRenderedCommand(command: string): void {
     && normalizedCommand.slice(awkIndex).startsWith(allowedAwkPrefix)
     && allowedAwkRemainder.test(normalizedCommand.slice(awkIndex + allowedAwkPrefix.length));
   if (
-    /\bsudo\b/i.test(normalizedCommand)
+    invalidToolkitBridge
+    || /\bsudo\b/i.test(normalizedCommand)
     || executableNames.some((name) => !allowedRemoteExecutables.has(name))
     || /`/.test(normalizedCommand)
     || (containsAwk && !allowedAwk)

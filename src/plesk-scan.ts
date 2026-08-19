@@ -292,7 +292,7 @@ function hasPathMarker(value: string, marker: string): boolean {
 
 export function classifyWordPressInstallation(path: string, domain?: string): WordPressInstallationClassification {
   const value = `${path} ${domain ?? ""}`.toLowerCase();
-  if (["backup", "backups", "old", "copy", "trash"].some((marker) => hasPathMarker(value, marker))) {
+  if (["backup", "backups", "old", "copy", "clone", "trash"].some((marker) => hasPathMarker(value, marker))) {
     return { kind: "backup", reason: "backup marker found in the domain or path" };
   }
   if (["staging", "stage", "dev", "development", "testing", "qa", "uat", "preprod", "preview", "sandbox"].some((marker) => hasPathMarker(value, marker))

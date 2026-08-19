@@ -1,3 +1,4 @@
+import { randomBytes } from "node:crypto";
 import type { HostFacts, HostHealth, WordPressInstallation } from "./plesk-scan";
 import {
   lookupPluginVulnerabilities,
@@ -10,7 +11,7 @@ import {
 } from "./vulnerabilities";
 import type { Finding } from "./findings";
 import type { FindingEvent } from "./finding-state";
-import { isReadOnlyWpCommand, renderReadOnlyCommand, renderWpCliCommand, type ReadOnlyCommand } from "./ssh-transport";
+import { isReadOnlyWpCommand, renderReadOnlyCommand, renderWpCliCommand, WP_AUDIT_COMMAND_SECTIONS, type ReadOnlyCommand, type WpAuditSection, type WpExecutionContext } from "./ssh-transport";
 
 export interface PluginInfo {
   name: string;
@@ -59,9 +60,12 @@ export interface WordPressAudit {
     unsupportedPhp: boolean;
     stateText?: string;
   };
+  wpCliTransport?: "host" | "plesk-wp-toolkit";
   integrity?: {
     coreChecksums: ChecksumStatus;
     pluginChecksums: ChecksumStatus;
+    coreDetail?: string;
+    pluginDetail?: string;
   };
   health: {
     reachable: boolean;
@@ -95,15 +99,22 @@ interface BatchSection {
   status: number;
 }
 
-export function buildWpAuditBatchCommand(installation: WordPressInstallation, options: { useSudo?: boolean } = {}): string {
-  return renderReadOnlyCommand({ kind: "wp-audit-batch", installationPath: installation.path, useSudo: options.useSudo });
+export function buildWpAuditBatchCommand(installation: WordPressInstallation, options: WpExecutionContext = {}): string {
+  return renderReadOnlyCommand({
+    kind: "wp-audit-batch",
+    installationPath: installation.path,
+    useSudo: options.useSudo,
+    runtime: options.runtime,
+    markerNonce: randomBytes(16).toString("hex"),
+  });
 }
 
-function parseBatchSections(output: string): Map<string, BatchSection> {
-  const sections = new Map<string, BatchSection>();
-  for (const name of ["CORE", "CORE_UPDATE", "PLUGINS", "PLUGIN_CHECKSUMS", "THEMES", "CHECKSUMS", "UPLOADS"]) {
-    const match = output.match(new RegExp(`__MISE_${name}_BEGIN__\\n([\\s\\S]*?)\\n__MISE_${name}_STATUS_(\\d+)__\\n__MISE_${name}_END__`));
-    if (match) sections.set(name.toLowerCase(), { output: match[1], status: Number(match[2]) });
+function parseBatchSections(output: string, markerNonce: string): Map<WpAuditSection, BatchSection> {
+  const sections = new Map<WpAuditSection, BatchSection>();
+  for (const section of [...WP_AUDIT_COMMAND_SECTIONS.map(({ section }) => section), "uploads" as const]) {
+    const name = section.toUpperCase();
+    const match = output.match(new RegExp(`__MISE_${markerNonce}_${name}_BEGIN__\\n([\\s\\S]*?)\\n__MISE_${markerNonce}_${name}_STATUS_(\\d+)__\\n__MISE_${markerNonce}_${name}_END__`));
+    if (match) sections.set(section, { output: match[1], status: Number(match[2]) });
   }
   return sections;
 }
@@ -111,27 +122,37 @@ function parseBatchSections(output: string): Map<string, BatchSection> {
 export function createBatchedWpRunners(
   installation: WordPressInstallation,
   remoteRunner: (command: ReadOnlyCommand) => Promise<string>,
-  options: { useSudo?: boolean } = {},
+  options: WpExecutionContext = {},
 ): { runner: WpCommandRunner; suspiciousFileRunner: SuspiciousFileRunner } {
-  let sectionsPromise: Promise<Map<string, BatchSection>> | undefined;
-  const sections = async (): Promise<Map<string, BatchSection>> => {
-    sectionsPromise ??= remoteRunner({ kind: "wp-audit-batch", installationPath: installation.path, useSudo: options.useSudo }).then(parseBatchSections);
+  const markerNonce = randomBytes(16).toString("hex");
+  let sectionsPromise: Promise<Map<WpAuditSection, BatchSection>> | undefined;
+  const sections = async (): Promise<Map<WpAuditSection, BatchSection>> => {
+    sectionsPromise ??= remoteRunner({
+      kind: "wp-audit-batch",
+      installationPath: installation.path,
+      useSudo: options.useSudo,
+      runtime: options.runtime,
+      markerNonce,
+    }).then((output) => parseBatchSections(output, markerNonce));
     return sectionsPromise;
   };
-  const read = async (name: string): Promise<string> => {
+  const read = async (name: WpAuditSection): Promise<string> => {
     const section = (await sections()).get(name);
     if (!section) throw new Error(`WP audit batch did not return ${name} output.`);
-    if (section.status !== 0) throw new Error(section.output || `WP ${name} command failed.`);
+    if (section.status !== 0) {
+      if ((name === "checksums" || name === "plugin_checksums") && !isChecksumMismatchOutput(section.output)) {
+        throw new AuditCapabilityUnavailableError(safeWpCliFailureDetail(section.output));
+      }
+      throw new Error(name === "checksums" || name === "plugin_checksums"
+        ? "WP-CLI reported checksum mismatches"
+        : safeWpCliFailureDetail(section.output));
+    }
     return section.output;
   };
   return {
     runner: async (_installation, command) => {
-      if (command === "core version") return read("core");
-      if (command === "core check-update --format=json") return read("core_update");
-      if (command.startsWith("plugin list")) return read("plugins");
-      if (command.startsWith("plugin verify-checksums")) return read("plugin_checksums");
-      if (command.startsWith("theme list")) return read("themes");
-      if (command === "core verify-checksums") return read("checksums");
+      const section = WP_AUDIT_COMMAND_SECTIONS.find(({ command: candidate }) => candidate === command)?.section;
+      if (section) return read(section);
       throw new Error(`Unsupported batched WP command: ${command}`);
     },
     suspiciousFileRunner: async () => read("uploads"),
@@ -217,16 +238,20 @@ export async function auditWordPressInstallation(
       };
     }));
     let coreChecksums: ChecksumStatus = "verified";
+    let coreDetail: string | undefined;
     try {
       await runner(installation, "core verify-checksums");
     } catch (error: unknown) {
       coreChecksums = error instanceof AuditCapabilityUnavailableError ? "unavailable" : "failed";
+      coreDetail = shortAuditDetail(error);
     }
     let pluginChecksums: ChecksumStatus = "verified";
+    let pluginDetail: string | undefined;
     try {
       await runner(installation, "plugin verify-checksums --all --strict");
     } catch (error: unknown) {
       pluginChecksums = error instanceof AuditCapabilityUnavailableError ? "unavailable" : "failed";
+      pluginDetail = shortAuditDetail(error);
     }
     let themes: ThemeInfo[] | undefined;
     try {
@@ -266,7 +291,12 @@ export async function auditWordPressInstallation(
       ...(vulnerabilityStatus !== "disabled" ? { vulnerabilityStatus } : {}),
       ...(vulnerabilityCheckedAt.length ? { vulnerabilityCheckedAt: vulnerabilityCheckedAt.sort().at(-1) } : {}),
       suspiciousFiles,
-      integrity: { coreChecksums, pluginChecksums },
+      integrity: {
+        coreChecksums,
+        pluginChecksums,
+        ...(coreDetail ? { coreDetail } : {}),
+        ...(pluginDetail ? { pluginDetail } : {}),
+      },
       health: { reachable: true },
     }, options);
   } catch (error: unknown) {
@@ -284,9 +314,29 @@ export async function auditWordPressInstallation(
   }
 }
 
+function isChecksumMismatchOutput(output: string): boolean {
+  return /checksum mismatch|does not verify against checksum|doesn't verify against checksum|file should not exist|modified file|failed checksum/i.test(output);
+}
+
+export function safeWpCliFailureDetail(error: unknown): string {
+  const detail = (error instanceof Error ? error.message : String(error)).replace(/\s+/g, " ").trim();
+  if (/checksum mismatch|does not verify against checksum|doesn't verify against checksum|file should not exist|modified file|failed checksum/i.test(detail)) return "WP-CLI reported checksum mismatches";
+  if (/PHP version.*requires at least|requires PHP/i.test(detail)) return "WP-CLI could not run with the selected PHP version";
+  if (/command not found|no such file or directory|\b404(?::)?\s*not found/i.test(detail)) return "WP-CLI executable unavailable";
+  if (/sudo:|permission denied|must be run as root/i.test(detail)) return "WP-CLI execution permission denied";
+  if (/timed out|timeout/i.test(detail)) return "WP-CLI command timed out";
+  if (/output exceeded/i.test(detail)) return "WP-CLI output exceeded the scanner limit";
+  if (/parse error|syntax error|fatal error|unexpected token/i.test(detail)) return "WordPress bootstrap failed with a PHP error";
+  return "WP-CLI command failed";
+}
+
+function shortAuditDetail(error: unknown): string {
+  return safeWpCliFailureDetail(error);
+}
+
 function classifyAuditError(error: unknown): WordPressAudit["health"] {
   const detail = error instanceof Error ? error.message : String(error);
-  const shortDetail = detail.replace(/\s+/g, " ").trim().slice(0, 240);
+  const shortDetail = safeWpCliFailureDetail(error);
   if (/PHP version.*requires at least|requires PHP/i.test(detail)) {
     return { reachable: true, status: "runtime-incompatible", detail: shortDetail };
   }

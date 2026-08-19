@@ -25,9 +25,11 @@ describe("Plesk WP Toolkit audit fallback", () => {
     expect(parseWpCliCapability("__MISE_WP_CLI_BEGIN__\nWP-CLI 2.12.0\n__MISE_WP_CLI_STATUS_0__\n__MISE_WP_CLI_END__\n"))
       .toEqual({ available: true, version: "2.12.0", detail: "WP-CLI 2.12.0" });
     expect(parseWpCliCapability("__MISE_WP_CLI_BEGIN__\n/usr/local/bin/wp: 1: 404: not found\n__MISE_WP_CLI_STATUS_127__\n__MISE_WP_CLI_END__\n"))
-      .toEqual({ available: false, detail: "/usr/local/bin/wp: 1: 404: not found" });
+      .toEqual({ available: false, detail: "WP-CLI executable unavailable" });
     expect(parseWpCliCapability("__MISE_WP_CLI_BEGIN__\nnot really WP-CLI\n__MISE_WP_CLI_STATUS_0__\n__MISE_WP_CLI_END__\n"))
-      .toEqual({ available: false, detail: "not really WP-CLI" });
+      .toEqual({ available: false, detail: "WP-CLI command failed" });
+    expect(JSON.stringify(parseWpCliCapability("__MISE_WP_CLI_BEGIN__\nfatal error token=runtime-secret\n__MISE_WP_CLI_STATUS_1__\n__MISE_WP_CLI_END__\n")))
+      .not.toContain("runtime-secret");
     expect(() => parseWpCliCapability("garbage")).toThrow("invalid capability envelope");
   });
 
@@ -109,7 +111,12 @@ describe("Plesk WP Toolkit audit fallback", () => {
 
     const audit = await auditWordPressInstallation({ path: site!.fullPath }, fallback.runner);
 
-    expect(audit.integrity).toEqual({ coreChecksums: "failed", pluginChecksums: "failed" });
+    expect(audit.integrity).toEqual({
+      coreChecksums: "failed",
+      pluginChecksums: "failed",
+      coreDetail: "WP-CLI reported checksum mismatches",
+      pluginDetail: "WP-CLI reported checksum mismatches",
+    });
     expect(audit.priorities).toContain("WordPress core checksum verification failed");
     expect(audit.priorities).toContain("WordPress plugin checksum verification needs manual review");
   });
@@ -125,9 +132,23 @@ describe("Plesk WP Toolkit audit fallback", () => {
 
     const audit = await auditWordPressInstallation({ path: site!.fullPath }, fallback.runner);
 
-    expect(audit.integrity).toEqual({ coreChecksums: "unavailable", pluginChecksums: "unavailable" });
+    expect(audit.integrity).toMatchObject({ coreChecksums: "unavailable", pluginChecksums: "unavailable" });
     expect(audit.priorities).not.toContain("WordPress core checksum verification failed");
     expect(audit.priorities).not.toContain("WordPress plugin checksum verification needs manual review");
+  });
+
+  it("does not persist secrets returned by a failed WP-CLI bridge", async () => {
+    const site = parsePleskWpToolkitInventory(toolkitPayload).sites.get("/var/www/vhosts/example.test/httpdocs");
+    const fallback = createPleskWpToolkitRunner(site!, async () => {
+      throw new Error("fatal error DB_PASSWORD=top-secret token=runtime-token");
+    });
+
+    const audit = await auditWordPressInstallation({ path: site!.fullPath }, fallback.runner);
+    const serialized = JSON.stringify(enrichAuditWithPleskWpToolkit(audit, site!, fallback.diagnostics()));
+
+    expect(serialized).not.toContain("top-secret");
+    expect(serialized).not.toContain("runtime-token");
+    expect(serialized).toContain("WordPress bootstrap failed with a PHP error");
   });
 
   it("rejects malformed Toolkit output instead of inventing site data", () => {

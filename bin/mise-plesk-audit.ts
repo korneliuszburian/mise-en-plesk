@@ -236,7 +236,7 @@ async function scanHost(
     const wpCliCapability = hostCapabilities.wpCli ?? { available: false, detail: "WP-CLI capability probe unavailable" };
     const toolkitInventory = hostCapabilities.toolkit ?? { sites: new Map(), warnings: [] };
     if (!wpCliCapability.available && toolkitInventory.sites.size) {
-      capabilityWarnings.push(`Host WP-CLI unavailable (${wpCliCapability.detail ?? "unknown reason"}); using Plesk WP Toolkit metadata fallback.`);
+      capabilityWarnings.push(`Host WP-CLI unavailable (${wpCliCapability.detail ?? "unknown reason"}); using the Plesk WP Toolkit bridge with metadata fallback.`);
     }
     for (const warning of capabilityWarnings.slice(scan.warnings?.length ?? 0)) console.error(`[${alias}] warning: ${warning}`);
     const selectedWordPress = maxSites === undefined ? scan.wordpress.slice(offset) : scan.wordpress;
@@ -245,8 +245,13 @@ async function scanHost(
     for (let index = 0; index < selectedWordPress.length; index += maxConcurrentSites) {
       const batch = selectedWordPress.slice(index, index + maxConcurrentSites);
       wordpress.push(...await Promise.all(batch.map(async (installation) => {
-        const batched = wpCliCapability.available ? createBatchedWpRunners(installation, ssh, { useSudo: effectiveSudo }) : undefined;
         const toolkitSite = toolkitInventory.sites.get(installation.path.replace(/\/+$/, ""));
+        const batched = toolkitSite
+          ? createBatchedWpRunners(installation, ssh, {
+            useSudo: effectiveSudo,
+            runtime: { kind: "plesk-wp-toolkit", instanceId: toolkitSite.id },
+          })
+          : wpCliCapability.available ? createBatchedWpRunners(installation, ssh, { useSudo: effectiveSudo }) : undefined;
         const toolkit = toolkitSite ? createPleskWpToolkitRunner(toolkitSite, batched?.runner) : undefined;
         const runner = toolkit?.runner ?? batched?.runner ?? (async () => {
           throw new Error(wpCliCapability.detail || "wp: command not found");
@@ -272,7 +277,9 @@ async function scanHost(
             useSudo: effectiveSudo,
           })),
         });
-        if (toolkit && toolkitSite) return enrichAuditWithPleskWpToolkit(audit, toolkitSite, toolkit.diagnostics());
+        if (toolkit && toolkitSite) {
+          return { ...enrichAuditWithPleskWpToolkit(audit, toolkitSite, toolkit.diagnostics()), wpCliTransport: "plesk-wp-toolkit" as const };
+        }
         if (wpCliCapability.available) return { ...audit, auditSource: "wp-cli" as const };
         return {
           ...audit,

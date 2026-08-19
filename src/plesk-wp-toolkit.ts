@@ -1,4 +1,4 @@
-import { AuditCapabilityUnavailableError, type WordPressAudit, type WpCommandRunner } from "./wp-audit";
+import { AuditCapabilityUnavailableError, safeWpCliFailureDetail, type WordPressAudit, type WpCommandRunner } from "./wp-audit";
 import { READ_ONLY_WP_COMMANDS } from "./ssh-transport";
 
 export interface PleskWpToolkitExtension {
@@ -41,9 +41,10 @@ export interface WpCliCapability {
 export function parseWpCliCapability(output: string): WpCliCapability {
   const match = output.match(/__MISE_WP_CLI_BEGIN__\r?\n([\s\S]*?)\r?\n__MISE_WP_CLI_STATUS_(\d+)__\r?\n__MISE_WP_CLI_END__/);
   if (!match) throw new Error("WP-CLI returned an invalid capability envelope");
-  const detail = match[1].trim().replace(/\s+/g, " ").slice(0, 240);
-  const version = detail.match(/WP-CLI\s+(\d+(?:\.\d+)+)/i)?.[1];
+  const rawDetail = match[1].trim().replace(/\s+/g, " ");
+  const version = rawDetail.match(/WP-CLI\s+(\d+(?:\.\d+)+)/i)?.[1];
   const available = Number(match[2]) === 0 && version !== undefined;
+  const detail = available ? `WP-CLI ${version}` : safeWpCliFailureDetail(rawDetail);
   return { available, ...(version ? { version } : {}), ...(detail ? { detail } : {}) };
 }
 
@@ -209,9 +210,10 @@ export function createPleskWpToolkitRunner(
           primarySucceeded = true;
           return output;
         } catch (error: unknown) {
-          const detail = (error instanceof Error ? error.message : String(error)).replace(/\s+/g, " ").trim().slice(0, 160);
+          const rawDetail = error instanceof Error ? error.message : String(error);
+          const detail = safeWpCliFailureDetail(error);
           if (command === READ_ONLY_WP_COMMANDS[2] || command === READ_ONLY_WP_COMMANDS[4]) {
-            if (!isWpCliCapabilityFailure(detail)) throw error;
+            if (!isWpCliCapabilityFailure(rawDetail)) throw error;
             const limitation = command === READ_ONLY_WP_COMMANDS[2]
               ? "core checksum verification unavailable"
               : "plugin checksum verification unavailable";

@@ -22,7 +22,7 @@ describe("structured findings", () => {
         coreUpdateAvailable: true,
         coreVulnerabilities: [{ id: "CVE-2026-0005", title: "Core issue", severity: "critical", cve: [], source: "WPVulnerability" }],
         themes: [{ name: "old-theme", version: "1.0", active: true, hasUpdate: true, vulnerabilities: [{ id: "CVE-2026-0006", title: "Theme issue", severity: "high", cve: [], source: "WPVulnerability" }] }],
-        integrity: { coreChecksums: "failed", pluginChecksums: "failed" },
+        integrity: { coreChecksums: "failed", pluginChecksums: "failed", coreDetail: "WP-CLI reported checksum mismatches", pluginDetail: "WP-CLI reported checksum mismatches" },
         plugins: [{
           name: "old-plugin",
           version: "1.0",
@@ -63,6 +63,8 @@ describe("structured findings", () => {
       message: "plugin old-plugin has an update available",
     });
     expect(findings.find((finding) => finding.code === "plugin-vulnerable")).toMatchObject({ severity: "P1", vulnerabilityId: "CVE-2026-0001" });
+    expect(findings.find((finding) => finding.code === "core-checksum-failed")?.evidence).toBe("WP-CLI reported checksum mismatches");
+    expect(findings.find((finding) => finding.code === "plugin-checksum-failed")?.evidence).toBe("WP-CLI reported checksum mismatches");
     expect(findings.find((finding) => finding.code === "plugin-update")?.id).toBe(findingsFromAudits([{
       host: "master-ssh",
       wordpress: [baseAudit({ plugins: [{

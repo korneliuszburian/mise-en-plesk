@@ -175,10 +175,10 @@ export function findingsFromAudits(hosts: AuditedHost[], now = new Date()): Find
         }
       }
       if (audit.integrity?.coreChecksums === "failed") {
-        findings.push(makeFinding(host, audit, "core-checksum-failed", "P1", "WordPress core checksum verification failed", "core-checksums"));
+        findings.push(makeFinding(host, audit, "core-checksum-failed", "P1", "WordPress core checksum verification failed", "core-checksums", { evidence: audit.integrity.coreDetail }));
       }
       if (audit.integrity?.pluginChecksums === "failed") {
-        findings.push(makeFinding(host, audit, "plugin-checksum-failed", "P2", "WordPress plugin checksum verification needs manual review", "plugin-checksums"));
+        findings.push(makeFinding(host, audit, "plugin-checksum-failed", "P2", "WordPress plugin checksum verification needs manual review", "plugin-checksums", { evidence: audit.integrity.pluginDetail }));
       }
       if (audit.suspiciousFiles.length) {
         findings.push(makeFinding(host, audit, "suspicious-upload-php", "P1", "PHP files found in uploads (possible backdoors)", "uploads-php", { evidence: audit.suspiciousFiles.join("\n") }));

@@ -41,4 +41,25 @@ describe("read-only SSH command transport", () => {
     expect(renderReadOnlyCommand({ kind: "wp-audit-batch", installationPath: "/srv/site/it's", useSudo: false })).toContain("--path='/srv/site/it'\\''s'");
     expect(() => renderReadOnlyCommand({ kind: "wp-audit-batch", installationPath: "/srv/site\nrm -rf /", useSudo: false })).toThrow("unsafe installation path");
   });
+
+  it("renders WP audit commands through the official WP Toolkit bridge", () => {
+    const rendered = renderReadOnlyCommand({
+      kind: "wp-audit-batch",
+      installationPath: "/srv/site",
+      useSudo: true,
+      runtime: { kind: "plesk-wp-toolkit", instanceId: 42 },
+    });
+
+    expect(rendered.startsWith("sudo -S -p '' -v; ")).toBe(true);
+    expect(rendered.match(/sudo -S/g)).toHaveLength(1);
+    expect(rendered).toContain("sudo -n -- plesk ext wp-toolkit --wp-cli -instance-id 42 -- core version");
+    expect(rendered).not.toContain("value=$(sudo");
+    expect(rendered).not.toContain("wp core version --path=");
+    expect(() => assertReadOnlyRenderedCommand(rendered)).not.toThrow();
+    expect(() => renderReadOnlyCommand({
+      kind: "wp-audit-batch",
+      installationPath: "/srv/site",
+      runtime: { kind: "plesk-wp-toolkit", instanceId: 0 },
+    })).toThrow("positive safe integer");
+  });
 });

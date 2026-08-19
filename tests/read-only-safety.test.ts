@@ -61,6 +61,10 @@ describe("remote read-only safety contract", () => {
     expect(() => assertReadOnlyRenderedCommand("rm -rf /var/www/vhosts/example.test/httpdocs")).toThrow("mutation detected");
     expect(() => assertReadOnlyRenderedCommand("value=$(rm -rf /var/www/vhosts/example.test/httpdocs)")).toThrow("mutation detected");
     expect(() => assertReadOnlyRenderedCommand("wp plugin update vulnerable-plugin --path='/srv/site'")).toThrow("mutation detected");
+    expect(() => assertReadOnlyRenderedCommand("plesk ext wp-toolkit --wp-cli -instance-id 5 -- plugin update vulnerable-plugin")).toThrow("mutation detected");
+    expect(() => assertReadOnlyRenderedCommand("plesk ext wp-toolkit --wp-cli -instance-id 5 -- db query 'DELETE FROM wp_options'")).toThrow("mutation detected");
+    expect(() => assertReadOnlyRenderedCommand("plesk ext wp-toolkit --wp-cli -instance-id 5 -- core version --exec='echo unsafe'")).toThrow("mutation detected");
+    expect(() => assertReadOnlyRenderedCommand("plesk ext wp-toolkit --wp-cli -instance-id 5 -- plugin list --format=json --fields=name,status,update,version,update_version,wporg_status,wporg_last_updated --require=/tmp/code.php")).toThrow("mutation detected");
     expect(() => assertReadOnlyRenderedCommand("wp db query 'DELETE FROM wp_options'")).toThrow("mutation detected");
     expect(() => assertReadOnlyRenderedCommand("plesk bin subscription --update example.test")).toThrow("mutation detected");
     expect(() => assertReadOnlyRenderedCommand("sh -c 'rm -rf /var/www/vhosts/example.test/httpdocs'")).toThrow("mutation detected");

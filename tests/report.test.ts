@@ -41,6 +41,7 @@ describe("audit reports", () => {
         wordpress: [{
           ...result.hosts[0].wordpress[0],
           auditSource: "plesk-wp-toolkit",
+          wpCliTransport: "plesk-wp-toolkit",
           limitations: ["core checksum verification unavailable"],
           toolkitSignals: { infected: false, broken: false, alive: true, unsupportedPhp: false, stateText: "Working" },
         }],
@@ -48,8 +49,25 @@ describe("audit reports", () => {
     });
 
     expect(markdown).toContain("- Audit source: plesk-wp-toolkit");
+    expect(markdown).toContain("- WP-CLI transport: plesk-wp-toolkit");
     expect(markdown).toContain("- Audit limitation: core checksum verification unavailable");
     expect(markdown).toContain("- WP Toolkit: Working; alive=yes; infected=no; broken=no; unsupported PHP=no");
+  });
+
+  it("renders actionable checksum failure details", () => {
+    const markdown = auditMarkdown({
+      ...result,
+      hosts: [{
+        ...result.hosts[0],
+        wordpress: [{
+          ...result.hosts[0].wordpress[0],
+          integrity: { coreChecksums: "failed", pluginChecksums: "failed", coreDetail: "WP-CLI reported checksum mismatches", pluginDetail: "WP-CLI reported checksum mismatches" },
+        }],
+      }],
+    });
+
+    expect(markdown).toContain("- Core checksum detail: WP-CLI reported checksum mismatches");
+    expect(markdown).toContain("- Plugin checksum detail: WP-CLI reported checksum mismatches");
   });
 
   it("writes machine-readable JSON when requested", async () => {

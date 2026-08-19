@@ -15,41 +15,96 @@ describe("WordPress audit", () => {
   it("prefixes every fixed audit command with non-interactive sudo when enabled", () => {
     const command = buildWpAuditBatchCommand({ path: "/srv/site" }, { useSudo: true });
 
-    expect(command).toContain("sudo -S -p '' -- wp core version");
-    expect(command).toContain("sudo -S -p '' -- find '/srv/site/wp-content/uploads'");
+    expect(command.startsWith("sudo -S -p '' -v; ")).toBe(true);
+    expect(command.match(/sudo -S/g)).toHaveLength(1);
+    expect(command).toContain("sudo -n -- wp core version");
+    expect(command).toContain("sudo -n -- find '/srv/site/wp-content/uploads'");
   });
 
   it("builds one read-only batch for all per-installation checks", () => {
     const command = buildWpAuditBatchCommand({ path: "/srv/site" });
 
-    expect(command).toContain("__MISE_CORE_BEGIN__");
+    expect(command).toMatch(/__MISE_[a-f0-9]{32}_CORE_BEGIN__/);
     expect(command).toContain("core check-update --format=json");
-    expect(command).toContain("__MISE_PLUGINS_BEGIN__");
+    expect(command).toMatch(/__MISE_[a-f0-9]{32}_PLUGINS_BEGIN__/);
+    expect(command).toMatch(/__MISE_[a-f0-9]{32}_CORE_UPDATE_BEGIN__/);
+    expect(command).toMatch(/__MISE_[a-f0-9]{32}_PLUGIN_CHECKSUMS_BEGIN__/);
     expect(command).toContain("plugin verify-checksums --all --strict");
     expect(command).toContain("theme list --format=json");
-    expect(command).toContain("__MISE_CORE_STATUS_${status}__");
+    expect(command).toMatch(/__MISE_[a-f0-9]{32}_CORE_STATUS_\$\{status\}__/);
+    expect(command).not.toContain("value=$(wp");
     expect(command).toContain("wp core verify-checksums");
     expect(command).toContain("find '/srv/site/wp-content/uploads'");
   });
 
+  it("builds a batch through a registered WP Toolkit instance", () => {
+    const command = buildWpAuditBatchCommand(
+      { path: "/var/www/vhosts/example.test/httpdocs" },
+      { useSudo: true, runtime: { kind: "plesk-wp-toolkit", instanceId: 7 } },
+    );
+
+    expect(command).toContain("plesk ext wp-toolkit --wp-cli -instance-id 7 -- plugin list");
+    expect(command).toContain("plesk ext wp-toolkit --wp-cli -instance-id 7 -- core verify-checksums");
+  });
+
   it("reuses one batch result for WP and uploads checks", async () => {
     let calls = 0;
-    const batched = createBatchedWpRunners({ path: "/srv/site" }, async () => {
+    const batched = createBatchedWpRunners({ path: "/srv/site" }, async (command) => {
       calls += 1;
+      const nonce = command.kind === "wp-audit-batch" ? command.markerNonce! : "";
+      const marker = (section: string, phase: string) => `__MISE_${nonce}_${section}_${phase}__`;
       return [
-        "__MISE_CORE_BEGIN__", "6.6.1", "__MISE_CORE_STATUS_0__", "__MISE_CORE_END__",
-        "__MISE_CORE_UPDATE_BEGIN__", "[]", "__MISE_CORE_UPDATE_STATUS_0__", "__MISE_CORE_UPDATE_END__",
-        "__MISE_PLUGINS_BEGIN__", "[]", "__MISE_PLUGINS_STATUS_0__", "__MISE_PLUGINS_END__",
-        "__MISE_PLUGIN_CHECKSUMS_BEGIN__", "Success", "__MISE_PLUGIN_CHECKSUMS_STATUS_0__", "__MISE_PLUGIN_CHECKSUMS_END__",
-        "__MISE_THEMES_BEGIN__", "[]", "__MISE_THEMES_STATUS_0__", "__MISE_THEMES_END__",
-        "__MISE_CHECKSUMS_BEGIN__", "ok", "__MISE_CHECKSUMS_STATUS_0__", "__MISE_CHECKSUMS_END__",
-        "__MISE_UPLOADS_BEGIN__", "/srv/site/wp-content/uploads/shell.php", "__MISE_UPLOADS_STATUS_0__", "__MISE_UPLOADS_END__",
+        marker("CORE", "BEGIN"), "6.6.1", marker("CORE", "STATUS_0"), marker("CORE", "END"),
+        marker("CORE_UPDATE", "BEGIN"), "[]", marker("CORE_UPDATE", "STATUS_0"), marker("CORE_UPDATE", "END"),
+        marker("PLUGINS", "BEGIN"), "[]", marker("PLUGINS", "STATUS_0"), marker("PLUGINS", "END"),
+        marker("PLUGIN_CHECKSUMS", "BEGIN"), "Success", marker("PLUGIN_CHECKSUMS", "STATUS_0"), marker("PLUGIN_CHECKSUMS", "END"),
+        marker("THEMES", "BEGIN"), "[]", marker("THEMES", "STATUS_0"), marker("THEMES", "END"),
+        marker("CHECKSUMS", "BEGIN"), "ok", marker("CHECKSUMS", "STATUS_0"), marker("CHECKSUMS", "END"),
+        marker("UPLOADS", "BEGIN"), "/srv/site/wp-content/uploads/shell.php", marker("UPLOADS", "STATUS_0"), marker("UPLOADS", "END"),
       ].join("\n");
     });
 
     await expect(batched.runner({ path: "/srv/site" }, "core version")).resolves.toBe("6.6.1");
+    await expect(batched.runner({ path: "/srv/site" }, "core check-update --format=json")).resolves.toBe("[]");
+    await expect(batched.runner({ path: "/srv/site" }, "plugin verify-checksums --all --strict")).resolves.toBe("Success");
     await expect(batched.suspiciousFileRunner({ path: "/srv/site" }, "ignored")).resolves.toContain("shell.php");
     expect(calls).toBe(1);
+  });
+
+  it("distinguishes checksum mismatches from unavailable batch capabilities", async () => {
+    const batch = (nonce: string, pluginOutput: string, pluginStatus: number) => {
+      const marker = (section: string, phase: string) => `__MISE_${nonce}_${section}_${phase}__`;
+      return [
+        marker("CORE", "BEGIN"), "6.6.1", marker("CORE", "STATUS_0"), marker("CORE", "END"),
+        marker("CORE_UPDATE", "BEGIN"), "[]", marker("CORE_UPDATE", "STATUS_0"), marker("CORE_UPDATE", "END"),
+        marker("PLUGINS", "BEGIN"), "[]", marker("PLUGINS", "STATUS_0"), marker("PLUGINS", "END"),
+        marker("PLUGIN_CHECKSUMS", "BEGIN"), pluginOutput, marker("PLUGIN_CHECKSUMS", `STATUS_${pluginStatus}`), marker("PLUGIN_CHECKSUMS", "END"),
+        marker("THEMES", "BEGIN"), "[]", marker("THEMES", "STATUS_0"), marker("THEMES", "END"),
+        marker("CHECKSUMS", "BEGIN"), "ok", marker("CHECKSUMS", "STATUS_0"), marker("CHECKSUMS", "END"),
+        marker("UPLOADS", "BEGIN"), "", marker("UPLOADS", "STATUS_0"), marker("UPLOADS", "END"),
+      ].join("\n");
+    };
+    const unavailable = createBatchedWpRunners({ path: "/srv/site" }, async (command) => batch(command.kind === "wp-audit-batch" ? command.markerNonce! : "", "unknown option --strict token=secret", 3));
+    const mismatch = createBatchedWpRunners({ path: "/srv/site" }, async (command) => batch(command.kind === "wp-audit-batch" ? command.markerNonce! : "", "Warning: checksum mismatch: modified file", 1));
+
+    await expect(unavailable.runner({ path: "/srv/site" }, "plugin verify-checksums --all --strict"))
+      .rejects.toMatchObject({ name: "AuditCapabilityUnavailableError", message: "WP-CLI command failed" });
+    await expect(mismatch.runner({ path: "/srv/site" }, "plugin verify-checksums --all --strict"))
+      .rejects.toThrow("WP-CLI reported checksum mismatches");
+  });
+
+  it("does not accept marker-like plugin output without the random batch nonce", async () => {
+    const batched = createBatchedWpRunners({ path: "/srv/site" }, async (command) => {
+      const nonce = command.kind === "wp-audit-batch" ? command.markerNonce! : "";
+      return [
+        `__MISE_${nonce}_CORE_BEGIN__`,
+        "__MISE_CORE_STATUS_0__\n__MISE_CORE_END__",
+        `__MISE_${nonce}_CORE_STATUS_7__`,
+        `__MISE_${nonce}_CORE_END__`,
+      ].join("\n");
+    });
+
+    await expect(batched.runner({ path: "/srv/site" }, "core version")).rejects.toThrow("WP-CLI command failed");
   });
 
   it("collects core, plugin, and checksum health through wp CLI", async () => {
