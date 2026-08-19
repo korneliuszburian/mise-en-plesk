@@ -172,7 +172,7 @@ runuser -u mise-en-plesk -- env -i HOME="$state_directory" PATH="$service_path" 
 runuser -u mise-en-plesk -- env -i HOME="$state_directory" PATH="$service_path" bw --version >/dev/null
 runuser -u mise-en-plesk -- env -i HOME="$state_directory" PATH="$service_path" sshpass -V >/dev/null 2>&1
 runuser -u mise-en-plesk -- env -i HOME="$state_directory" PATH="$service_path" \
-  /usr/local/bin/pnpm --dir "$checkout" exec tsx --version >/dev/null
+  "$checkout/node_modules/.bin/tsx" --version >/dev/null
 runuser -u mise-en-plesk -- env -i HOME="$state_directory" PATH="$service_path" \
   bash -n "$checkout/scripts/run-scheduled-scan.sh" "$checkout/scripts/run-scheduled-scan-systemd.sh"
 

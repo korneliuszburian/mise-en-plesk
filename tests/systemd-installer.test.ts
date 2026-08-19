@@ -38,6 +38,12 @@ describe("systemd installer safety gate", () => {
     expect(source.indexOf('install -d -o mise-en-plesk -g mise-en-plesk -m 0750 "$state_directory"'))
       .toBeLessThan(source.indexOf('bw --version'));
   });
+
+  it("probes tsx without asking pnpm to write a temporary shim in the checkout", async () => {
+    const source = await readFile(script, "utf8");
+    expect(source).toContain('"$checkout/node_modules/.bin/tsx" --version');
+    expect(source).not.toContain('pnpm --dir "$checkout" exec tsx');
+  });
 });
 
 describe("systemd credential updater safety gate", () => {
