@@ -3,7 +3,7 @@
 Production-oriented, read-only monitoring for WordPress installations on Plesk
 hosts. The target is a complete operational scanner: discovery, risk
 classification, persistent findings, bounded scheduling, and alert delivery.
-See [the completion audit](docs/completion-audit-2026-08-18.md) for the release
+See [the completion audit](docs/completion-audit-2026-08-19.md) for the release
 gate; this repository is not intentionally scoped as a disposable v1.
 
 Every push and pull request runs the test, typecheck, build, and whitespace
