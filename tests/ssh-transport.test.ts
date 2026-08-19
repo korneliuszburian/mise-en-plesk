@@ -1,4 +1,5 @@
 import { describe, expect, it } from "vitest";
+import { spawnSync } from "node:child_process";
 import { assertReadOnlyRenderedCommand, renderReadOnlyCommand, type ReadOnlyCommand } from "../src/ssh-transport";
 
 describe("read-only SSH command transport", () => {
@@ -34,18 +35,42 @@ describe("read-only SSH command transport", () => {
     const rendered = renderReadOnlyCommand(command);
     expect(rendered).toContain("sudo -S -p '' -- find /var/www/vhosts");
     expect(rendered).toContain("position > 2 && position <= 6");
+    expect(rendered).toContain('sub(/\\/web\\/wp$/, "/web", candidate)');
     expect(rendered).toContain("if (position >= 6) exit");
   });
 
-  it("quotes an installation path without allowing control characters", () => {
-    expect(renderReadOnlyCommand({ kind: "wp-audit-batch", installationPath: "/srv/site/it's", useSudo: false })).toContain("--path='/srv/site/it'\\''s'");
-    expect(() => renderReadOnlyCommand({ kind: "wp-audit-batch", installationPath: "/srv/site\nrm -rf /", useSudo: false })).toThrow("unsafe installation path");
+  it("deduplicates canonical Bedrock signals before applying the remote page boundary", () => {
+    if (process.platform === "win32") return;
+    const rendered = renderReadOnlyCommand({ kind: "wordpress-candidates", includeAlternateDetection: true, offset: 0, limit: 1 });
+    const awkStart = rendered.indexOf("awk '");
+    const program = rendered.slice(awkStart + 5, -1);
+    const result = spawnSync("awk", [program], {
+      encoding: "utf8",
+      input: [
+        "/var/www/vhosts/example.test/httpdocs/web/wp-config.php",
+        "/var/www/vhosts/example.test/httpdocs/web/wp/wp-includes/version.php",
+        "/var/www/vhosts/other.test/httpdocs/wp-config.php",
+      ].join("\n"),
+    });
+
+    expect(result.status).toBe(0);
+    expect(result.stdout.trim().split("\n")).toEqual([
+      "/var/www/vhosts/example.test/httpdocs/web/wp-config.php",
+      "/var/www/vhosts/other.test/httpdocs/wp-config.php",
+    ]);
+  });
+
+  it("accepts canonical Plesk paths and rejects shell metacharacters or control characters", () => {
+    expect(renderReadOnlyCommand({ kind: "wp-audit-batch", installationPath: "/var/www/vhosts/example.test/httpdocs", useSudo: false })).toContain("--path='/var/www/vhosts/example.test/httpdocs'");
+    expect(() => renderReadOnlyCommand({ kind: "wp-audit-batch", installationPath: "/var/www/vhosts/example.test/httpdocs;id", useSudo: false })).toThrow("canonical absolute Plesk vhost path");
+    expect(() => renderReadOnlyCommand({ kind: "wp-audit-batch", installationPath: "/var/www/vhosts/example.test/httpdocs\nrm -rf /", useSudo: false })).toThrow("canonical absolute Plesk vhost path");
+    expect(() => renderReadOnlyCommand({ kind: "static-wp-audit-batch", installationPath: "/var/www/vhosts/example.test/httpdocs/../private", useSudo: false })).toThrow("canonical absolute Plesk vhost path");
   });
 
   it("renders WP audit commands through the official WP Toolkit bridge", () => {
     const rendered = renderReadOnlyCommand({
       kind: "wp-audit-batch",
-      installationPath: "/srv/site",
+      installationPath: "/var/www/vhosts/example.test/httpdocs",
       useSudo: true,
       runtime: { kind: "plesk-wp-toolkit", instanceId: 42 },
     });
@@ -58,7 +83,7 @@ describe("read-only SSH command transport", () => {
     expect(() => assertReadOnlyRenderedCommand(rendered)).not.toThrow();
     expect(() => renderReadOnlyCommand({
       kind: "wp-audit-batch",
-      installationPath: "/srv/site",
+      installationPath: "/var/www/vhosts/example.test/httpdocs",
       runtime: { kind: "plesk-wp-toolkit", instanceId: 0 },
     })).toThrow("positive safe integer");
   });

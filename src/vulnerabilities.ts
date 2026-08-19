@@ -43,6 +43,50 @@ export interface VulnerabilityLookupOptions {
   cache?: VulnerabilityCache;
 }
 
+export interface BoundedVulnerabilityLookupOptions {
+  enabled: boolean;
+  maxLookups?: number;
+  budget: { used: number };
+  cache?: VulnerabilityCache;
+  lookup?: typeof lookupVulnerabilities;
+  maxConcurrent?: number;
+}
+
+export function createBoundedVulnerabilityLookup(options: BoundedVulnerabilityLookupOptions): typeof lookupVulnerabilities {
+  const lookup = options.lookup ?? lookupVulnerabilities;
+  const maxLookups = options.maxLookups ?? 25;
+  const maxConcurrent = options.maxConcurrent ?? 4;
+  if (!Number.isSafeInteger(maxConcurrent) || maxConcurrent < 1) throw new Error("vulnerability lookup concurrency must be a positive safe integer");
+  let active = 0;
+  const waiters: Array<() => void> = [];
+  const withPermit = async <T>(operation: () => Promise<T>): Promise<T> => {
+    if (active >= maxConcurrent) await new Promise<void>((resolve) => waiters.push(resolve));
+    active += 1;
+    try {
+      return await operation();
+    } finally {
+      active -= 1;
+      waiters.shift()?.();
+    }
+  };
+  return async (resource, identifier, requestOptions = {}) => {
+    if (!options.enabled) return { status: "disabled" };
+    return withPermit(async () => {
+      try {
+        const cached = await options.cache?.get(resource, identifier);
+        if (cached) return cached;
+      } catch (error: unknown) {
+        requestOptions.debug?.(`vulnerability cache ignored: ${error instanceof Error ? error.message : "cache read failed"}`);
+      }
+      if (options.budget.used >= maxLookups) return { status: "skipped" };
+      options.budget.used += 1;
+      return lookup === lookupVulnerabilities
+        ? performVulnerabilityLookup(resource, identifier, { ...requestOptions, enabled: true, cache: options.cache })
+        : lookup(resource, identifier, { ...requestOptions, enabled: true, cache: options.cache });
+    });
+  };
+}
+
 function enabledByEnvironment(): boolean {
   return process.env.MISE_PLESK_ENABLE_VULNS === "1";
 }
@@ -181,6 +225,14 @@ export async function lookupVulnerabilities(
   }
   if (cached) return cached;
 
+  return performVulnerabilityLookup(resource, identifier, options);
+}
+
+async function performVulnerabilityLookup(
+  resource: VulnerabilityResource,
+  identifier: string,
+  options: VulnerabilityLookupOptions,
+): Promise<VulnerabilityLookupResult> {
   const fetchImpl = options.fetchImpl ?? fetch;
   const timeoutMs = options.timeoutMs ?? 5000;
   const controller = new AbortController();

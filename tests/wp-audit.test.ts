@@ -9,20 +9,20 @@ describe("WordPress audit", () => {
   it("builds a read-only WP-CLI command for a remote SSH shell", () => {
     expect(buildWpCliCommand({ path: "/var/www/vhosts/example.test/httpdocs" }, "core version"))
       .toBe("wp core version --path='/var/www/vhosts/example.test/httpdocs' --allow-root");
-    expect(() => buildWpCliCommand({ path: "/srv/site" }, "plugin update --all")).toThrow("Unsupported read-only WP command");
+    expect(() => buildWpCliCommand({ path: "/var/www/vhosts/example.test/httpdocs" }, "plugin update --all")).toThrow("Unsupported read-only WP command");
   });
 
   it("prefixes every fixed audit command with non-interactive sudo when enabled", () => {
-    const command = buildWpAuditBatchCommand({ path: "/srv/site" }, { useSudo: true });
+    const command = buildWpAuditBatchCommand({ path: "/var/www/vhosts/example.test/httpdocs" }, { useSudo: true });
 
     expect(command.startsWith("sudo -S -p '' -v; ")).toBe(true);
     expect(command.match(/sudo -S/g)).toHaveLength(1);
     expect(command).toContain("sudo -n -- wp core version");
-    expect(command).toContain("sudo -n -- find '/srv/site/wp-content/uploads'");
+    expect(command).toContain("sudo -n -- find '/var/www/vhosts/example.test/httpdocs/wp-content/uploads'");
   });
 
   it("builds one read-only batch for all per-installation checks", () => {
-    const command = buildWpAuditBatchCommand({ path: "/srv/site" });
+    const command = buildWpAuditBatchCommand({ path: "/var/www/vhosts/example.test/httpdocs" });
 
     expect(command).toMatch(/__MISE_[a-f0-9]{32}_CORE_BEGIN__/);
     expect(command).toContain("core check-update --format=json");
@@ -34,7 +34,7 @@ describe("WordPress audit", () => {
     expect(command).toMatch(/__MISE_[a-f0-9]{32}_CORE_STATUS_\$\{status\}__/);
     expect(command).not.toContain("value=$(wp");
     expect(command).toContain("wp core verify-checksums");
-    expect(command).toContain("find '/srv/site/wp-content/uploads'");
+    expect(command).toContain("find '/var/www/vhosts/example.test/httpdocs/wp-content/uploads'");
   });
 
   it("builds a batch through a registered WP Toolkit instance", () => {
@@ -49,7 +49,7 @@ describe("WordPress audit", () => {
 
   it("reuses one batch result for WP and uploads checks", async () => {
     let calls = 0;
-    const batched = createBatchedWpRunners({ path: "/srv/site" }, async (command) => {
+    const batched = createBatchedWpRunners({ path: "/var/www/vhosts/example.test/httpdocs" }, async (command) => {
       calls += 1;
       const nonce = command.kind === "wp-audit-batch" ? command.markerNonce! : "";
       const marker = (section: string, phase: string) => `__MISE_${nonce}_${section}_${phase}__`;
@@ -60,14 +60,14 @@ describe("WordPress audit", () => {
         marker("PLUGIN_CHECKSUMS", "BEGIN"), "Success", marker("PLUGIN_CHECKSUMS", "STATUS_0"), marker("PLUGIN_CHECKSUMS", "END"),
         marker("THEMES", "BEGIN"), "[]", marker("THEMES", "STATUS_0"), marker("THEMES", "END"),
         marker("CHECKSUMS", "BEGIN"), "ok", marker("CHECKSUMS", "STATUS_0"), marker("CHECKSUMS", "END"),
-        marker("UPLOADS", "BEGIN"), "/srv/site/wp-content/uploads/shell.php", marker("UPLOADS", "STATUS_0"), marker("UPLOADS", "END"),
+        marker("UPLOADS", "BEGIN"), "/var/www/vhosts/example.test/httpdocs/wp-content/uploads/shell.php", marker("UPLOADS", "STATUS_0"), marker("UPLOADS", "END"),
       ].join("\n");
     });
 
-    await expect(batched.runner({ path: "/srv/site" }, "core version")).resolves.toBe("6.6.1");
-    await expect(batched.runner({ path: "/srv/site" }, "core check-update --format=json")).resolves.toBe("[]");
-    await expect(batched.runner({ path: "/srv/site" }, "plugin verify-checksums --all --strict")).resolves.toBe("Success");
-    await expect(batched.suspiciousFileRunner({ path: "/srv/site" }, "ignored")).resolves.toContain("shell.php");
+    await expect(batched.runner({ path: "/var/www/vhosts/example.test/httpdocs" }, "core version")).resolves.toBe("6.6.1");
+    await expect(batched.runner({ path: "/var/www/vhosts/example.test/httpdocs" }, "core check-update --format=json")).resolves.toBe("[]");
+    await expect(batched.runner({ path: "/var/www/vhosts/example.test/httpdocs" }, "plugin verify-checksums --all --strict")).resolves.toBe("Success");
+    await expect(batched.suspiciousFileRunner({ path: "/var/www/vhosts/example.test/httpdocs" }, "ignored")).resolves.toContain("shell.php");
     expect(calls).toBe(1);
   });
 
@@ -84,17 +84,17 @@ describe("WordPress audit", () => {
         marker("UPLOADS", "BEGIN"), "", marker("UPLOADS", "STATUS_0"), marker("UPLOADS", "END"),
       ].join("\n");
     };
-    const unavailable = createBatchedWpRunners({ path: "/srv/site" }, async (command) => batch(command.kind === "wp-audit-batch" ? command.markerNonce! : "", "unknown option --strict token=secret", 3));
-    const mismatch = createBatchedWpRunners({ path: "/srv/site" }, async (command) => batch(command.kind === "wp-audit-batch" ? command.markerNonce! : "", "Warning: checksum mismatch: modified file", 1));
+    const unavailable = createBatchedWpRunners({ path: "/var/www/vhosts/example.test/httpdocs" }, async (command) => batch(command.kind === "wp-audit-batch" ? command.markerNonce! : "", "unknown option --strict token=secret", 3));
+    const mismatch = createBatchedWpRunners({ path: "/var/www/vhosts/example.test/httpdocs" }, async (command) => batch(command.kind === "wp-audit-batch" ? command.markerNonce! : "", "Warning: checksum mismatch: modified file", 1));
 
-    await expect(unavailable.runner({ path: "/srv/site" }, "plugin verify-checksums --all --strict"))
+    await expect(unavailable.runner({ path: "/var/www/vhosts/example.test/httpdocs" }, "plugin verify-checksums --all --strict"))
       .rejects.toMatchObject({ name: "AuditCapabilityUnavailableError", message: "WP-CLI command failed" });
-    await expect(mismatch.runner({ path: "/srv/site" }, "plugin verify-checksums --all --strict"))
+    await expect(mismatch.runner({ path: "/var/www/vhosts/example.test/httpdocs" }, "plugin verify-checksums --all --strict"))
       .rejects.toThrow("WP-CLI reported checksum mismatches");
   });
 
   it("does not accept marker-like plugin output without the random batch nonce", async () => {
-    const batched = createBatchedWpRunners({ path: "/srv/site" }, async (command) => {
+    const batched = createBatchedWpRunners({ path: "/var/www/vhosts/example.test/httpdocs" }, async (command) => {
       const nonce = command.kind === "wp-audit-batch" ? command.markerNonce! : "";
       return [
         `__MISE_${nonce}_CORE_BEGIN__`,
@@ -104,7 +104,7 @@ describe("WordPress audit", () => {
       ].join("\n");
     });
 
-    await expect(batched.runner({ path: "/srv/site" }, "core version")).rejects.toThrow("WP-CLI command failed");
+    await expect(batched.runner({ path: "/var/www/vhosts/example.test/httpdocs" }, "core version")).rejects.toThrow("invalid core_update framing");
   });
 
   it("collects core, plugin, and checksum health through wp CLI", async () => {
@@ -186,7 +186,7 @@ describe("WordPress audit", () => {
     ] as const;
 
     for (const [message, status] of cases) {
-      const result = await auditWordPressInstallation({ path: "/srv/site" }, async (_installation, command) => {
+      const result = await auditWordPressInstallation({ path: "/var/www/vhosts/example.test/httpdocs" }, async (_installation, command) => {
         if (command === "core version") return "6.6.1";
         throw new Error(message);
       });
@@ -208,6 +208,14 @@ describe("WordPress audit", () => {
     expect(result.priorities).toContain("WordPress runtime is incompatible with the installed PHP version");
   });
 
+  it("treats a WP-CLI command timeout as a site audit failure, not an unreachable SSH host", async () => {
+    const result = await auditWordPressInstallation({ path: "/var/www/vhosts/slow.test/httpdocs" }, async () => {
+      throw new Error("Command failed (timeout)");
+    });
+
+    expect(result.health).toEqual({ reachable: true, status: "wp-cli-error", detail: "WP-CLI command timed out" });
+  });
+
   it("still scans uploads when WP-CLI fails", async () => {
     const result = await auditWordPressInstallation(
       { path: "/var/www/vhosts/broken.test/httpdocs" },
@@ -226,7 +234,7 @@ describe("WordPress audit", () => {
 
   it("flags plugin updates and stale or inactive wp.org plugins", () => {
     const audit = applyHeuristics({
-      installation: { path: "/srv/site" },
+      installation: { path: "/var/www/vhosts/example.test/httpdocs" },
       coreVersion: "6.6.1",
       plugins: [
         { name: "update-me", version: "1.0", active: true, hasUpdate: true, vulnerabilities: [] },
@@ -262,7 +270,7 @@ describe("WordPress audit", () => {
 
   it("attaches vulnerability summaries from an injected lookup", async () => {
     let requestedSlug = "";
-    const audit = await auditWordPressInstallation({ path: "/srv/site" }, async (_installation, command) => {
+    const audit = await auditWordPressInstallation({ path: "/var/www/vhosts/example.test/httpdocs" }, async (_installation, command) => {
       if (command.includes("core version")) return "6.6.1";
       if (command.includes("plugin list")) return JSON.stringify([{ name: "sample-plugin/sample-plugin.php", version: "1.0", status: "active", update: "none" }]);
       return "ok";
@@ -284,7 +292,7 @@ describe("WordPress audit", () => {
 
   it("enriches core and themes through the typed vulnerability resource lookup", async () => {
     const requested: string[] = [];
-    const audit = await auditWordPressInstallation({ path: "/srv/site" }, async (_installation, command) => {
+    const audit = await auditWordPressInstallation({ path: "/var/www/vhosts/example.test/httpdocs" }, async (_installation, command) => {
       if (command === "core version") return "6.6.1";
       if (command.startsWith("plugin list")) return "[]";
       if (command.startsWith("theme list")) return JSON.stringify([{ name: "custom-theme", version: "1.0", status: "active", update: "none" }]);

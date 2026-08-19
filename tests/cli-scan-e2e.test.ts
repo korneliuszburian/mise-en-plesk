@@ -38,14 +38,119 @@ case "$command" in
     ;;
   *"plesk ext wp-toolkit --list -plugins -themes -format json") printf '%s\\n' "\${FAKE_TOOLKIT_JSON:-[]}" ;;
   *"find /var/www/vhosts"*"awk"*)
-    if [[ "$command" == *"position > 1"* ]]; then
+    if [[ "\${FAKE_STATIC_BEDROCK:-0}" == "1" ]]; then
+      printf '/var/www/vhosts/example.test/httpdocs/web/wp/wp-includes/version.php\\n'
+    elif [[ "\${FAKE_STATIC_CLASSIC:-0}" == "1" ]]; then
+      printf '/var/www/vhosts/example.test/httpdocs/wp-config.php\\n'
+    elif [[ "$command" == *"position > 1"* ]]; then
       printf '/var/www/vhosts/second.test/httpdocs/wp-config.php\\n'
     else
       printf '/var/www/vhosts/example.test/httpdocs/wp-config.php\\n/var/www/vhosts/second.test/httpdocs/wp-config.php\\n'
     fi
     ;;
-  *"find /var/www/vhosts -xdev"*) printf '/var/www/vhosts/example.test/httpdocs/wp-config.php\\n/var/www/vhosts/second.test/httpdocs/wp-config.php\\n' ;;
+  *"find /var/www/vhosts -xdev"*)
+    if [[ "\${FAKE_STATIC_BEDROCK:-0}" == "1" ]]; then
+      printf '/var/www/vhosts/example.test/httpdocs/web/wp/wp-includes/version.php\\n'
+    elif [[ "\${FAKE_STATIC_CLASSIC:-0}" == "1" ]]; then
+      printf '/var/www/vhosts/example.test/httpdocs/wp-config.php\\n'
+    else
+      printf '/var/www/vhosts/example.test/httpdocs/wp-config.php\\n/var/www/vhosts/second.test/httpdocs/wp-config.php\\n'
+    fi
+    ;;
+  *"_CLASSIC_VERSION_BEGIN__"*)
+    [[ "\${FAKE_STATIC_BEDROCK:-0}" == "1" || "\${FAKE_STATIC_CLASSIC:-0}" == "1" ]] || { echo "static audit unavailable" >&2; exit 97; }
+    marker_nonce="$(printf '%s' "$command" | sed -n 's/.*__MISE_\\([a-f0-9]\\{32\\}\\)_CLASSIC_VERSION_BEGIN__.*/\\1/p')"
+    [[ "$marker_nonce" =~ ^[a-f0-9]{32}$ ]] || exit 96
+    if [[ "\${FAKE_STATIC_CLASSIC:-0}" == "1" ]]; then
+      cat <<EOF
+__MISE_\${marker_nonce}_CLASSIC_VERSION_BEGIN__
+\\$wp_version = '6.7.2';
+__MISE_\${marker_nonce}_CLASSIC_VERSION_STATUS_0__
+__MISE_\${marker_nonce}_CLASSIC_VERSION_END__
+__MISE_\${marker_nonce}_BEDROCK_VERSION_BEGIN__
+
+__MISE_\${marker_nonce}_BEDROCK_VERSION_STATUS_2__
+__MISE_\${marker_nonce}_BEDROCK_VERSION_END__
+__MISE_\${marker_nonce}_BEDROCK_COMPOSER_BEGIN__
+
+__MISE_\${marker_nonce}_BEDROCK_COMPOSER_STATUS_1__
+__MISE_\${marker_nonce}_BEDROCK_COMPOSER_END__
+__MISE_\${marker_nonce}_BEDROCK_CONFIG_BEGIN__
+
+__MISE_\${marker_nonce}_BEDROCK_CONFIG_STATUS_1__
+__MISE_\${marker_nonce}_BEDROCK_CONFIG_END__
+__MISE_\${marker_nonce}_CLASSIC_PLUGINS_BEGIN__
+akismet
+__MISE_\${marker_nonce}_CLASSIC_PLUGINS_STATUS_0__
+__MISE_\${marker_nonce}_CLASSIC_PLUGINS_END__
+__MISE_\${marker_nonce}_BEDROCK_PLUGINS_BEGIN__
+
+__MISE_\${marker_nonce}_BEDROCK_PLUGINS_STATUS_1__
+__MISE_\${marker_nonce}_BEDROCK_PLUGINS_END__
+__MISE_\${marker_nonce}_CLASSIC_THEMES_BEGIN__
+twentytwentyfive
+__MISE_\${marker_nonce}_CLASSIC_THEMES_STATUS_0__
+__MISE_\${marker_nonce}_CLASSIC_THEMES_END__
+__MISE_\${marker_nonce}_BEDROCK_THEMES_BEGIN__
+
+__MISE_\${marker_nonce}_BEDROCK_THEMES_STATUS_1__
+__MISE_\${marker_nonce}_BEDROCK_THEMES_END__
+__MISE_\${marker_nonce}_CLASSIC_UPLOADS_BEGIN__
+/var/www/vhosts/example.test/httpdocs/wp-content/uploads/shell.php
+__MISE_\${marker_nonce}_CLASSIC_UPLOADS_STATUS_0__
+__MISE_\${marker_nonce}_CLASSIC_UPLOADS_END__
+__MISE_\${marker_nonce}_BEDROCK_UPLOADS_BEGIN__
+
+__MISE_\${marker_nonce}_BEDROCK_UPLOADS_STATUS_1__
+__MISE_\${marker_nonce}_BEDROCK_UPLOADS_END__
+EOF
+      exit 0
+    fi
+    cat <<EOF
+__MISE_\${marker_nonce}_CLASSIC_VERSION_BEGIN__
+
+__MISE_\${marker_nonce}_CLASSIC_VERSION_STATUS_2__
+__MISE_\${marker_nonce}_CLASSIC_VERSION_END__
+__MISE_\${marker_nonce}_BEDROCK_VERSION_BEGIN__
+\\$wp_version = '6.8.3';
+__MISE_\${marker_nonce}_BEDROCK_VERSION_STATUS_0__
+__MISE_\${marker_nonce}_BEDROCK_VERSION_END__
+__MISE_\${marker_nonce}_BEDROCK_COMPOSER_BEGIN__
+/var/www/vhosts/example.test/httpdocs/composer.json
+__MISE_\${marker_nonce}_BEDROCK_COMPOSER_STATUS_0__
+__MISE_\${marker_nonce}_BEDROCK_COMPOSER_END__
+__MISE_\${marker_nonce}_BEDROCK_CONFIG_BEGIN__
+/var/www/vhosts/example.test/httpdocs/config/application.php
+__MISE_\${marker_nonce}_BEDROCK_CONFIG_STATUS_0__
+__MISE_\${marker_nonce}_BEDROCK_CONFIG_END__
+__MISE_\${marker_nonce}_CLASSIC_PLUGINS_BEGIN__
+
+__MISE_\${marker_nonce}_CLASSIC_PLUGINS_STATUS_1__
+__MISE_\${marker_nonce}_CLASSIC_PLUGINS_END__
+__MISE_\${marker_nonce}_BEDROCK_PLUGINS_BEGIN__
+akismet
+__MISE_\${marker_nonce}_BEDROCK_PLUGINS_STATUS_0__
+__MISE_\${marker_nonce}_BEDROCK_PLUGINS_END__
+__MISE_\${marker_nonce}_CLASSIC_THEMES_BEGIN__
+
+__MISE_\${marker_nonce}_CLASSIC_THEMES_STATUS_1__
+__MISE_\${marker_nonce}_CLASSIC_THEMES_END__
+__MISE_\${marker_nonce}_BEDROCK_THEMES_BEGIN__
+sage
+__MISE_\${marker_nonce}_BEDROCK_THEMES_STATUS_0__
+__MISE_\${marker_nonce}_BEDROCK_THEMES_END__
+__MISE_\${marker_nonce}_CLASSIC_UPLOADS_BEGIN__
+
+__MISE_\${marker_nonce}_CLASSIC_UPLOADS_STATUS_1__
+__MISE_\${marker_nonce}_CLASSIC_UPLOADS_END__
+__MISE_\${marker_nonce}_BEDROCK_UPLOADS_BEGIN__
+/var/www/vhosts/example.test/httpdocs/web/app/uploads/shell.php
+__MISE_\${marker_nonce}_BEDROCK_UPLOADS_STATUS_0__
+__MISE_\${marker_nonce}_BEDROCK_UPLOADS_END__
+EOF
+    ;;
   *"_CORE_BEGIN__"*)
+    [[ "\${FAKE_WP_SITE_BROKEN:-0}" == "1" ]] && { echo "site bootstrap failed" >&2; exit 97; }
     marker_nonce="$(printf '%s' "$command" | sed -n 's/.*__MISE_\\([a-f0-9]\\{32\\}\\)_CORE_BEGIN__.*/\\1/p')"
     [[ "$marker_nonce" =~ ^[a-f0-9]{32}$ ]] || exit 96
     cat <<EOF
@@ -147,6 +252,7 @@ describe("scan CLI end-to-end", () => {
         limitations: [
           "Host WP-CLI unavailable: WP-CLI executable unavailable",
           "Plesk WP Toolkit has no matching installation registration",
+          "Static filesystem audit could not identify a supported WordPress layout",
         ],
       });
     } finally {
@@ -190,6 +296,77 @@ describe("scan CLI end-to-end", () => {
       expect(report.findings.some((finding) => finding.code.startsWith("wp-cli-"))).toBe(false);
       expect(await readFile(join(runtime.root, "ssh.log"), "utf8"))
         .toContain("plesk ext wp-toolkit --wp-cli -instance-id 5 -- core version");
+    } finally {
+      await rm(runtime.root, { recursive: true, force: true });
+    }
+  }, 30_000);
+
+  it("falls back to a static Bedrock audit when WP-CLI and Toolkit registration are unavailable", async () => {
+    const runtime = await prepareRuntime();
+    try {
+      runtime.env.FAKE_WP_CLI_BROKEN = "1";
+      runtime.env.FAKE_STATIC_BEDROCK = "1";
+      await writeFile(runtime.env.MISE_PLESK_CONFIG!, JSON.stringify({ hosts: ["test"], maxSitesPerHost: 1 }));
+
+      await runScan([], runtime.env);
+      const reportName = (await readdir(runtime.env.MISE_PLESK_REPORTS!)).find((name) => name.endsWith(".json"));
+      const report = JSON.parse(await readFile(join(runtime.env.MISE_PLESK_REPORTS!, reportName!), "utf8")) as {
+        hosts: Array<{ wordpress: Array<{ auditSource?: string; coreVersion: string; layout?: { kind: string }; suspiciousFiles: string[] }> }>;
+      };
+
+      expect(report.hosts[0]?.wordpress[0]).toMatchObject({
+        auditSource: "static-filesystem",
+        coreVersion: "6.8.3",
+        layout: { kind: "bedrock" },
+        suspiciousFiles: ["/var/www/vhosts/example.test/httpdocs/web/app/uploads/shell.php"],
+      });
+    } finally {
+      await rm(runtime.root, { recursive: true, force: true });
+    }
+  }, 30_000);
+
+  it("falls back to static evidence when host WP-CLI exists but one unregistered site fails", async () => {
+    const runtime = await prepareRuntime();
+    try {
+      runtime.env.FAKE_STATIC_BEDROCK = "1";
+      runtime.env.FAKE_WP_SITE_BROKEN = "1";
+      await writeFile(runtime.env.MISE_PLESK_CONFIG!, JSON.stringify({ hosts: ["test"], maxSitesPerHost: 1 }));
+
+      await runScan([], runtime.env);
+      const reportName = (await readdir(runtime.env.MISE_PLESK_REPORTS!)).find((name) => name.endsWith(".json"));
+      const report = JSON.parse(await readFile(join(runtime.env.MISE_PLESK_REPORTS!, reportName!), "utf8")) as {
+        hosts: Array<{ wordpress: Array<{ auditSource?: string; health: { status?: string }; limitations?: string[] }> }>;
+      };
+
+      expect(report.hosts[0]?.wordpress[0]).toMatchObject({
+        auditSource: "static-filesystem",
+        health: { status: "wp-cli-error" },
+      });
+      expect(report.hosts[0]?.wordpress[0]?.limitations).toContain("WP-CLI audit failed for this installation: WP-CLI command failed");
+    } finally {
+      await rm(runtime.root, { recursive: true, force: true });
+    }
+  }, 30_000);
+
+  it("audits a classic WordPress fallback end to end", async () => {
+    const runtime = await prepareRuntime();
+    try {
+      runtime.env.FAKE_WP_CLI_BROKEN = "1";
+      runtime.env.FAKE_STATIC_CLASSIC = "1";
+      await writeFile(runtime.env.MISE_PLESK_CONFIG!, JSON.stringify({ hosts: ["test"], maxSitesPerHost: 1 }));
+
+      await runScan([], runtime.env);
+      const reportName = (await readdir(runtime.env.MISE_PLESK_REPORTS!)).find((name) => name.endsWith(".json"));
+      const report = JSON.parse(await readFile(join(runtime.env.MISE_PLESK_REPORTS!, reportName!), "utf8")) as {
+        hosts: Array<{ wordpress: Array<{ auditSource?: string; coreVersion: string; layout?: { kind: string; contentRoot: string }; suspiciousFiles: string[] }> }>;
+      };
+
+      expect(report.hosts[0]?.wordpress[0]).toMatchObject({
+        auditSource: "static-filesystem",
+        coreVersion: "6.7.2",
+        layout: { kind: "classic", contentRoot: "/var/www/vhosts/example.test/httpdocs/wp-content" },
+        suspiciousFiles: ["/var/www/vhosts/example.test/httpdocs/wp-content/uploads/shell.php"],
+      });
     } finally {
       await rm(runtime.root, { recursive: true, force: true });
     }

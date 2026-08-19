@@ -192,8 +192,30 @@ describe("plesk scan", () => {
     });
     expect(calls).toEqual([
       "plesk bin subscription --list",
-      "find /var/www/vhosts -xdev -maxdepth 4 -type f -name wp-config.php -print",
+      "find /var/www/vhosts -xdev -maxdepth 6 -type f -name wp-config.php -print",
     ]);
+  });
+
+  it("deduplicates canonical Bedrock wp-config and core version signals", async () => {
+    const runner: SshCommandRunner = async (_host, command) => {
+      const text = renderReadOnlyCommand(command);
+      if (text.includes("subscription --list")) return "example.test\n";
+      return [
+        "/var/www/vhosts/example.test/httpdocs/web/wp-config.php",
+        "/var/www/vhosts/example.test/httpdocs/web/wp/wp-includes/version.php",
+      ].join("\n");
+    };
+
+    const result = await scanPleskHost(host, runner, { includeAlternateWordPressDetection: true });
+
+    expect(result.wordpress).toEqual([expect.objectContaining({
+      path: "/var/www/vhosts/example.test/httpdocs/web",
+      detectionSignals: ["wp-config.php", "wp-includes/version.php"],
+      pathEvidence: expect.arrayContaining([
+        expect.objectContaining({ signal: "wp-config.php", rootKind: "installation-root" }),
+        expect.objectContaining({ signal: "wp-includes/version.php", rootKind: "core-root" }),
+      ]),
+    })]);
   });
 
   it("bounds remote WordPress discovery for a chunk", async () => {
@@ -256,7 +278,7 @@ describe("plesk scan", () => {
     });
     expect(calls).toEqual([
       "sudo -S -p '' -- plesk bin subscription --list",
-      "find /var/www/vhosts -xdev -maxdepth 4 -type f -name wp-config.php -print",
+      "find /var/www/vhosts -xdev -maxdepth 6 -type f -name wp-config.php -print",
     ]);
   });
 

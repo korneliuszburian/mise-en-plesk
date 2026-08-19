@@ -62,8 +62,18 @@ operator-provided WP-CLI command. If the bridge or an individual read fails,
 the audit falls back to WP Toolkit metadata for core, plugin, theme, update,
 and Toolkit health signals. Unregistered paths may use a working host WP-CLI;
 otherwise they remain an explicit degraded/no-source audit.
-The report records `auditSource` (`wp-cli`, `plesk-wp-toolkit`, `hybrid`, or
-`none` when neither source can audit a discovered path) and
+For an unregistered path with no working host WP-CLI, the scanner performs one
+bounded static filesystem batch. It recognizes classic (`wp-content`) and
+canonical Bedrock (`wp`, `app`) layouts, reads the core version declaration,
+lists plugin/theme slugs, checks the correct uploads directory, and may collect
+the same opt-in vulnerability intelligence. Because installed plugin/theme
+versions are unavailable, historical records are explicitly unscoped and do
+not produce vulnerable-plugin/theme findings. It never loads application PHP.
+Plugin versions, activation/update state, runtime health, and checksums remain
+explicit limitations of this adapter.
+
+The report records `auditSource` (`wp-cli`, `plesk-wp-toolkit`, `hybrid`,
+`static-filesystem`, or `none` when no source can audit a discovered path) and
 explicit limitations. WP Toolkit inventory does not expose checksum
 verification or WordPress.org freshness dates, so those fields are marked
 unavailable instead of being reported as successful or failed. Toolkit
@@ -90,7 +100,8 @@ stderr so machine consumers can use the command without mixing progress into
 the JSON stream. Add `--json` to write the machine-readable report instead of
 Markdown; the same JSON result is emitted on stdout. Set
 `maxVulnerabilityLookupsPerHost` in the config to cap opt-in
-WPVulnerability requests per host. Set `maxConcurrentSitesPerHost` to tune
+WPVulnerability requests per host (default: 25). A shared limiter allows at
+most four vulnerability cache/API operations in flight per host. Set `maxConcurrentSitesPerHost` to tune
 the number of simultaneous site batches per host; the default is 4. For large
 hosts, bound a run with `--max-sites=20 --offset=0` and repeat with the next
 offset. `maxSitesPerHost` in config provides the same default for every run;

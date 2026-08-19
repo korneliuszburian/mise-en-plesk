@@ -8,16 +8,18 @@ import {
   type VulnerabilityLookupOptions,
   type VulnerabilityLookupStatus,
   type VulnerabilityResource,
+  type VulnerabilityResourceSummary,
 } from "./vulnerabilities";
 import type { Finding } from "./findings";
 import type { FindingEvent } from "./finding-state";
+import { parseFramedBatch, type FramedBatchSection } from "./framed-batch";
 import { isReadOnlyWpCommand, renderReadOnlyCommand, renderWpCliCommand, WP_AUDIT_COMMAND_SECTIONS, type ReadOnlyCommand, type WpAuditSection, type WpExecutionContext } from "./ssh-transport";
 
 export interface PluginInfo {
   name: string;
   version: string;
-  active: boolean;
-  hasUpdate: boolean;
+  active?: boolean;
+  hasUpdate?: boolean;
   wporgStatus?: string;
   wporgLastUpdated?: string;
   vulnerabilities: PluginVulnerabilitySummary["vulnerabilities"];
@@ -26,8 +28,8 @@ export interface PluginInfo {
 export interface ThemeInfo {
   name: string;
   version: string;
-  active: boolean;
-  hasUpdate: boolean;
+  active?: boolean;
+  hasUpdate?: boolean;
   vulnerabilities?: PluginVulnerability[];
 }
 
@@ -51,7 +53,21 @@ export interface WordPressAudit {
   vulnerabilityStatus?: "disabled" | "complete" | "partial" | "unavailable";
   vulnerabilityCheckedAt?: string;
   suspiciousFiles: string[];
-  auditSource?: "wp-cli" | "plesk-wp-toolkit" | "hybrid" | "none";
+  auditSource?: "wp-cli" | "plesk-wp-toolkit" | "hybrid" | "static-filesystem" | "none";
+  layout?: {
+    kind: "classic" | "bedrock";
+    projectRoot: string;
+    documentRoot: string;
+    coreRoot: string;
+    contentRoot: string;
+  };
+  staticCapabilities?: {
+    pluginInventory: "available" | "unavailable";
+    themeInventory: "available" | "unavailable";
+    suspiciousUploads: "available" | "unavailable";
+    updateStatus: "unavailable";
+  };
+  unscopedVulnerabilityIntelligence?: VulnerabilityResourceSummary[];
   limitations?: string[];
   toolkitSignals?: {
     infected: boolean;
@@ -70,7 +86,7 @@ export interface WordPressAudit {
   health: {
     reachable: boolean;
     lastUpdate?: string;
-    status?: "runtime-incompatible" | "wp-cli-error" | "wp-cli-missing" | "wp-cli-permission-denied" | "wp-cli-broken" | "unreachable";
+    status?: "runtime-incompatible" | "wp-cli-error" | "wp-cli-missing" | "wp-cli-permission-denied" | "wp-cli-broken" | "audit-unavailable" | "unreachable";
     detail?: string;
   };
   priorities: string[];
@@ -94,11 +110,6 @@ export interface ScanProgress {
 export type WpCommandRunner = (installation: WordPressInstallation, command: string) => Promise<string>;
 export type SuspiciousFileRunner = (installation: WordPressInstallation, command: string) => Promise<string>;
 
-interface BatchSection {
-  output: string;
-  status: number;
-}
-
 export function buildWpAuditBatchCommand(installation: WordPressInstallation, options: WpExecutionContext = {}): string {
   return renderReadOnlyCommand({
     kind: "wp-audit-batch",
@@ -109,14 +120,8 @@ export function buildWpAuditBatchCommand(installation: WordPressInstallation, op
   });
 }
 
-function parseBatchSections(output: string, markerNonce: string): Map<WpAuditSection, BatchSection> {
-  const sections = new Map<WpAuditSection, BatchSection>();
-  for (const section of [...WP_AUDIT_COMMAND_SECTIONS.map(({ section }) => section), "uploads" as const]) {
-    const name = section.toUpperCase();
-    const match = output.match(new RegExp(`__MISE_${markerNonce}_${name}_BEGIN__\\n([\\s\\S]*?)\\n__MISE_${markerNonce}_${name}_STATUS_(\\d+)__\\n__MISE_${markerNonce}_${name}_END__`));
-    if (match) sections.set(section, { output: match[1], status: Number(match[2]) });
-  }
-  return sections;
+function parseBatchSections(output: string, markerNonce: string): Map<WpAuditSection, FramedBatchSection> {
+  return parseFramedBatch(output, markerNonce, [...WP_AUDIT_COMMAND_SECTIONS.map(({ section }) => section), "uploads" as const], "WP audit batch");
 }
 
 export function createBatchedWpRunners(
@@ -125,8 +130,8 @@ export function createBatchedWpRunners(
   options: WpExecutionContext = {},
 ): { runner: WpCommandRunner; suspiciousFileRunner: SuspiciousFileRunner } {
   const markerNonce = randomBytes(16).toString("hex");
-  let sectionsPromise: Promise<Map<WpAuditSection, BatchSection>> | undefined;
-  const sections = async (): Promise<Map<WpAuditSection, BatchSection>> => {
+  let sectionsPromise: Promise<Map<WpAuditSection, FramedBatchSection>> | undefined;
+  const sections = async (): Promise<Map<WpAuditSection, FramedBatchSection>> => {
     sectionsPromise ??= remoteRunner({
       kind: "wp-audit-batch",
       installationPath: installation.path,
@@ -182,7 +187,7 @@ function vulnerabilityApiEnabled(options: VulnerabilityLookupOptions): boolean {
   return options.enabled ?? process.env.MISE_PLESK_ENABLE_VULNS === "1";
 }
 
-function summarizeVulnerabilityStatus(statuses: VulnerabilityLookupStatus[]): WordPressAudit["vulnerabilityStatus"] {
+export function summarizeVulnerabilityStatus(statuses: VulnerabilityLookupStatus[]): WordPressAudit["vulnerabilityStatus"] {
   if (!statuses.length || statuses.every((status) => status === "disabled")) return "disabled";
   if (statuses.some((status) => status === "unavailable")) return "unavailable";
   if (statuses.some((status) => status === "skipped")) return "partial";
@@ -343,7 +348,7 @@ function classifyAuditError(error: unknown): WordPressAudit["health"] {
   if (/sudo:|must be run as root/i.test(detail)) {
     return { reachable: true, status: "wp-cli-permission-denied", detail: shortDetail };
   }
-  if (/connection refused|connection reset|connection closed|permission denied|timed out|could not resolve|kex_exchange|wp unavailable|no route to host/i.test(detail)) {
+  if (/connection refused|connection reset|connection closed|permission denied|could not resolve|kex_exchange|wp unavailable|no route to host/i.test(detail)) {
     return { reachable: false, status: "unreachable", detail: shortDetail };
   }
   if (/command not found|no such file or directory|\b404(?::)?\s*not found/i.test(detail)) {
@@ -400,8 +405,13 @@ export function applyHeuristics(
   if (!audit.health.reachable) priorities.push("installation is unreachable");
   if (audit.health.status === "runtime-incompatible") {
     priorities.push("WordPress runtime is incompatible with the installed PHP version");
+  } else if (audit.health.status === "audit-unavailable") {
+    priorities.push("WordPress audit data unavailable; manual review required");
   } else if (isWpCliFailure(audit.health.status)) {
     priorities.push("WP-CLI audit failed; manual review required");
+  }
+  if (audit.health.status !== "audit-unavailable" && hasIncompleteStaticCapabilities(audit.staticCapabilities)) {
+    priorities.push("Static filesystem audit incomplete; manual review required");
   }
   const now = options.now ?? new Date();
   const abandonmentDays = options.abandonmentDays ?? 365;
@@ -423,6 +433,14 @@ export function applyHeuristics(
   if (audit.integrity?.pluginChecksums === "failed") priorities.push("WordPress plugin checksum verification needs manual review");
   if (audit.suspiciousFiles.length) priorities.push("PHP files found in uploads (possible backdoors)");
   return { ...audit, priorities };
+}
+
+export function hasIncompleteStaticCapabilities(capabilities?: WordPressAudit["staticCapabilities"]): boolean {
+  return capabilities !== undefined && (
+    capabilities.pluginInventory === "unavailable"
+    || capabilities.themeInventory === "unavailable"
+    || capabilities.suspiciousUploads === "unavailable"
+  );
 }
 
 export function isVeryOldCore(coreVersion: string): boolean {

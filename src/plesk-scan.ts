@@ -1,6 +1,6 @@
 import { execFile, spawn } from "node:child_process";
 import { mkdtemp, rm } from "node:fs/promises";
-import { dirname, isAbsolute, join } from "node:path";
+import { dirname, isAbsolute, join, posix } from "node:path";
 import { homedir, tmpdir } from "node:os";
 import { promisify } from "node:util";
 import type { HostConfig } from "./ssh-inventory";
@@ -83,6 +83,13 @@ export interface WordPressInstallation {
   domain?: string;
   classification?: WordPressInstallationClassification;
   detectionSignals?: WordPressDetectionSignal[];
+  pathEvidence?: WordPressPathEvidence[];
+}
+
+export interface WordPressPathEvidence {
+  signal: WordPressDetectionSignal;
+  detectedPath: string;
+  rootKind: "installation-root" | "core-root";
 }
 
 export type WordPressDetectionSignal = "wp-config.php" | "wp-includes/version.php";
@@ -258,7 +265,7 @@ export function parseDiskUsage(output: string): HostFacts["disk"] | undefined {
 
 function wordpressPath(candidatePath: string, includeDetectionSignal = false): WordPressInstallation {
   const isVersionFile = candidatePath.endsWith("/wp-includes/version.php");
-  const path = isVersionFile ? dirname(dirname(candidatePath)) : dirname(candidatePath);
+  const path = isVersionFile ? posix.dirname(posix.dirname(candidatePath)) : posix.dirname(candidatePath);
   const marker = "/var/www/vhosts/";
   const relative = path.startsWith(marker) ? path.slice(marker.length) : "";
   const domain = relative.split("/")[0] || undefined;
@@ -266,7 +273,14 @@ function wordpressPath(candidatePath: string, includeDetectionSignal = false): W
     path,
     domain,
     classification: classifyWordPressInstallation(path, domain),
-    ...(includeDetectionSignal ? { detectionSignals: [isVersionFile ? "wp-includes/version.php" : "wp-config.php"] } : {}),
+    ...(includeDetectionSignal ? {
+      detectionSignals: [isVersionFile ? "wp-includes/version.php" : "wp-config.php"],
+      pathEvidence: [{
+        signal: isVersionFile ? "wp-includes/version.php" : "wp-config.php",
+        detectedPath: candidatePath,
+        rootKind: isVersionFile ? "core-root" : "installation-root",
+      }],
+    } : {}),
   };
 }
 
@@ -282,6 +296,18 @@ function parseWordPressCandidates(paths: string[], includeDetectionSignal: boole
     if (installation.detectionSignals?.[0] && !existing.detectionSignals?.includes(installation.detectionSignals[0])) {
       existing.detectionSignals = [...(existing.detectionSignals ?? []), installation.detectionSignals[0]];
     }
+    existing.pathEvidence = [...(existing.pathEvidence ?? []), ...(installation.pathEvidence ?? [])];
+  }
+  for (const [path, installation] of installations) {
+    if (posix.basename(path) !== "wp" || posix.basename(posix.dirname(path)) !== "web" || !installation.detectionSignals?.includes("wp-includes/version.php")) continue;
+    const documentRoot = posix.dirname(path);
+    const documentInstallation = installations.get(documentRoot);
+    if (!documentInstallation?.detectionSignals?.includes("wp-config.php")) continue;
+    if (!documentInstallation.detectionSignals.includes("wp-includes/version.php")) {
+      documentInstallation.detectionSignals.push("wp-includes/version.php");
+    }
+    documentInstallation.pathEvidence = [...(documentInstallation.pathEvidence ?? []), ...(installation.pathEvidence ?? [])];
+    installations.delete(path);
   }
   return [...installations.values()];
 }

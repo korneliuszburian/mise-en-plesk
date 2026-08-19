@@ -42,6 +42,7 @@ describe("audit reports", () => {
           ...result.hosts[0].wordpress[0],
           auditSource: "plesk-wp-toolkit",
           wpCliTransport: "plesk-wp-toolkit",
+          layout: { kind: "bedrock", projectRoot: "/srv/site", documentRoot: "/srv/site/web", coreRoot: "/srv/site/web/wp", contentRoot: "/srv/site/web/app" },
           limitations: ["core checksum verification unavailable"],
           toolkitSignals: { infected: false, broken: false, alive: true, unsupportedPhp: false, stateText: "Working" },
         }],
@@ -50,6 +51,9 @@ describe("audit reports", () => {
 
     expect(markdown).toContain("- Audit source: plesk-wp-toolkit");
     expect(markdown).toContain("- WP-CLI transport: plesk-wp-toolkit");
+    expect(markdown).toContain("- Filesystem layout: bedrock");
+    expect(markdown).toContain("- Core root: /srv/site/web/wp");
+    expect(markdown).toContain("- Content root: /srv/site/web/app");
     expect(markdown).toContain("- Audit limitation: core checksum verification unavailable");
     expect(markdown).toContain("- WP Toolkit: Working; alive=yes; infected=no; broken=no; unsupported PHP=no");
   });
@@ -68,6 +72,27 @@ describe("audit reports", () => {
 
     expect(markdown).toContain("- Core checksum detail: WP-CLI reported checksum mismatches");
     expect(markdown).toContain("- Plugin checksum detail: WP-CLI reported checksum mismatches");
+  });
+
+  it("does not turn unavailable static metadata into zero-risk claims", () => {
+    const markdown = auditMarkdown({
+      ...result,
+      hosts: [{
+        ...result.hosts[0],
+        wordpress: [{
+          ...result.hosts[0].wordpress[0],
+          plugins: [{ name: "unknown-plugin", version: "unknown", vulnerabilities: [] }],
+          themes: [{ name: "unknown-theme", version: "unknown" }],
+          staticCapabilities: { pluginInventory: "available", themeInventory: "available", suspiciousUploads: "available", updateStatus: "unavailable" },
+          unscopedVulnerabilityIntelligence: [{ resource: "plugin", identifier: "unknown-plugin", vulnerabilities: [{ id: "historic", title: "Historic issue", cve: [], source: "WPVulnerability" }] }],
+        }],
+      }],
+    });
+
+    expect(markdown).toContain("Plugin risk: update and abandonment status unavailable, 0 with version-scoped known vulnerabilities");
+    expect(markdown).toContain("Theme risk: update status unavailable, 0 with version-scoped known vulnerabilities");
+    expect(markdown).toContain("installed-version applicability is unknown");
+    expect(markdown).not.toContain("Plugin risk: 0 with updates");
   });
 
   it("writes machine-readable JSON when requested", async () => {

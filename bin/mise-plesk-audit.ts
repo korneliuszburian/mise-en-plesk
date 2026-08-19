@@ -5,7 +5,7 @@ import { createSshSession, scanPleskHost, DEFAULT_SSH_COMMAND_TIMEOUT_MS } from 
 import type { ReadOnlyCommand } from "../src/ssh-transport";
 import { auditWordPressInstallation, createBatchedWpRunners, type AuditResult, type WordPressAudit, type ScanProgress } from "../src/wp-audit";
 import { writeAuditReport } from "../src/report";
-import { createFileVulnerabilityCache, lookupVulnerabilities, type VulnerabilityCache } from "../src/vulnerabilities";
+import { createBoundedVulnerabilityLookup, createFileVulnerabilityCache, type VulnerabilityCache } from "../src/vulnerabilities";
 import { findingsFromAudits } from "../src/findings";
 import { readFindingState, reconcileFindings, writeFindingState, type FindingScope, type FindingEvent } from "../src/finding-state";
 import { appendScanCycleFindings, completeScanCycle, prepareScanCycle, readScanCycleState, writeScanCycleState } from "../src/scan-cycle";
@@ -32,6 +32,7 @@ import {
   type PleskWpToolkitInventory,
   type WpCliCapability,
 } from "../src/plesk-wp-toolkit";
+import { auditStaticWordPressInstallation } from "../src/static-wp-audit";
 
 const inventoryPath = process.env.MISE_PLESK_INVENTORY ?? "inventory.json";
 const configPath = process.env.MISE_PLESK_CONFIG ?? "config.mise-en-plesk.json";
@@ -242,10 +243,27 @@ async function scanHost(
     const selectedWordPress = maxSites === undefined ? scan.wordpress.slice(offset) : scan.wordpress;
     const scannedInstallationPaths = selectedWordPress.map((installation) => installation.path);
     const wordpress = [];
+    const vulnerabilityResourceLookup = createBoundedVulnerabilityLookup({
+      enabled: process.env.MISE_PLESK_ENABLE_VULNS === "1",
+      maxLookups: maxVulnerabilityLookups,
+      budget: vulnerabilityBudget,
+      cache: vulnerabilityCache,
+    });
     for (let index = 0; index < selectedWordPress.length; index += maxConcurrentSites) {
       const batch = selectedWordPress.slice(index, index + maxConcurrentSites);
       wordpress.push(...await Promise.all(batch.map(async (installation) => {
         const toolkitSite = toolkitInventory.sites.get(installation.path.replace(/\/+$/, ""));
+        if (!toolkitSite && !wpCliCapability.available) {
+          return auditStaticWordPressInstallation(installation, ssh, {
+            useSudo: effectiveSudo,
+            enabled: process.env.MISE_PLESK_ENABLE_VULNS === "1",
+            vulnerabilityResourceLookup,
+            sourceLimitations: [
+              `Host WP-CLI unavailable: ${wpCliCapability.detail ?? "unknown reason"}`,
+              "Plesk WP Toolkit has no matching installation registration",
+            ],
+          });
+        }
         const batched = toolkitSite
           ? createBatchedWpRunners(installation, ssh, {
             useSudo: effectiveSudo,
@@ -259,24 +277,25 @@ async function scanHost(
         const audit = await auditWordPressInstallation(installation, runner, {
           useSudo: effectiveSudo,
           enabled: process.env.MISE_PLESK_ENABLE_VULNS === "1",
-          vulnerabilityResourceLookup: async (resource, identifier, options) => {
-            if (process.env.MISE_PLESK_ENABLE_VULNS !== "1") return { status: "disabled" };
-            try {
-              const cached = await vulnerabilityCache?.get(resource, identifier);
-              if (cached) return cached;
-            } catch (error: unknown) {
-              options?.debug?.(`vulnerability cache ignored: ${error instanceof Error ? error.message : "cache read failed"}`);
-            }
-            if (maxVulnerabilityLookups !== undefined && vulnerabilityBudget.used >= maxVulnerabilityLookups) return { status: "skipped" };
-            vulnerabilityBudget.used += 1;
-            return lookupVulnerabilities(resource, identifier, { ...options, enabled: true, cache: vulnerabilityCache });
-          },
+          vulnerabilityResourceLookup,
           suspiciousFileRunner: batched?.suspiciousFileRunner ?? (async () => ssh({
             kind: "suspicious-uploads",
             installationPath: installation.path,
             useSudo: effectiveSudo,
           })),
         });
+        if (!toolkitSite && audit.health.status && audit.health.status !== "unreachable") {
+          return auditStaticWordPressInstallation(installation, ssh, {
+            useSudo: effectiveSudo,
+            enabled: process.env.MISE_PLESK_ENABLE_VULNS === "1",
+            vulnerabilityResourceLookup,
+            observedHealth: audit.health,
+            sourceLimitations: [
+              `WP-CLI audit failed for this installation: ${audit.health.detail ?? audit.health.status}`,
+              "Plesk WP Toolkit has no matching installation registration",
+            ],
+          });
+        }
         if (toolkit && toolkitSite) {
           return { ...enrichAuditWithPleskWpToolkit(audit, toolkitSite, toolkit.diagnostics()), wpCliTransport: "plesk-wp-toolkit" as const };
         }

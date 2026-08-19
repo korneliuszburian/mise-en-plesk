@@ -28,15 +28,28 @@ export function auditMarkdown(result: AuditResult): string {
       if (site.health.detail) lines.push(`- Health detail: ${site.health.detail}`);
       if (site.auditSource) lines.push(`- Audit source: ${site.auditSource}`);
       if (site.wpCliTransport) lines.push(`- WP-CLI transport: ${site.wpCliTransport}`);
+      if (site.layout) {
+        lines.push(`- Filesystem layout: ${site.layout.kind}`);
+        lines.push(`- Core root: ${site.layout.coreRoot}`);
+        lines.push(`- Content root: ${site.layout.contentRoot}`);
+      }
+      if (site.staticCapabilities) {
+        lines.push(`- Static coverage: plugins ${site.staticCapabilities.pluginInventory}, themes ${site.staticCapabilities.themeInventory}, uploads ${site.staticCapabilities.suspiciousUploads}, update status ${site.staticCapabilities.updateStatus}`);
+      }
+      if (site.unscopedVulnerabilityIntelligence?.length) {
+        lines.push(`- Unscoped vulnerability intelligence: ${site.unscopedVulnerabilityIntelligence.length} resource(s); installed-version applicability is unknown`);
+      }
       for (const limitation of site.limitations ?? []) lines.push(`- Audit limitation: ${limitation}`);
       if (site.toolkitSignals) {
         const alive = site.toolkitSignals.alive === undefined ? "unknown" : site.toolkitSignals.alive ? "yes" : "no";
         lines.push(`- WP Toolkit: ${site.toolkitSignals.stateText ?? "unknown state"}; alive=${alive}; infected=${site.toolkitSignals.infected ? "yes" : "no"}; broken=${site.toolkitSignals.broken ? "yes" : "no"}; unsupported PHP=${site.toolkitSignals.unsupportedPhp ? "yes" : "no"}`);
       }
       if (site.coreUpdateAvailable !== undefined) lines.push(`- Core update available: ${site.coreUpdateAvailable ? "yes" : "no"}`);
-      const themeUpdateCount = (site.themes ?? []).filter((theme) => theme.hasUpdate).length;
+      const themeUpdateCount = (site.themes ?? []).filter((theme) => theme.hasUpdate === true).length;
       const themeVulnerabilityCount = (site.themes ?? []).filter((theme) => theme.vulnerabilities?.length).length;
-      if (site.themes) lines.push(`- Theme risk: ${themeUpdateCount} with updates, ${themeVulnerabilityCount} with known vulnerabilities`);
+      if (site.themes) lines.push(site.staticCapabilities?.updateStatus === "unavailable"
+        ? `- Theme risk: update status unavailable, ${themeVulnerabilityCount} with version-scoped known vulnerabilities`
+        : `- Theme risk: ${themeUpdateCount} with updates, ${themeVulnerabilityCount} with known vulnerabilities`);
       if (site.coreVulnerabilities?.length) lines.push(`- Core vulnerability risk: ${site.coreVulnerabilities.length} known vulnerability record(s)`);
       if (site.vulnerabilityStatus) lines.push(`- Vulnerability lookup status: ${site.vulnerabilityStatus}`);
       if (site.vulnerabilityCheckedAt) lines.push(`- Vulnerability data checked: ${site.vulnerabilityCheckedAt}`);
@@ -45,10 +58,12 @@ export function auditMarkdown(result: AuditResult): string {
         if (site.integrity.coreDetail) lines.push(`- Core checksum detail: ${site.integrity.coreDetail}`);
         if (site.integrity.pluginDetail) lines.push(`- Plugin checksum detail: ${site.integrity.pluginDetail}`);
       }
-      const updateCount = site.plugins.filter((plugin) => plugin.hasUpdate).length;
+      const updateCount = site.plugins.filter((plugin) => plugin.hasUpdate === true).length;
       const abandonedCount = site.plugins.filter((plugin) => plugin.wporgStatus !== undefined && plugin.wporgStatus !== "active" || plugin.wporgLastUpdated !== undefined && Date.parse(plugin.wporgLastUpdated) < Date.now() - 365 * 24 * 60 * 60 * 1000).length;
       const vulnerablePluginCount = site.plugins.filter((plugin) => plugin.vulnerabilities.length > 0).length;
-      lines.push(`- Plugin risk: ${updateCount} with updates, ${abandonedCount} abandoned, ${vulnerablePluginCount} with known vulnerabilities`);
+      lines.push(site.staticCapabilities?.updateStatus === "unavailable"
+        ? `- Plugin risk: update and abandonment status unavailable, ${vulnerablePluginCount} with version-scoped known vulnerabilities`
+        : `- Plugin risk: ${updateCount} with updates, ${abandonedCount} abandoned, ${vulnerablePluginCount} with known vulnerabilities`);
       if (site.suspiciousFiles.length) {
         lines.push(`- Suspicious uploads: ${site.suspiciousFiles.length} PHP file(s); details are available in JSON`);
         for (const file of site.suspiciousFiles.slice(0, 5)) lines.push(`  - ${file}`);

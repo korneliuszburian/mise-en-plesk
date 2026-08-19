@@ -2,7 +2,7 @@ import { mkdtemp, readFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { describe, expect, it, vi } from "vitest";
-import { createFileVulnerabilityCache, lookupPluginVulnerabilities, lookupVulnerabilities } from "../src/vulnerabilities";
+import { createBoundedVulnerabilityLookup, createFileVulnerabilityCache, lookupPluginVulnerabilities, lookupVulnerabilities } from "../src/vulnerabilities";
 
 describe("WPVulnerability lookup", () => {
   it("does no network I/O when disabled", async () => {
@@ -75,5 +75,26 @@ describe("WPVulnerability lookup", () => {
       slug: "sample-plugin",
       vulnerabilities: [{ title: "Remote code execution", severity: "critical", cve: ["CVE-2026-0002"] }],
     });
+  });
+
+  it("enforces one shared lookup budget under concurrent callers", async () => {
+    let active = 0;
+    let peak = 0;
+    const underlying = vi.fn(async () => {
+      active += 1;
+      peak = Math.max(peak, active);
+      await new Promise((resolve) => setTimeout(resolve, 5));
+      active -= 1;
+      return { status: "empty" as const };
+    });
+    const budget = { used: 0 };
+    const lookup = createBoundedVulnerabilityLookup({ enabled: true, maxLookups: 2, maxConcurrent: 1, budget, lookup: underlying });
+
+    const results = await Promise.all(["one", "two", "three", "four"].map((slug) => lookup("plugin", slug)));
+
+    expect(underlying).toHaveBeenCalledTimes(2);
+    expect(budget.used).toBe(2);
+    expect(peak).toBe(1);
+    expect(results.map(({ status }) => status)).toEqual(["empty", "empty", "skipped", "skipped"]);
   });
 });

@@ -1,4 +1,5 @@
 import { randomBytes } from "node:crypto";
+import { posix } from "node:path";
 
 export type ReadOnlyCommand =
   | { kind: "ssh-handshake" }
@@ -11,7 +12,8 @@ export type ReadOnlyCommand =
   | { kind: "php-version"; useSudo?: boolean }
   | { kind: "disk-usage"; useSudo?: boolean }
   | { kind: "suspicious-uploads"; installationPath: string; useSudo?: boolean }
-  | { kind: "wp-audit-batch"; installationPath: string; useSudo?: boolean; runtime?: WpCliRuntime; markerNonce?: string };
+  | { kind: "wp-audit-batch"; installationPath: string; useSudo?: boolean; runtime?: WpCliRuntime; markerNonce?: string }
+  | { kind: "static-wp-audit-batch"; installationPath: string; bedrockDocumentRoot?: string; useSudo?: boolean; markerNonce?: string };
 
 export type WpCliRuntime =
   | { kind: "host" }
@@ -44,6 +46,21 @@ export const WP_AUDIT_COMMAND_SECTIONS = [
 
 export type WpAuditSection = typeof WP_AUDIT_COMMAND_SECTIONS[number]["section"] | "uploads";
 
+export const STATIC_WP_AUDIT_SECTIONS = [
+  "classic_version",
+  "bedrock_version",
+  "bedrock_composer",
+  "bedrock_config",
+  "classic_plugins",
+  "bedrock_plugins",
+  "classic_themes",
+  "bedrock_themes",
+  "classic_uploads",
+  "bedrock_uploads",
+] as const;
+
+export type StaticWpAuditSection = typeof STATIC_WP_AUDIT_SECTIONS[number];
+
 export function isReadOnlyWpCommand(value: string): value is ReadOnlyWpCommand {
   return (READ_ONLY_WP_COMMANDS as readonly string[]).includes(value);
 }
@@ -51,6 +68,17 @@ export function isReadOnlyWpCommand(value: string): value is ReadOnlyWpCommand {
 function shellQuote(value: string): string {
   if (/[\u0000-\u001f\u007f]/.test(value)) throw new Error("unsafe installation path: control character");
   return `'${value.replaceAll("'", "'\\''")}'`;
+}
+
+function assertPleskVhostPath(value: string): void {
+  if (!value.startsWith("/var/www/vhosts/")
+    || !/^\/var\/www\/vhosts\/[A-Za-z0-9._/-]+$/.test(value)
+    || posix.normalize(value) !== value
+    || value.includes("/../")
+    || value.includes("/./")
+    || /[\u0000-\u001f\u007f]/.test(value)) {
+    throw new Error("remote WordPress path must be a canonical absolute Plesk vhost path");
+  }
 }
 
 function sudoPrefix(useSudo = false, requireCachedCredential = false): string {
@@ -69,20 +97,21 @@ function boundedRange(offset = 0, limit?: number): { offset: number; limit?: num
 function renderWordPressCandidates(command: Extract<ReadOnlyCommand, { kind: "wordpress-candidates" }>): string {
   const { offset, limit } = boundedRange(command.offset, command.limit);
   const prefix = sudoPrefix(command.useSudo);
-  const find = `${prefix}find /var/www/vhosts -xdev -maxdepth 4 -type f ${command.includeAlternateDetection ? "\\( -name wp-config.php -o -path '*/wp-includes/version.php' \\)" : "-name wp-config.php"} -print`;
+  const find = `${prefix}find /var/www/vhosts -xdev -maxdepth 6 -type f ${command.includeAlternateDetection ? "\\( -name wp-config.php -o -path '*/wp-includes/version.php' \\)" : "-name wp-config.php"} -print`;
   if (limit === undefined) return find;
   const end = offset + limit + 1;
-  return `${find} | ${String.raw`awk '{ candidate=$0; sub(/\/wp-config\.php$/, "", candidate); sub(/\/wp-includes\/version\.php$/, "", candidate); if (seen[candidate]++) next; position++; if (position > ${offset} && position <= ${end}) { print; if (position >= ${end}) exit } }'`}`;
+  return `${find} | ${String.raw`awk '{ candidate=$0; sub(/\/wp-config\.php$/, "", candidate); sub(/\/wp-includes\/version\.php$/, "", candidate); sub(/\/web\/wp$/, "/web", candidate); if (seen[candidate]++) next; position++; if (position > ${offset} && position <= ${end}) { print; if (position >= ${end}) exit } }'`}`;
 }
 
 function renderWpAuditBatch(command: Extract<ReadOnlyCommand, { kind: "wp-audit-batch" }>): string {
+  assertPleskVhostPath(command.installationPath);
   const markerNonce = command.markerNonce ?? randomBytes(16).toString("hex");
   if (!/^[a-f0-9]{32}$/.test(markerNonce)) throw new Error("WP audit marker nonce must be 32 lowercase hexadecimal characters");
   const prefix = sudoPrefix(command.useSudo, true);
   const wp = (value: ReadOnlyWpCommand): string => renderWpCliCommand(command.installationPath, value, command.useSudo, command.runtime, true);
   const commands: Array<{ section: WpAuditSection; rendered: string }> = [
     ...WP_AUDIT_COMMAND_SECTIONS.map(({ section, command: wpCommand }) => ({ section, rendered: wp(wpCommand) })),
-    { section: "uploads", rendered: `${prefix}find ${shellQuote(`${command.installationPath}/wp-content/uploads`)} -type f -name '*.php' -print` },
+    { section: "uploads", rendered: `${prefix}find ${shellQuote(`${command.installationPath}/wp-content/uploads`)} -xdev -type f -name '*.php' -print` },
   ];
   const batch = commands.map(({ section, rendered }) => [
     `printf '%s\\n' '__MISE_${markerNonce}_${section.toUpperCase()}_BEGIN__'`,
@@ -94,7 +123,40 @@ function renderWpAuditBatch(command: Extract<ReadOnlyCommand, { kind: "wp-audit-
   return command.useSudo ? `sudo -S -p '' -v; ${batch}` : batch;
 }
 
+function renderStaticWpAuditBatch(command: Extract<ReadOnlyCommand, { kind: "static-wp-audit-batch" }>): string {
+  const markerNonce = command.markerNonce ?? randomBytes(16).toString("hex");
+  if (!/^[a-f0-9]{32}$/.test(markerNonce)) throw new Error("static WP audit marker nonce must be 32 lowercase hexadecimal characters");
+  assertPleskVhostPath(command.installationPath);
+  if (command.bedrockDocumentRoot) assertPleskVhostPath(command.bedrockDocumentRoot);
+  const prefix = sudoPrefix(command.useSudo, true);
+  const classicContent = `${command.installationPath}/wp-content`;
+  const bedrockDocumentRoot = command.bedrockDocumentRoot ?? command.installationPath;
+  const bedrockContent = `${bedrockDocumentRoot}/app`;
+  const projectRoot = posix.dirname(bedrockDocumentRoot);
+  const commands: Record<StaticWpAuditSection, string> = {
+    classic_version: `${prefix}grep -m 1 '^\\$wp_version = ' ${shellQuote(`${command.installationPath}/wp-includes/version.php`)}`,
+    bedrock_version: `${prefix}grep -m 1 '^\\$wp_version = ' ${shellQuote(`${bedrockDocumentRoot}/wp/wp-includes/version.php`)}`,
+    bedrock_composer: `${prefix}find ${shellQuote(projectRoot)} -mindepth 1 -maxdepth 1 -type f -name composer.json -print`,
+    bedrock_config: `${prefix}find ${shellQuote(`${projectRoot}/config`)} -mindepth 1 -maxdepth 1 -type f -name application.php -print`,
+    classic_plugins: `${prefix}find ${shellQuote(`${classicContent}/plugins`)} -mindepth 1 -maxdepth 1 \\( -type d -o \\( -type f -name '*.php' \\) \\) -printf '%f\\n'`,
+    bedrock_plugins: `${prefix}find ${shellQuote(`${bedrockContent}/plugins`)} -mindepth 1 -maxdepth 1 \\( -type d -o \\( -type f -name '*.php' \\) \\) -printf '%f\\n'`,
+    classic_themes: `${prefix}find ${shellQuote(`${classicContent}/themes`)} -mindepth 1 -maxdepth 1 -type d -printf '%f\\n'`,
+    bedrock_themes: `${prefix}find ${shellQuote(`${bedrockContent}/themes`)} -mindepth 1 -maxdepth 1 -type d -printf '%f\\n'`,
+    classic_uploads: `${prefix}find ${shellQuote(`${classicContent}/uploads`)} -xdev -type f -name '*.php' -print`,
+    bedrock_uploads: `${prefix}find ${shellQuote(`${bedrockContent}/uploads`)} -xdev -type f -name '*.php' -print`,
+  };
+  const batch = STATIC_WP_AUDIT_SECTIONS.map((section) => [
+    `printf '%s\\n' '__MISE_${markerNonce}_${section.toUpperCase()}_BEGIN__'`,
+    `${commands[section]} 2>&1`,
+    "status=$?",
+    `printf '\\n%s\\n' "__MISE_${markerNonce}_${section.toUpperCase()}_STATUS_\${status}__"`,
+    `printf '%s\\n' '__MISE_${markerNonce}_${section.toUpperCase()}_END__'`,
+  ].join("; ")).join("; ");
+  return command.useSudo ? `sudo -S -p '' -v; ${batch}` : batch;
+}
+
 export function renderWpCliCommand(installationPath: string, command: ReadOnlyWpCommand, useSudo = false, runtime: WpCliRuntime = { kind: "host" }, cachedSudo = false): string {
+  assertPleskVhostPath(installationPath);
   if (runtime.kind === "plesk-wp-toolkit") {
     if (!Number.isSafeInteger(runtime.instanceId) || runtime.instanceId < 1) {
       throw new Error("WP Toolkit instance ID must be a positive safe integer");
@@ -132,8 +194,11 @@ export function renderReadOnlyCommand(command: ReadOnlyCommand): string {
     case "plesk-version": return `${sudoPrefix(command.useSudo)}plesk version`;
     case "php-version": return `${sudoPrefix(command.useSudo)}php -v`;
     case "disk-usage": return `${sudoPrefix(command.useSudo)}df -P -k /var/www/vhosts`;
-    case "suspicious-uploads": return `${sudoPrefix(command.useSudo)}find ${shellQuote(`${command.installationPath}/wp-content/uploads`)} -type f -name '*.php' -print`;
+    case "suspicious-uploads":
+      assertPleskVhostPath(command.installationPath);
+      return `${sudoPrefix(command.useSudo)}find ${shellQuote(`${command.installationPath}/wp-content/uploads`)} -xdev -type f -name '*.php' -print`;
     case "wp-audit-batch": return renderWpAuditBatch(command);
+    case "static-wp-audit-batch": return renderStaticWpAuditBatch(command);
   }
 }
 
@@ -150,8 +215,8 @@ const forbiddenRemoteMutation = [
   /\bfind\b.*\s-(?:exec|execdir|delete|fls|fprint|fprintf|ok|okdir)\b/i,
   />>\s*\S|>\s*(?:[~/.]|["'])|<\s*(?:[~/.]|["'])|<\(/i,
 ];
-const allowedRemoteExecutables = new Set(["printf", "wp", "plesk", "php", "df", "find", "awk", "id", "uname", ":"]);
-const allowedAwkPrefix = "awk '{ candidate=$0; sub(/\\/wp-config\\.php$/, \"\", candidate); sub(/\\/wp-includes\\/version\\.php$/, \"\", candidate); if (seen[candidate]++) next; position++; if (position > ";
+const allowedRemoteExecutables = new Set(["printf", "wp", "plesk", "php", "df", "find", "grep", "awk", "id", "uname", ":"]);
+const allowedAwkPrefix = "awk '{ candidate=$0; sub(/\\/wp-config\\.php$/, \"\", candidate); sub(/\\/wp-includes\\/version\\.php$/, \"\", candidate); sub(/\\/web\\/wp$/, \"/web\", candidate); if (seen[candidate]++) next; position++; if (position > ";
 const allowedAwkRemainder = /^\d+ && position <= \d+\) \{ print; if \(position >= \d+\) exit \} \}'$/;
 
 export function assertReadOnlyRenderedCommand(command: string): void {
@@ -170,6 +235,14 @@ export function assertReadOnlyRenderedCommand(command: string): void {
     .replace(/'[^']*'/g, "''")
     .replace(/\bcommand\s+-v\s+(?:bw|node|pnpm|sshpass|systemctl)\b/gi, "");
   const shellOnlyCommand = normalizedCommand.replace(/'[^']*'/g, "''");
+  const grepCommands = [...normalizedCommand.matchAll(/(?:^|;\s*)(grep\s+[^;]+)/g)].map((match) => match[1].replace(/\s+2>&1$/, ""));
+  const grepOccurrences = normalizedCommand.match(/\bgrep\s/g)?.length ?? 0;
+  const validVersionGreps = grepCommands.length === grepOccurrences
+    && grepCommands.every((value) => /^grep -m 1 '\^\\\$wp_version = ' '\/var\/www\/vhosts\/[^'\r\n]+\/(?:wp\/)?wp-includes\/version\.php'$/.test(value));
+  const findCommands = [...normalizedCommand.matchAll(/(?:^|;\s*)(find\s+[\s\S]*?)(?=\s+2>&1;\s+status=|\s+\|\s+awk|$)/g)]
+    .map((match) => match[1].trim());
+  const findOccurrences = normalizedCommand.match(/\bfind\s/g)?.length ?? 0;
+  const validFindCommands = findCommands.length === findOccurrences && findCommands.every(isAllowedFindCommand);
   const executableNames = [...commandForExecutableScan.matchAll(/(?:^|[;&|]\s*|\$\(\s*)(?![A-Za-z_][A-Za-z0-9_]*=)([A-Za-z0-9_./-]+)/gm)].map((match) => match[1]);
   const awkIndex = normalizedCommand.indexOf("awk ");
   const containsAwk = awkIndex >= 0;
@@ -178,6 +251,8 @@ export function assertReadOnlyRenderedCommand(command: string): void {
     && allowedAwkRemainder.test(normalizedCommand.slice(awkIndex + allowedAwkPrefix.length));
   if (
     invalidToolkitBridge
+    || !validVersionGreps
+    || !validFindCommands
     || /\bsudo\b/i.test(normalizedCommand)
     || executableNames.some((name) => !allowedRemoteExecutables.has(name))
     || /`/.test(normalizedCommand)
@@ -187,4 +262,15 @@ export function assertReadOnlyRenderedCommand(command: string): void {
   ) {
     throw new Error("Refusing remote command: mutation detected in read-only SSH policy.");
   }
+}
+
+function isAllowedFindCommand(command: string): boolean {
+  if (command.includes("/../") || command.includes("/./") || /[\r\n]/.test(command)) return false;
+  const discovery = /^find \/var\/www\/vhosts -xdev -maxdepth 6 -type f (?:-name wp-config\.php|\\\( -name wp-config\.php -o -path '\*\/wp-includes\/version\.php' \\\)) -print$/;
+  const uploads = /^find '\/var\/www\/vhosts\/[^']+\/(?:wp-content|app)\/uploads' -xdev -type f -name '\*\.php' -print$/;
+  const plugins = /^find '\/var\/www\/vhosts\/[^']+\/(?:wp-content|app)\/plugins' -mindepth 1 -maxdepth 1 \\\( -type d -o \\\( -type f -name '\*\.php' \\\) \\\) -printf '%f\\n'$/;
+  const themes = /^find '\/var\/www\/vhosts\/[^']+\/(?:wp-content|app)\/themes' -mindepth 1 -maxdepth 1 -type d -printf '%f\\n'$/;
+  const bedrockComposer = /^find '\/var\/www\/vhosts\/[^']+' -mindepth 1 -maxdepth 1 -type f -name composer\.json -print$/;
+  const bedrockConfig = /^find '\/var\/www\/vhosts\/[^']+\/config' -mindepth 1 -maxdepth 1 -type f -name application\.php -print$/;
+  return [discovery, uploads, plugins, themes, bedrockComposer, bedrockConfig].some((pattern) => pattern.test(command));
 }

@@ -159,6 +159,22 @@ describe("structured findings", () => {
     expect(refined.id).toBe(legacy.id);
   });
 
+  it("creates a P1 finding for a discovered installation with no usable audit source", () => {
+    const findings = findingsFromAudits([{
+      host: "dev-ssh",
+      wordpress: [baseAudit({
+        auditSource: "none",
+        health: { reachable: true, status: "audit-unavailable", detail: "no readable supported layout" },
+      })],
+    }]);
+
+    expect(findings).toEqual([expect.objectContaining({
+      code: "audit-unavailable",
+      severity: "P1",
+      evidence: "no readable supported layout",
+    })]);
+  });
+
   it("creates a stable P1 finding when the SSH host cannot be reached", () => {
     const hosts = [{
       host: "master-ssh",

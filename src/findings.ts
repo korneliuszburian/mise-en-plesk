@@ -1,5 +1,5 @@
 import { createHash } from "node:crypto";
-import { isPluginAbandoned, isVeryOldCore, isWpCliFailure, type WordPressAudit } from "./wp-audit";
+import { hasIncompleteStaticCapabilities, isPluginAbandoned, isVeryOldCore, isWpCliFailure, type WordPressAudit } from "./wp-audit";
 
 export type FindingCode =
   | "host-unreachable"
@@ -9,6 +9,8 @@ export type FindingCode =
   | "wp-cli-missing"
   | "wp-cli-permission-denied"
   | "wp-cli-broken"
+  | "audit-unavailable"
+  | "audit-incomplete"
   | "core-outdated"
   | "core-update"
   | "plugin-update"
@@ -29,7 +31,7 @@ export type FindingCode =
 export type FindingSeverity = "P1" | "P2" | "info";
 
 const findingCodes = new Set<FindingCode>([
-  "host-unreachable", "unreachable", "runtime-incompatible", "wp-cli-error", "wp-cli-missing", "wp-cli-permission-denied", "wp-cli-broken", "core-outdated", "core-update",
+  "host-unreachable", "unreachable", "runtime-incompatible", "wp-cli-error", "wp-cli-missing", "wp-cli-permission-denied", "wp-cli-broken", "audit-unavailable", "audit-incomplete", "core-outdated", "core-update",
   "plugin-update", "plugin-abandoned", "plugin-vulnerable", "theme-update",
   "core-checksum-failed", "plugin-checksum-failed", "suspicious-upload-php",
   "monitor-stale", "core-vulnerable", "theme-vulnerable", "plesk-toolkit-infected",
@@ -121,6 +123,12 @@ export function findingsFromAudits(hosts: AuditedHost[], now = new Date()): Find
           { evidence: audit.health.detail },
           "wp-cli-error",
         ));
+      }
+      if (audit.health.status === "audit-unavailable") {
+        findings.push(makeFinding(host, audit, "audit-unavailable", "P1", "WordPress audit data unavailable; manual review required", "audit-source", { evidence: audit.health.detail }));
+      }
+      if (audit.health.status !== "audit-unavailable" && hasIncompleteStaticCapabilities(audit.staticCapabilities)) {
+        findings.push(makeFinding(host, audit, "audit-incomplete", "P1", "Static filesystem audit incomplete; manual review required", "static-capabilities"));
       }
       if (isVeryOldCore(audit.coreVersion)) {
         findings.push(makeFinding(host, audit, "core-outdated", "P1", "core is very old", "core"));

@@ -40,7 +40,7 @@ describe("remote read-only safety contract", () => {
     expect(calls.length).toBeGreaterThan(1);
     const allowedCommands = new Set([
       "sudo -S -p '' -- plesk bin subscription --list",
-      "sudo -S -p '' -- find /var/www/vhosts -xdev -maxdepth 4 -type f \\( -name wp-config.php -o -path '*/wp-includes/version.php' \\) -print",
+      "sudo -S -p '' -- find /var/www/vhosts -xdev -maxdepth 6 -type f \\( -name wp-config.php -o -path '*/wp-includes/version.php' \\) -print",
       "sudo -S -p '' -- plesk version",
       "sudo -S -p '' -- php -v",
       "sudo -S -p '' -- df -P -k /var/www/vhosts",
@@ -54,13 +54,13 @@ describe("remote read-only safety contract", () => {
   it("renders only known read-only command kinds", () => {
     expect(renderReadOnlyCommand({ kind: "ssh-handshake" })).toBe(":");
     expect(renderReadOnlyCommand({ kind: "plesk-subscriptions", useSudo: true })).toBe("sudo -S -p '' -- plesk bin subscription --list");
-    expect(() => renderReadOnlyCommand({ kind: "wp-audit-batch", installationPath: "/tmp/site\n;rm -rf /" })).toThrow("control character");
+    expect(() => renderReadOnlyCommand({ kind: "wp-audit-batch", installationPath: "/tmp/site\n;rm -rf /" })).toThrow("canonical absolute Plesk vhost path");
   });
 
   it("fails closed at the last execution seam for mutation-shaped commands", () => {
     expect(() => assertReadOnlyRenderedCommand("rm -rf /var/www/vhosts/example.test/httpdocs")).toThrow("mutation detected");
     expect(() => assertReadOnlyRenderedCommand("value=$(rm -rf /var/www/vhosts/example.test/httpdocs)")).toThrow("mutation detected");
-    expect(() => assertReadOnlyRenderedCommand("wp plugin update vulnerable-plugin --path='/srv/site'")).toThrow("mutation detected");
+    expect(() => assertReadOnlyRenderedCommand("wp plugin update vulnerable-plugin --path='/var/www/vhosts/example.test/httpdocs'")).toThrow("mutation detected");
     expect(() => assertReadOnlyRenderedCommand("plesk ext wp-toolkit --wp-cli -instance-id 5 -- plugin update vulnerable-plugin")).toThrow("mutation detected");
     expect(() => assertReadOnlyRenderedCommand("plesk ext wp-toolkit --wp-cli -instance-id 5 -- db query 'DELETE FROM wp_options'")).toThrow("mutation detected");
     expect(() => assertReadOnlyRenderedCommand("plesk ext wp-toolkit --wp-cli -instance-id 5 -- core version --exec='echo unsafe'")).toThrow("mutation detected");
@@ -92,9 +92,13 @@ describe("remote read-only safety contract", () => {
     expect(() => assertReadOnlyRenderedCommand("python3 -c \"import os; os.unlink('/tmp/x')\"")).toThrow("mutation detected");
     expect(() => assertReadOnlyRenderedCommand("command python3 -c \"open('/tmp/x','w').write('x')\"")).toThrow("mutation detected");
     expect(() => assertReadOnlyRenderedCommand("php -f /tmp/mutator.php")).toThrow("mutation detected");
+    expect(() => assertReadOnlyRenderedCommand("grep -m 1 '^\\$wp_version = ' '/etc/shadow'")).toThrow("mutation detected");
+    expect(() => assertReadOnlyRenderedCommand("value=$(grep -m 1 '^\\$wp_version = ' '/etc/shadow')")).toThrow("mutation detected");
     expect(() => assertReadOnlyRenderedCommand("find /tmp -exec php -f /tmp/mutator.php \\\\;")).toThrow("mutation detected");
+    expect(() => assertReadOnlyRenderedCommand("find /etc -type f -print")).toThrow("mutation detected");
+    expect(() => assertReadOnlyRenderedCommand("find '/var/www/vhosts/example.test/httpdocs/random' -mindepth 1 -maxdepth 1 -type f -name application.php -print")).toThrow("mutation detected");
     expect(() => assertReadOnlyRenderedCommand("awk 'BEGIN { system(\"python3 -c \\\"open(\\\x27/tmp/x\\\x27,\\\x27w\\\x27).write(\\\x27x\\\x27)\\\"\") }'")).toThrow("mutation detected");
-    expect(() => assertReadOnlyRenderedCommand("find /var/www/vhosts -print | awk '{ candidate=$0; sub(/\\/wp-config\\.php$/, \"\", candidate); sub(/\\/wp-includes\\/version\\.php$/, \"\", candidate); if (seen[candidate]++) next; position++; if (position > 0 && position <= 2) { system(\"python3 -c \\\"open(\\\x27/tmp/x\\\x27,\\\x27w\\\x27).write(\\\x27x\\\x27)\\\"\"); print; if (position >= 2) exit } }'")).toThrow("mutation detected");
+    expect(() => assertReadOnlyRenderedCommand("find /var/www/vhosts -print | awk '{ candidate=$0; sub(/\\/wp-config\\.php$/, \"\", candidate); sub(/\\/wp-includes\\/version\\.php$/, \"\", candidate); sub(/\\/web\\/wp$/, \"/web\", candidate); if (seen[candidate]++) next; position++; if (position > 0 && position <= 2) { system(\"python3 -c \\\"open(\\\x27/tmp/x\\\x27,\\\x27w\\\x27).write(\\\x27x\\\x27)\\\"\"); print; if (position >= 2) exit } }'")).toThrow("mutation detected");
     expect(() => assertReadOnlyRenderedCommand("printf `python3 -c \"open('/tmp/x','w').write('x')\"`")).toThrow("mutation detected");
     expect(() => assertReadOnlyRenderedCommand("printf ok > /tmp/mise-test")).toThrow("mutation detected");
     expect(() => assertReadOnlyRenderedCommand("printf ok >> /tmp/mise-test")).toThrow("mutation detected");
@@ -114,10 +118,22 @@ describe("remote read-only safety contract", () => {
     ))).not.toThrow();
   });
 
+  it("allows the generated static audit batch but rejects paths outside Plesk vhosts", () => {
+    const command = renderReadOnlyCommand({
+      kind: "static-wp-audit-batch",
+      installationPath: "/var/www/vhosts/example.test/httpdocs/web",
+      useSudo: true,
+    });
+
+    expect(() => assertReadOnlyRenderedCommand(command)).not.toThrow();
+    expect(() => renderReadOnlyCommand({ kind: "static-wp-audit-batch", installationPath: "/var/www/vhosts/example.test/../../etc" }))
+      .toThrow("canonical absolute Plesk vhost path");
+  });
+
   it("blocks a forged command before opening an SSH process", async () => {
     await expect(runSshCommand(host, {
       kind: "wp-audit-batch",
-      installationPath: "/srv/site;rm -rf /",
-    })).rejects.toThrow("mutation detected");
+      installationPath: "/var/www/vhosts/example.test/httpdocs;rm -rf /",
+    })).rejects.toThrow("canonical absolute Plesk vhost path");
   });
 });
