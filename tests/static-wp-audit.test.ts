@@ -84,6 +84,7 @@ describe("static WordPress filesystem audit", () => {
       if (command.kind !== "static-wp-audit-batch") throw new Error("unexpected command");
       expect(command.bedrockDocumentRoot).toBe("/var/www/vhosts/example.test/httpdocs/web");
       return staticEnvelope(command, {
+        CLASSIC_VERSION: { output: "$wp_version = '6.8.3';", status: 0 },
         BEDROCK_VERSION: { output: "$wp_version = '6.8.3';", status: 0 },
         BEDROCK_COMPOSER: { output: "/var/www/vhosts/example.test/httpdocs/composer.json", status: 0 },
         BEDROCK_CONFIG: { output: "/var/www/vhosts/example.test/httpdocs/config/application.php", status: 0 },
@@ -139,16 +140,23 @@ describe("static WordPress filesystem audit", () => {
   });
 
   it("rejects Bedrock-shaped core files without canonical project markers", async () => {
-    const audit = await auditStaticWordPressInstallation({ path: "/var/www/vhosts/example.test/httpdocs/web" }, async (command) => {
+    const audit = await auditStaticWordPressInstallation({
+      path: "/var/www/vhosts/example.test/httpdocs/web/wp",
+      detectionSignals: ["wp-includes/version.php"],
+      pathEvidence: [{ signal: "wp-includes/version.php", detectedPath: "/var/www/vhosts/example.test/httpdocs/web/wp/wp-includes/version.php", rootKind: "core-root" }],
+    }, async (command) => {
       if (command.kind !== "static-wp-audit-batch") throw new Error("unexpected command");
       return staticEnvelope(command, {
+        CLASSIC_VERSION: { output: "$wp_version = '6.8.3';", status: 0 },
         BEDROCK_VERSION: { output: "$wp_version = '6.8.3';", status: 0 },
         BEDROCK_COMPOSER: { output: "", status: 1 },
         BEDROCK_CONFIG: { output: "", status: 1 },
+        BEDROCK_UPLOADS: { output: "/var/www/vhosts/example.test/httpdocs/web/app/uploads/shell.php", status: 0 },
       });
     });
 
     expect(audit).toMatchObject({ auditSource: "none", health: { status: "audit-unavailable", detail: "Bedrock core path found without canonical project markers" } });
+    expect(audit.suspiciousFiles).toEqual(["/var/www/vhosts/example.test/httpdocs/web/app/uploads/shell.php"]);
   });
 
   it("fails closed on ambiguous classic and Bedrock layout signals", async () => {

@@ -107,14 +107,16 @@ export async function auditStaticWordPressInstallation(
   const classicVersion = parseVersion(sections.get("classic_version"));
   const bedrockVersion = parseVersion(sections.get("bedrock_version"));
   const documentRoot = bedrockDocumentRoot(installation);
+  const bedrockCoreCandidate = documentRoot !== installation.path;
   const projectRoot = posix.dirname(documentRoot);
   const bedrockMarkers = containsExactPath(sections.get("bedrock_composer"), `${projectRoot}/composer.json`)
     && containsExactPath(sections.get("bedrock_config"), `${projectRoot}/config/application.php`);
   const bedrockConfirmed = bedrockVersion !== undefined && bedrockMarkers;
-  if (!classicVersion && !bedrockConfirmed || classicVersion !== undefined && bedrockConfirmed) {
+  const independentClassicVersion = bedrockCoreCandidate ? undefined : classicVersion;
+  if (!independentClassicVersion && !bedrockConfirmed || independentClassicVersion !== undefined && bedrockConfirmed) {
     const classicSuspicious = suspiciousFiles(sections.get("classic_uploads"), `${installation.path}/wp-content/uploads`);
-    const bedrockSuspicious = suspiciousFiles(sections.get("bedrock_uploads"), `${installation.path}/app/uploads`);
-    const detail = classicVersion && bedrockConfirmed
+    const bedrockSuspicious = suspiciousFiles(sections.get("bedrock_uploads"), `${documentRoot}/app/uploads`);
+    const detail = independentClassicVersion && bedrockConfirmed
       ? "classic and Bedrock layout signals are ambiguous"
       : bedrockVersion && !bedrockMarkers
         ? "Bedrock core path found without canonical project markers"
@@ -159,7 +161,7 @@ export async function auditStaticWordPressInstallation(
       hasUpdate: undefined,
     };
   }));
-  const coreVersion = bedrockVersion ?? classicVersion!;
+  const coreVersion = bedrockVersion ?? independentClassicVersion!;
   const coreResult = await lookupResource("core", coreVersion);
   const vulnerabilityStatus = summarizeVulnerabilityStatus(vulnerabilityStatuses);
   const limitations = [
