@@ -330,26 +330,27 @@ password or any Plesk credential in unit files.
 
 For production Meta alerts, prepare a System User token with
 `whatsapp_business_messaging`, an approved one-body-parameter utility template,
-the sender phone-number ID, and the digits-only recipient. Feed those values as
-one JSON object on stdin to the guarded bootstrap; the access token is written
-only to `/run/mise-en-plesk/WHATSAPP_ACCESS_TOKEN` as root mode `0600`, while a
+the sender phone-number ID, and the digits-only recipient. The interactive
+helper reads the token without echo, streams it directly to the guarded root
+bootstrap, and never places it in argv, an environment variable, persistent
+storage, or a report. The bootstrap briefly stages it in a root-only mode
+`0700` transaction directory below `/run/mise-en-plesk`; the staged and final
+credential files are mode `0600`. It cleans the staging area on success or
+transactional rollback and installs the runtime credential at
+`/run/mise-en-plesk/WHATSAPP_ACCESS_TOKEN`. A
 root-owned systemd drop-in stores only validated non-secret routing:
 
 ```sh
-# whatsapp-runtime.json shape (keep the real file outside this repository):
-# {"accessToken":"...","phoneNumberId":"...","recipient":"48...",
-#  "templateName":"plesk_security_alert","templateLanguage":"pl_PL",
-#  "graphVersion":"vXX.0"}
-sudo scripts/bootstrap-systemd-whatsapp-runtime.sh \
-  --apply --confirm=bootstrap-whatsapp-runtime < whatsapp-runtime.json
-sudo scripts/verify-systemd-install.sh --require-whatsapp
+scripts/setup-systemd-whatsapp.sh
+scripts/setup-systemd-whatsapp.sh \
+  --apply --confirm=configure-whatsapp-runtime
 sudo scripts/run-systemd-whatsapp-test.sh --confirm=<configured-recipient>
 ```
 
-Keep `whatsapp-runtime.json` outside the repository, mode `0600`, and remove it
-through the operator's secret-handling procedure after bootstrap. The runtime
-credential is ephemeral and must be restored after reboot, like `BW_SESSION`.
-No message is sent by the bootstrap. The guarded systemd test runs the compiled
+The runtime credential is ephemeral and must be restored after reboot, like
+`BW_SESSION`. Setup leaves the scan timer stopped, so configuration itself
+cannot trigger an alert. No message is sent by setup/bootstrap. The guarded systemd test runs the compiled
 CLI as the unprivileged service account with the same ephemeral credential and
 non-secret routing as the timer; it sends exactly one message only when
-`--confirm` matches the configured recipient.
+`--confirm` matches the configured recipient. After that test succeeds, start
+scheduled scans explicitly with `sudo systemctl start mise-en-plesk.timer`.

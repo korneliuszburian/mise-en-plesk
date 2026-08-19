@@ -13,6 +13,7 @@ scanner_lock="/run/mise-en-plesk/scan.lock"
 whatsapp_dropin="/etc/systemd/system/mise-en-plesk.service.d/whatsapp.conf"
 whatsapp_credential="/run/mise-en-plesk/WHATSAPP_ACCESS_TOKEN"
 require_whatsapp=0
+allow_inactive_timer=0
 
 fail() {
   echo "systemd installation check failed: $*" >&2
@@ -22,8 +23,9 @@ fail() {
 for argument in "$@"; do
   case "$argument" in
     --require-whatsapp) require_whatsapp=1 ;;
+    --allow-inactive-timer) allow_inactive_timer=1 ;;
     --help)
-      echo "Usage: scripts/verify-systemd-install.sh [--require-whatsapp]"
+      echo "Usage: scripts/verify-systemd-install.sh [--require-whatsapp] [--allow-inactive-timer]"
       exit 0
       ;;
     *) fail "unknown option: $argument" ;;
@@ -85,7 +87,9 @@ fi
 
 systemd-analyze verify "$service_unit" "$timer_unit"
 systemctl is-enabled --quiet mise-en-plesk.timer || fail "mise-en-plesk.timer is not enabled"
-systemctl is-active --quiet mise-en-plesk.timer || fail "mise-en-plesk.timer is not active"
+if (( allow_inactive_timer == 0 )); then
+  systemctl is-active --quiet mise-en-plesk.timer || fail "mise-en-plesk.timer is not active"
+fi
 
 service_user="$(systemctl show mise-en-plesk.service --property=User --value)"
 [[ "$service_user" == "mise-en-plesk" ]] || fail "service runs as ${service_user:-root}; expected mise-en-plesk"

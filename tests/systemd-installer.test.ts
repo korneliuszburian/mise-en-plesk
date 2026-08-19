@@ -1,5 +1,5 @@
 import { execFile } from "node:child_process";
-import { mkdir, mkdtemp, readFile, writeFile } from "node:fs/promises";
+import { mkdir, mkdtemp, readFile, rm, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { promisify } from "node:util";
@@ -12,8 +12,70 @@ const sshTrustScript = "scripts/install-systemd-ssh-trust.sh";
 const prepareSshTrustScript = "scripts/prepare-verified-ssh-trust.sh";
 const whatsappBootstrapScript = "scripts/bootstrap-systemd-whatsapp-runtime.sh";
 const whatsappTestScript = "scripts/run-systemd-whatsapp-test.sh";
+const whatsappSetupScript = "scripts/setup-systemd-whatsapp.sh";
+const ptyDriver = "tests/fixtures/pty-driver.py";
 
-async function runSandboxedWhatsAppBootstrap(failureMode: "daemon" | "term") {
+async function runInteractiveWhatsAppSetup(failBootstrap = false) {
+  const root = await mkdtemp(join(tmpdir(), "mise-en-plesk-whatsapp-setup-"));
+  const fakeBin = join(root, "bin");
+  const callLog = join(root, "sudo-calls");
+  const payloadPath = join(root, "bootstrap-payload");
+  const sentinel = "synthetic-secret-token-that-must-not-leak";
+  await mkdir(fakeBin);
+  await writeFile(join(fakeBin, "sudo"), `#!/usr/bin/env bash
+set -euo pipefail
+if [[ -n "\${access_token+x}" ]]; then
+  echo "secret variable reached sudo environment" >&2
+  exit 71
+fi
+printf '%s\\n' "$*" >> "$TEST_SUDO_CALLS"
+case "\${1##*/}" in
+  bootstrap-systemd-whatsapp-runtime.sh)
+    if [[ "$TEST_FAIL_BOOTSTRAP" == 1 ]]; then exit 42; fi
+    cat > "$TEST_BOOTSTRAP_PAYLOAD"
+    ;;
+  verify-systemd-install.sh) ;;
+  *) echo "unexpected sudo target" >&2; exit 70 ;;
+esac
+`, { mode: 0o700 });
+  const responses = [
+    ["Meta sender Phone Number ID: ", "123456789"],
+    ["Digits-only WhatsApp recipient: ", "48123123123"],
+    ["Approved utility template name: ", "plesk_security_alert"],
+    ["Template language (for example pl_PL): ", "pl_PL"],
+    ["Current Graph API version shown by Meta (for example v25.0): ", "v25.0"],
+    ["Meta System User access token: ", sentinel],
+    ["Type the recipient again to authorize configuration for 48123123123: ", "48123123123"],
+  ].map(([prompt, response]) => ({ prompt, response }));
+  const responsePath = join(root, "responses.json");
+  await writeFile(responsePath, JSON.stringify(responses), { mode: 0o600 });
+
+  try {
+    const result = await execFileAsync("python3", [ptyDriver, responsePath, "bash", "-x", whatsappSetupScript,
+      "--apply", "--confirm=configure-whatsapp-runtime"], {
+      env: {
+        ...process.env,
+        PATH: `${fakeBin}:${process.env.PATH}`,
+        TEST_SUDO_CALLS: callLog,
+        TEST_BOOTSTRAP_PAYLOAD: payloadPath,
+        TEST_FAIL_BOOTSTRAP: failBootstrap ? "1" : "0",
+      },
+    }).then(
+      value => ({ ok: true as const, ...value }),
+      error => ({ ok: false as const, stdout: String(error.stdout ?? ""), stderr: String(error.stderr ?? ""), code: error.code }),
+    );
+    return {
+      ...result,
+      sentinel,
+      calls: await readFile(callLog, "utf8").catch(() => ""),
+      payload: await readFile(payloadPath, "utf8").catch(() => ""),
+    };
+  } finally {
+    await rm(responsePath, { force: true });
+  }
+}
+
+async function runSandboxedWhatsAppBootstrap(failureMode: "daemon" | "term" | "none", leaveTimerStopped = false) {
   const root = await mkdtemp(join(tmpdir(), "mise-en-plesk-whatsapp-bootstrap-"));
   const runtimeRoot = join(root, "run", "mise-en-plesk");
   const systemdRoot = join(root, "etc", "systemd", "system");
@@ -74,7 +136,8 @@ fi
 exec /usr/bin/install "$@"
 `, { mode: 0o700 });
 
-  const execution = execFileAsync("bash", ["-c", 'exec bash "$1" --apply --confirm=bootstrap-whatsapp-runtime < "$2"', "bash", sandboxScript, join(root, "payload.json")], {
+  const timerArgument = leaveTimerStopped ? " --leave-timer-stopped" : "";
+  const execution = execFileAsync("bash", ["-c", `exec bash "$1" --apply --confirm=bootstrap-whatsapp-runtime${timerArgument} < "$2"`, "bash", sandboxScript, join(root, "payload.json")], {
     env: {
       ...process.env,
       PATH: `${fakeBin}:${process.env.PATH}`,
@@ -83,7 +146,8 @@ exec /usr/bin/install "$@"
       TEST_FAILURE_MARKER: join(root, "failure-marker"),
     },
   });
-  await expect(execution).rejects.toBeDefined();
+  if (failureMode === "none") await expect(execution).resolves.toBeDefined();
+  else await expect(execution).rejects.toBeDefined();
   return {
     token: await readFile(join(runtimeRoot, "WHATSAPP_ACCESS_TOKEN"), "utf8"),
     dropin: await readFile(join(dropinDirectory, "whatsapp.conf"), "utf8"),
@@ -156,6 +220,46 @@ describe("systemd runtime bootstrap safety gates", () => {
     expect(stdout).toContain(`--confirm=${confirmation}`);
   });
 
+  it("keeps interactive WhatsApp setup non-mutating by default", async () => {
+    const { stdout } = await execFileAsync("bash", [whatsappSetupScript]);
+    expect(stdout).toContain("DRY RUN");
+    expect(stdout).toContain("--apply --confirm=configure-whatsapp-runtime");
+    expect(stdout).toContain("never placed in argv");
+  });
+
+  it("rejects interactive WhatsApp apply without exact confirmation before prompting", async () => {
+    await expect(execFileAsync("bash", [whatsappSetupScript, "--apply"])).rejects.toMatchObject({
+      code: 78,
+      stderr: expect.stringContaining("refusing mutation"),
+    });
+  });
+
+  it("keeps the interactive token out of xtrace, argv, environment, and output", async () => {
+    const result = await runInteractiveWhatsAppSetup();
+    expect(result.ok).toBe(true);
+    expect(result.stdout + result.stderr).not.toContain(result.sentinel);
+    expect(result.calls).not.toContain(result.sentinel);
+    expect(result.calls).toContain("bootstrap-systemd-whatsapp-runtime.sh --apply --confirm=bootstrap-whatsapp-runtime --leave-timer-stopped");
+    expect(result.calls).toContain("verify-systemd-install.sh --require-whatsapp --allow-inactive-timer");
+    expect(result.calls).not.toContain("run-systemd-whatsapp-test.sh");
+    expect(JSON.parse(result.payload)).toMatchObject({
+      accessToken: result.sentinel,
+      recipient: "48123123123",
+      graphVersion: "v25.0",
+    });
+  });
+
+  it("propagates bootstrap failure and does not verify or send", async () => {
+    const result = await runInteractiveWhatsAppSetup(true);
+    expect(result.ok).toBe(false);
+    if (result.ok) throw new Error("bootstrap unexpectedly succeeded");
+    expect(result.code).toBe(42);
+    expect(result.stdout + result.stderr).not.toContain(result.sentinel);
+    expect(result.calls).toContain("bootstrap-systemd-whatsapp-runtime.sh");
+    expect(result.calls).not.toContain("verify-systemd-install.sh");
+    expect(result.calls).not.toContain("run-systemd-whatsapp-test.sh");
+  });
+
   it.each([runtimeBootstrapScript, sshTrustScript, whatsappBootstrapScript])(
     "rejects apply without exact confirmation for %s",
     async (bootstrapScript) => {
@@ -202,6 +306,13 @@ describe("systemd runtime bootstrap safety gates", () => {
       dropin: "old-dropin\n",
       timer: "active\n",
     });
+  });
+
+  it("configures WhatsApp while explicitly leaving an active timer stopped", async () => {
+    const result = await runSandboxedWhatsAppBootstrap("none", true);
+    expect(result.token).toBe("new-runtime-token-value");
+    expect(result.dropin).toContain("MISE_PLESK_WHATSAPP_RECIPIENT=48123123123");
+    expect(result.timer).toBe("inactive\n");
   });
 
   it("keeps Bitwarden authentication state ephemeral and out of argv", async () => {

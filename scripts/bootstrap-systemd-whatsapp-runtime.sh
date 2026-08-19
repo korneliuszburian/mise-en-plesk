@@ -10,10 +10,12 @@ readonly scanner_lock="$runtime_root/scan.lock"
 
 apply=0
 confirmation=""
+leave_timer_stopped=0
 for argument in "$@"; do
   case "$argument" in
     --apply) apply=1 ;;
     --confirm=*) confirmation="${argument#--confirm=}" ;;
+    --leave-timer-stopped) leave_timer_stopped=1 ;;
     --help)
       echo "Usage: bootstrap-systemd-whatsapp-runtime.sh [--apply --confirm=$confirmation_value]"
       exit 0
@@ -133,8 +135,11 @@ install -d -o root -g root -m 0755 "$dropin_directory"
 dropin_replaced=1
 install -o root -g root -m 0644 "$temporary_directory/whatsapp.conf" "$dropin_path"
 systemctl daemon-reload
-if (( timer_was_active == 1 )); then systemctl start mise-en-plesk.timer; fi
+if (( timer_was_active == 1 && leave_timer_stopped == 0 )); then systemctl start mise-en-plesk.timer; fi
 transaction_complete=1
 
 echo "Configured the ephemeral Meta WhatsApp credential and non-secret routing."
+if (( leave_timer_stopped == 1 )); then
+  echo "The scan timer was intentionally left stopped; activate it only after a guarded delivery test."
+fi
 echo "No message was sent. Run the guarded whatsapp-test only after confirming the configured recipient."
