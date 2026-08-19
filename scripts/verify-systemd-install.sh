@@ -7,7 +7,9 @@ timer_unit="$unit_directory/mise-en-plesk.timer"
 state_directory="/var/lib/mise-en-plesk"
 optional_environment_file="/etc/mise-en-plesk/mise-en-plesk.env"
 runtime_directive="LoadCredential=BW_SESSION:/run/mise-en-plesk/BW_SESSION"
-encrypted_directive="LoadCredentialEncrypted=BW_SESSION:/etc/mise-en-plesk/bw-session.cred"
+runtime_bw_data="/run/mise-en-plesk/bw-data/data.json"
+known_hosts_path="$state_directory/.ssh/known_hosts"
+scanner_lock="/run/mise-en-plesk/scan.lock"
 
 fail() {
   echo "systemd installation check failed: $*" >&2
@@ -20,15 +22,10 @@ command -v systemd-analyze >/dev/null 2>&1 || fail "systemd-analyze is not avail
 [[ -r "$service_unit" && ! -L "$service_unit" ]] || fail "service unit is not readable or is a symlink: $service_unit"
 [[ -r "$timer_unit" && ! -L "$timer_unit" ]] || fail "timer unit is not readable or is a symlink: $timer_unit"
 [[ -d "$state_directory" ]] || fail "runtime state directory is missing: $state_directory"
-if grep -Fqx "$runtime_directive" "$service_unit"; then
-  credential_kind="ephemeral runtime"
-  credential_path="/run/mise-en-plesk/BW_SESSION"
-elif grep -Fqx "$encrypted_directive" "$service_unit"; then
-  credential_kind="encrypted"
-  credential_path="/etc/mise-en-plesk/bw-session.cred"
-else
-  fail "service does not use a supported BW_SESSION credential directive"
-fi
+grep -Fqx "$runtime_directive" "$service_unit" \
+  || fail "service does not use the required ephemeral BW_SESSION credential"
+credential_kind="ephemeral runtime"
+credential_path="/run/mise-en-plesk/BW_SESSION"
 [[ -r "$credential_path" && ! -L "$credential_path" ]] \
   || fail "$credential_kind Bitwarden credential is not readable or is a symlink: $credential_path"
 if [[ -e "$optional_environment_file" ]]; then
@@ -64,6 +61,14 @@ grep -Fqx "ReadWritePaths=$state_directory" "$service_unit" \
   || fail "service does not restrict writes to $state_directory"
 grep -Fqx "Environment=HOME=$state_directory" "$service_unit" \
   || fail "service does not pin HOME to the service account state directory"
+grep -Fqx "Environment=BITWARDENCLI_APPDATA_DIR=/run/mise-en-plesk/bw-data" "$service_unit" \
+  || fail "service does not use ephemeral Bitwarden CLI state"
+grep -Fqx "ReadWritePaths=/run/mise-en-plesk/bw-data" "$service_unit" \
+  || fail "service does not restrict Bitwarden CLI writes to its runtime directory"
+grep -Fqx "Environment=MISE_PLESK_SCHEDULE_LOCK_FILE=$scanner_lock" "$service_unit" \
+  || fail "service does not use the root-parented runtime scanner lock"
+grep -Fqx "ReadWritePaths=$scanner_lock" "$service_unit" \
+  || fail "service cannot write its root-parented runtime scanner lock"
 
 state_owner="$(stat -c '%U' "$state_directory" 2>/dev/null || true)"
 [[ "$state_owner" == "mise-en-plesk" ]] \
@@ -73,5 +78,25 @@ credential_mode="$(stat -c '%a' "$credential_path" 2>/dev/null || true)"
 credential_owner="$(stat -c '%U' "$credential_path" 2>/dev/null || true)"
 [[ "$credential_mode" == "600" && "$credential_owner" == "root" ]] \
   || fail "credential must be root-owned mode 0600 (found ${credential_owner:-unknown} ${credential_mode:-unknown})"
+[[ -r "$runtime_bw_data" && ! -L "$runtime_bw_data" ]] \
+  || fail "ephemeral Bitwarden CLI state is missing or is a symlink: $runtime_bw_data"
+bw_data_mode="$(stat -c '%a' "$runtime_bw_data" 2>/dev/null || true)"
+bw_data_owner="$(stat -c '%U:%G' "$runtime_bw_data" 2>/dev/null || true)"
+[[ "$bw_data_mode" == "600" && "$bw_data_owner" == "mise-en-plesk:mise-en-plesk" ]] \
+  || fail "Bitwarden CLI state must be owned by mise-en-plesk mode 0600"
+runtime_root_mode="$(stat -c '%U:%G %a' /run/mise-en-plesk 2>/dev/null || true)"
+bw_directory_mode="$(stat -c '%U:%G %a' /run/mise-en-plesk/bw-data 2>/dev/null || true)"
+[[ "$runtime_root_mode" == "root:root 711" ]] || fail "Bitwarden runtime root must be root-owned mode 0711"
+[[ "$bw_directory_mode" == "mise-en-plesk:mise-en-plesk 700" ]] \
+  || fail "Bitwarden runtime data directory must be owned by mise-en-plesk mode 0700"
+scanner_lock_mode="$(stat -c '%U:%G %a' "$scanner_lock" 2>/dev/null || true)"
+[[ "$scanner_lock_mode" == "mise-en-plesk:mise-en-plesk 600" ]] \
+  || fail "runtime scanner lock must be owned by mise-en-plesk mode 0600"
+
+[[ -r "$known_hosts_path" && ! -L "$known_hosts_path" ]] \
+  || fail "verified SSH known_hosts is missing or is a symlink"
+known_hosts_mode="$(stat -c '%U:%G %a' "$known_hosts_path" 2>/dev/null || true)"
+[[ "$known_hosts_mode" == "mise-en-plesk:mise-en-plesk 600" ]] \
+  || fail "known_hosts must be owned by mise-en-plesk mode 0600"
 
 echo "mise-en-plesk systemd installation is enabled, active, non-root, protected, and uses a $credential_kind credential."

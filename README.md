@@ -227,11 +227,23 @@ before applying it:
 
 ```sh
 source scripts/setup-bw-session.sh
-scripts/update-systemd-bw-credential.sh
-sudo --preserve-env=BW_SESSION scripts/update-systemd-bw-credential.sh \
-  --apply --confirm=update-bw-session
+# Create the service identity without a persistent HOME. The guarded installer
+# validates this exact non-root account and reuses it.
+sudo useradd --system --home-dir /var/lib/mise-en-plesk --no-create-home \
+  --shell /usr/sbin/nologin mise-en-plesk
+
+# Stream the already authenticated local BW CLI state and current session as
+# one JSON payload. Neither secret appears in argv or survives a reboot.
+node -e 'const fs=require("node:fs"); process.stdout.write(JSON.stringify({bwSession:process.env.BW_SESSION,bwData:JSON.parse(fs.readFileSync(process.env.HOME+"/.config/Bitwarden CLI/data.json","utf8"))}))' \
+  | sudo scripts/bootstrap-systemd-bw-runtime.sh \
+      --apply --confirm=bootstrap-bw-runtime
 pnpm install --frozen-lockfile
 pnpm build
+
+# Compare every live key with the existing trusted local known_hosts. The
+# helper refuses changed, missing, additional, or untrusted fingerprints.
+scripts/prepare-verified-ssh-trust.sh
+scripts/prepare-verified-ssh-trust.sh --apply --confirm=prepare-ssh-trust
 scripts/install-systemd.sh
 sudo scripts/install-systemd.sh --apply --confirm=install-systemd
 scripts/verify-systemd-install.sh
@@ -245,11 +257,13 @@ scripts/verify-systemd-install.sh
 ```
 
 It checks unit syntax, timer state, the dedicated non-root service account,
-the selected Bitwarden credential mode, and the systemd filesystem hardening.
-It does not start, stop, reload, or modify any unit. On systemd 250 or newer,
-the installer uses an encrypted credential under `/etc/mise-en-plesk`. Older
-systemd uses a root-only, ephemeral credential under `/run/mise-en-plesk`,
-which must be restored after every reboot.
+the root-only ephemeral Bitwarden credential/state, verified SSH trust, and
+the systemd filesystem hardening. It does not start, stop, reload, or modify
+any unit. Both `BW_SESSION` and authenticated Bitwarden CLI state always live
+under `/run/mise-en-plesk`, regardless of systemd version, and must be restored
+after every reboot with `bootstrap-systemd-bw-runtime.sh`; until then scans
+fail closed before SSH. Public verified SSH host keys remain under the service
+account's `/var/lib/mise-en-plesk/.ssh/known_hosts`.
 
 The checkout is mounted read-only by systemd. Runtime state, reports, logs,
 locks, cursors, findings, and notification outbox data live under
@@ -261,8 +275,7 @@ non-secret routing file `/etc/mise-en-plesk/mise-en-plesk.env`; copy
 the service account's Hermes setup is complete. The timer runs the incremental
 one-chunk-per-host mode. It never performs
 remote remediation; `systemctl stop mise-en-plesk.timer` is the local stop
-switch. Credential rotation is also a dry run by default. Before the session
-expires, source `scripts/setup-bw-session.sh`, inspect
-`scripts/update-systemd-bw-credential.sh`, then apply with
-`sudo --preserve-env=BW_SESSION scripts/update-systemd-bw-credential.sh --apply --confirm=update-bw-session`.
-Do not put a Bitwarden master password or any Plesk credential in unit files.
+switch. Session rotation uses the same combined
+`bootstrap-systemd-bw-runtime.sh` transaction so `BW_SESSION` and CLI login
+state cannot be refreshed independently. Do not put a Bitwarden master
+password or any Plesk credential in unit files.

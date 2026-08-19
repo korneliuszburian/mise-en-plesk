@@ -5,7 +5,8 @@ readonly checkout="/opt/mise-en-plesk"
 readonly unit_directory="/etc/systemd/system"
 readonly state_directory="/var/lib/mise-en-plesk"
 readonly runtime_credential="/run/mise-en-plesk/BW_SESSION"
-readonly encrypted_credential="/etc/mise-en-plesk/bw-session.cred"
+readonly runtime_bw_data="/run/mise-en-plesk/bw-data/data.json"
+readonly verified_known_hosts="$checkout/verified-known-hosts"
 readonly confirmation_value="install-systemd"
 
 apply=0
@@ -33,15 +34,9 @@ USAGE
   esac
 done
 
-if command -v systemd-creds >/dev/null 2>&1; then
-  credential_mode="encrypted"
-  credential_path="$encrypted_credential"
-  credential_directive="LoadCredentialEncrypted=BW_SESSION:$credential_path"
-else
-  credential_mode="runtime"
-  credential_path="$runtime_credential"
-  credential_directive="LoadCredential=BW_SESSION:$credential_path"
-fi
+credential_mode="ephemeral runtime"
+credential_path="$runtime_credential"
+credential_directive="LoadCredential=BW_SESSION:$credential_path"
 readonly credential_mode credential_path credential_directive
 
 if (( apply == 0 )); then
@@ -69,6 +64,8 @@ fi
 [[ -r "$checkout/deploy/systemd/mise-en-plesk.timer.example" ]] || fail "timer example is missing"
 [[ -r "$checkout/config.mise-en-plesk.json" ]] || fail "scanner config is missing from the checkout"
 [[ -r "$checkout/inventory.json" ]] || fail "inventory is missing from the checkout"
+[[ -r "$verified_known_hosts" && ! -L "$verified_known_hosts" ]] \
+  || fail "verified-known-hosts is missing or a symlink; compare fingerprints before deployment"
 [[ -r "$checkout/dist/bin/mise-plesk-audit.js" ]] || fail "compiled CLI is missing; run pnpm build in $checkout"
 [[ -r "$checkout/dist/scripts/scan-cursor.js" ]] || fail "compiled cursor helper is missing; run pnpm build in $checkout"
 [[ -s "$credential_path" && ! -L "$credential_path" ]] || fail "BW_SESSION credential is missing, empty, or a symlink: $credential_path"
@@ -99,8 +96,7 @@ temporary_directory="$(mktemp -d)"
 temporary_unit="$temporary_directory/mise-en-plesk.service"
 temporary_timer="$temporary_directory/mise-en-plesk.timer"
 trap 'unlink "$temporary_unit" "$temporary_timer" 2>/dev/null || true; rmdir "$temporary_directory" 2>/dev/null || true' EXIT
-sed "s#^LoadCredentialEncrypted=BW_SESSION:.*#$credential_directive#" \
-  "$checkout/deploy/systemd/mise-en-plesk.service.example" > "$temporary_unit"
+cp "$checkout/deploy/systemd/mise-en-plesk.service.example" "$temporary_unit"
 cp "$checkout/deploy/systemd/mise-en-plesk.timer.example" "$temporary_timer"
 grep -Fqx "$credential_directive" "$temporary_unit" || fail "failed to render the credential directive"
 systemd-analyze verify "$temporary_unit" "$temporary_timer"
@@ -168,6 +164,10 @@ service_uid="$(id -u mise-en-plesk)"
 service_gid="$(id -g mise-en-plesk)"
 (( service_uid > 0 && service_uid < 1000 )) || fail "mise-en-plesk must use a non-root system UID"
 (( service_gid > 0 && service_gid < 1000 )) || fail "mise-en-plesk must use a non-root system GID"
+[[ -r "$runtime_bw_data" && ! -L "$runtime_bw_data" ]] \
+  || fail "ephemeral Bitwarden CLI state is missing; run bootstrap-systemd-bw-runtime.sh first"
+[[ "$(stat -c '%U:%G %a' "$runtime_bw_data")" == "mise-en-plesk:mise-en-plesk 600" ]] \
+  || fail "ephemeral Bitwarden CLI state must be owned by mise-en-plesk mode 0600"
 install -d -o mise-en-plesk -g mise-en-plesk -m 0750 "$state_directory"
 created_state=1
 install -d -o mise-en-plesk -g mise-en-plesk -m 0750 \
@@ -175,7 +175,8 @@ install -d -o mise-en-plesk -g mise-en-plesk -m 0750 \
 readonly service_path="/usr/local/bin:/usr/bin:/bin"
 runuser -u mise-en-plesk -- env -i HOME="$state_directory" PATH="$service_path" test -r "$checkout/package.json"
 runuser -u mise-en-plesk -- env -i HOME="$state_directory" PATH="$service_path" node --version >/dev/null
-runuser -u mise-en-plesk -- env -i HOME="$state_directory" PATH="$service_path" bw --version >/dev/null
+runuser -u mise-en-plesk -- env -i HOME="$state_directory" PATH="$service_path" \
+  BITWARDENCLI_APPDATA_DIR="$(dirname "$runtime_bw_data")" bw --version >/dev/null
 runuser -u mise-en-plesk -- env -i HOME="$state_directory" PATH="$service_path" sshpass -V >/dev/null 2>&1
 runuser -u mise-en-plesk -- env -i HOME="$state_directory" PATH="$service_path" \
   "$checkout/node_modules/.bin/tsx" --version >/dev/null
@@ -190,6 +191,8 @@ install -o mise-en-plesk -g mise-en-plesk -m 0640 \
   "$checkout/config.mise-en-plesk.json" "$state_directory/config.mise-en-plesk.json"
 install -o mise-en-plesk -g mise-en-plesk -m 0640 \
   "$checkout/inventory.json" "$state_directory/inventory.json"
+"$checkout/scripts/install-systemd-ssh-trust.sh" \
+  --apply --confirm=install-ssh-trust < "$verified_known_hosts"
 install -o root -g root -m 0644 "$temporary_unit" "$service_unit"
 installed_service=1
 install -o root -g root -m 0644 "$temporary_timer" "$timer_unit"

@@ -5,7 +5,9 @@ import { describe, expect, it } from "vitest";
 
 const execFileAsync = promisify(execFile);
 const script = "scripts/install-systemd.sh";
-const credentialScript = "scripts/update-systemd-bw-credential.sh";
+const runtimeBootstrapScript = "scripts/bootstrap-systemd-bw-runtime.sh";
+const sshTrustScript = "scripts/install-systemd-ssh-trust.sh";
+const prepareSshTrustScript = "scripts/prepare-verified-ssh-trust.sh";
 
 describe("systemd installer safety gate", () => {
   it("defaults to a fixed, non-mutating plan", async () => {
@@ -60,15 +62,46 @@ describe("systemd installer safety gate", () => {
   });
 });
 
-describe("systemd credential updater safety gate", () => {
-  it("defaults to a non-mutating plan", async () => {
-    const { stdout } = await execFileAsync("bash", [credentialScript]);
+describe("systemd runtime bootstrap safety gates", () => {
+  it.each([
+    [runtimeBootstrapScript, "bootstrap-bw-runtime"],
+    [sshTrustScript, "install-ssh-trust"],
+    [prepareSshTrustScript, "prepare-ssh-trust"],
+  ])("keeps %s non-mutating by default", async (bootstrapScript, confirmation) => {
+    const { stdout } = await execFileAsync("bash", [bootstrapScript]);
     expect(stdout).toContain("DRY RUN");
-    expect(stdout).toContain("--apply --confirm=update-bw-session");
+    expect(stdout).toContain(`--confirm=${confirmation}`);
   });
 
-  it("rejects override arguments", async () => {
-    await expect(execFileAsync("bash", [credentialScript, "--credential-path=/tmp/session"]))
-      .rejects.toMatchObject({ code: 78 });
+  it.each([runtimeBootstrapScript, sshTrustScript])(
+    "rejects apply without exact confirmation for %s",
+    async (bootstrapScript) => {
+      await expect(execFileAsync("bash", [bootstrapScript, "--apply"])).rejects.toMatchObject({ code: 78 });
+    },
+  );
+
+  it("keeps Bitwarden authentication state ephemeral and out of argv", async () => {
+    const source = await readFile(runtimeBootstrapScript, "utf8");
+    expect(source).toContain('readonly runtime_root="/run/mise-en-plesk"');
+    expect(source).toContain('JSON.parse(fs.readFileSync(0, "utf8"))');
+    expect(source).not.toContain("echo $BW_SESSION");
+    expect(source).toContain("systemctl stop mise-en-plesk.timer");
+    expect(source).toContain("scanner service is active");
+    expect(source).toContain("rollback_pair");
+  });
+
+  it("pins systemd to the ephemeral Bitwarden appdata directory", async () => {
+    const unit = await readFile("deploy/systemd/mise-en-plesk.service.example", "utf8");
+    expect(unit).toContain("Environment=BITWARDENCLI_APPDATA_DIR=/run/mise-en-plesk/bw-data");
+    expect(unit).toContain("ReadWritePaths=/run/mise-en-plesk/bw-data");
+    expect(unit).toContain("Environment=MISE_PLESK_SCHEDULE_LOCK_FILE=/run/mise-en-plesk/scan.lock");
+    expect(unit).toContain("ReadWritePaths=/run/mise-en-plesk/scan.lock");
+  });
+
+  it("installs verified SSH trust before the service unit", async () => {
+    const installer = await readFile(script, "utf8");
+    expect(installer.indexOf('install-systemd-ssh-trust.sh'))
+      .toBeLessThan(installer.indexOf('install -o root -g root -m 0644 "$temporary_unit"'));
+    expect(installer).toContain('verified-known-hosts is missing or a symlink');
   });
 });

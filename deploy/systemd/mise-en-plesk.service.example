@@ -18,7 +18,7 @@ Environment=MISE_PLESK_INVENTORY=/var/lib/mise-en-plesk/inventory.json
 Environment=MISE_PLESK_CONFIG=/var/lib/mise-en-plesk/config.mise-en-plesk.json
 Environment=MISE_PLESK_REPORTS=/var/lib/mise-en-plesk/reports
 Environment=MISE_PLESK_SCHEDULE_LOG_DIR=/var/lib/mise-en-plesk/logs
-Environment=MISE_PLESK_SCHEDULE_LOCK_FILE=/var/lib/mise-en-plesk/scan.lock
+Environment=MISE_PLESK_SCHEDULE_LOCK_FILE=/run/mise-en-plesk/scan.lock
 Environment=MISE_PLESK_SCAN_CURSOR=/var/lib/mise-en-plesk/scan-cursor.json
 Environment=MISE_PLESK_FINDINGS=/var/lib/mise-en-plesk/findings.json
 Environment=MISE_PLESK_SCAN_CYCLES=/var/lib/mise-en-plesk/scan-cycles.json
@@ -27,6 +27,7 @@ Environment=MISE_PLESK_NOTIFICATION_HISTORY=/var/lib/mise-en-plesk/notification-
 Environment=MISE_PLESK_HEARTBEAT=/var/lib/mise-en-plesk/heartbeat.json
 Environment=MISE_PLESK_VULN_CACHE=/var/lib/mise-en-plesk/vulnerabilities.json
 Environment=HOME=/var/lib/mise-en-plesk
+Environment=BITWARDENCLI_APPDATA_DIR=/run/mise-en-plesk/bw-data
 Environment=PATH=/usr/local/bin:/usr/bin:/bin
 # Optional non-secret routing configuration; Hermes credentials stay in the
 # service account's HOME and are managed by Hermes itself.
@@ -34,7 +35,7 @@ EnvironmentFile=-/etc/mise-en-plesk/mise-en-plesk.env
 # Production runs compiled JavaScript directly; package managers never execute
 # inside the read-only service sandbox.
 Environment=MISE_PLESK_RUNNER_BIN=/usr/local/bin/node
-LoadCredentialEncrypted=BW_SESSION:/etc/mise-en-plesk/bw-session.cred
+LoadCredential=BW_SESSION:/run/mise-en-plesk/BW_SESSION
 UMask=0077
 NoNewPrivileges=yes
 PrivateTmp=yes
@@ -44,6 +45,8 @@ ProtectKernelTunables=yes
 ProtectKernelModules=yes
 ProtectControlGroups=yes
 ReadWritePaths=/var/lib/mise-en-plesk
+ReadWritePaths=/run/mise-en-plesk/bw-data
+ReadWritePaths=/run/mise-en-plesk/scan.lock
 ExecStartPre=/usr/bin/test -x /usr/local/bin/node
 ExecStartPre=/usr/bin/test -r /opt/mise-en-plesk/dist/bin/mise-plesk-audit.js
 ExecStartPre=/usr/bin/test -r /opt/mise-en-plesk/dist/scripts/scan-cursor.js

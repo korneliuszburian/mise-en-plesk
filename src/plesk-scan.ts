@@ -1,7 +1,7 @@
 import { execFile, spawn } from "node:child_process";
 import { mkdtemp, rm } from "node:fs/promises";
-import { dirname } from "node:path";
-import { tmpdir } from "node:os";
+import { dirname, isAbsolute, join } from "node:path";
+import { homedir, tmpdir } from "node:os";
 import { promisify } from "node:util";
 import type { HostConfig } from "./ssh-inventory";
 import { assertReadOnlyRenderedCommand, renderReadOnlyCommand, type ReadOnlyCommand } from "./ssh-transport";
@@ -150,10 +150,21 @@ export function buildSshInvocation(host: HostConfig, password?: string, options:
   args: string[];
   env?: NodeJS.ProcessEnv;
 } {
+  const knownHostsPath = process.env.MISE_PLESK_KNOWN_HOSTS
+    ?? join(process.env.HOME ?? homedir(), ".ssh", "known_hosts");
+  if (!isAbsolute(knownHostsPath)) throw new Error("MISE_PLESK_KNOWN_HOSTS must be an absolute path.");
   const controlArgs = options.controlPath
     ? ["-o", "ControlMaster=auto", "-o", "ControlPersist=120", "-o", `ControlPath=${options.controlPath}`]
     : [];
-  const sshArgs = ["-o", "ConnectTimeout=10", "-o", "ConnectionAttempts=1", ...controlArgs, "-p", String(host.port), `${host.user}@${host.host}`];
+  const sshArgs = [
+    "-o", "ConnectTimeout=10",
+    "-o", "ConnectionAttempts=1",
+    "-o", "StrictHostKeyChecking=yes",
+    "-o", `UserKnownHostsFile=${knownHostsPath}`,
+    "-o", "GlobalKnownHostsFile=/dev/null",
+    ...controlArgs,
+    "-p", String(host.port), `${host.user}@${host.host}`,
+  ];
   if (!password) return { executable: "ssh", args: [...sshArgs] };
   return {
     executable: "sshpass",

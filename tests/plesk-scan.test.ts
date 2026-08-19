@@ -1,5 +1,5 @@
 import { chmod, mkdtemp, readFile, writeFile } from "node:fs/promises";
-import { tmpdir } from "node:os";
+import { homedir, tmpdir } from "node:os";
 import { join } from "node:path";
 import { describe, expect, it } from "vitest";
 import { adaptLegacySshRunner, buildSshInvocation, classifyWordPressInstallation, parseDiskUsage, parsePhpVersion, parsePleskVersion, runSshCommand, scanPleskHost, type SshCommandRunner } from "../src/plesk-scan";
@@ -102,11 +102,28 @@ describe("plesk scan", () => {
       "ConnectTimeout=10",
       "-o",
       "ConnectionAttempts=1",
+      "-o",
+      "StrictHostKeyChecking=yes",
+      "-o",
+      `UserKnownHostsFile=${join(process.env.HOME ?? homedir(), ".ssh", "known_hosts")}`,
+      "-o",
+      "GlobalKnownHostsFile=/dev/null",
       "-p",
       "22",
       "root@master.example.test",
     ]);
     expect(invocation.env?.SSHPASS).toBe("secret-password");
+  });
+
+  it("rejects a relative known_hosts override", () => {
+    const previous = process.env.MISE_PLESK_KNOWN_HOSTS;
+    process.env.MISE_PLESK_KNOWN_HOSTS = "relative/known_hosts";
+    try {
+      expect(() => buildSshInvocation(host)).toThrow("must be an absolute path");
+    } finally {
+      if (previous === undefined) delete process.env.MISE_PLESK_KNOWN_HOSTS;
+      else process.env.MISE_PLESK_KNOWN_HOSTS = previous;
+    }
   });
 
   it("supports a local SSH control socket for connection reuse", () => {

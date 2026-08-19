@@ -10,4 +10,5 @@ config.mise-en-plesk.json
 findings.json
 *.local
 ssh-config.d/
+verified-known-hosts
 .DS_Store
