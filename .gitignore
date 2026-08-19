@@ -11,4 +11,5 @@ findings.json
 *.local
 ssh-config.d/
 verified-known-hosts
+skills/
 .DS_Store
