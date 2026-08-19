@@ -29,6 +29,14 @@ case "$command" in
   "plesk version") printf 'Plesk Obsidian 18.0.67\\n' ;;
   "php -v") printf 'PHP 8.2.29 (cli)\\n' ;;
   "df -P -k /var/www/vhosts") printf 'Filesystem 1024-blocks Used Available Capacity Mounted on\\n/dev/vda1 100000 65000 35000 65%% /var/www/vhosts\\n' ;;
+  *"__MISE_WP_CLI_BEGIN__"*)
+    if [[ "\${FAKE_WP_CLI_BROKEN:-0}" == "1" ]]; then
+      printf '__MISE_WP_CLI_BEGIN__\\n/usr/local/bin/wp: 1: 404: not found\\n__MISE_WP_CLI_STATUS_127__\\n__MISE_WP_CLI_END__\\n'
+    else
+      printf '__MISE_WP_CLI_BEGIN__\\nWP-CLI 2.12.0\\n__MISE_WP_CLI_STATUS_0__\\n__MISE_WP_CLI_END__\\n'
+    fi
+    ;;
+  *"plesk ext wp-toolkit --list -plugins -themes -format json") printf '%s\\n' "\${FAKE_TOOLKIT_JSON:-[]}" ;;
   *"find /var/www/vhosts"*"awk"*)
     if [[ "$command" == *"position > 1"* ]]; then
       printf '/var/www/vhosts/second.test/httpdocs/wp-config.php\\n'
@@ -68,6 +76,7 @@ __MISE_UPLOADS_STATUS_0__
 __MISE_UPLOADS_END__
 EOF
     ;;
+  *"wp-content/uploads"*) printf '/var/www/vhosts/example.test/httpdocs/wp-content/uploads/shell.php\\n' ;;
   *) echo "unexpected fake SSH command: $command" >&2; exit 97 ;;
 esac
 `;
@@ -118,6 +127,69 @@ async function runScan(args: string[], env: NodeJS.ProcessEnv): Promise<{ heartb
 }
 
 describe("scan CLI end-to-end", () => {
+  it("reports an explicit source gap when broken WP-CLI has no Toolkit registration", async () => {
+    const runtime = await prepareRuntime();
+    try {
+      runtime.env.FAKE_WP_CLI_BROKEN = "1";
+      await writeFile(runtime.env.MISE_PLESK_CONFIG!, JSON.stringify({ hosts: ["test"], maxSitesPerHost: 1 }));
+
+      await runScan([], runtime.env);
+      const reportName = (await readdir(runtime.env.MISE_PLESK_REPORTS!)).find((name) => name.endsWith(".json"));
+      const report = JSON.parse(await readFile(join(runtime.env.MISE_PLESK_REPORTS!, reportName!), "utf8")) as {
+        hosts: Array<{ wordpress: Array<{ auditSource?: string; limitations?: string[] }> }>;
+      };
+
+      expect(report.hosts[0]?.wordpress[0]).toMatchObject({
+        auditSource: "none",
+        limitations: [
+          "Host WP-CLI unavailable: /usr/local/bin/wp: 1: 404: not found",
+          "Plesk WP Toolkit has no matching installation registration",
+        ],
+      });
+    } finally {
+      await rm(runtime.root, { recursive: true, force: true });
+    }
+  }, 30_000);
+
+  it("falls back to Plesk WP Toolkit when host WP-CLI is broken", async () => {
+    const runtime = await prepareRuntime();
+    try {
+      runtime.env.FAKE_WP_CLI_BROKEN = "1";
+      runtime.env.FAKE_TOOLKIT_JSON = JSON.stringify([{
+        id: 5,
+        fullPath: "/var/www/vhosts/example.test/httpdocs",
+        version: "7.0",
+        outdatedWp: true,
+        unsupportedPhp: false,
+        broken: false,
+        infected: false,
+        alive: true,
+        stateText: "Working",
+        plugins: { akismet: { name: "akismet", status: "active", version: "5.3", update_version: "5.4" } },
+        themes: {},
+      }]);
+      await writeFile(runtime.env.MISE_PLESK_CONFIG!, JSON.stringify({ hosts: ["test"], maxSitesPerHost: 1 }));
+
+      await runScan([], runtime.env);
+      const reportName = (await readdir(runtime.env.MISE_PLESK_REPORTS!)).find((name) => name.endsWith(".json"));
+      const report = JSON.parse(await readFile(join(runtime.env.MISE_PLESK_REPORTS!, reportName!), "utf8")) as {
+        hosts: Array<{ wordpress: Array<{ coreVersion: string; auditSource?: string; integrity?: Record<string, string>; suspiciousFiles: string[] }> }>;
+        findings: Array<{ code: string }>;
+      };
+
+      expect(report.hosts[0]?.wordpress[0]).toMatchObject({
+        coreVersion: "7.0",
+        auditSource: "plesk-wp-toolkit",
+        integrity: { coreChecksums: "unavailable", pluginChecksums: "unavailable" },
+        suspiciousFiles: ["/var/www/vhosts/example.test/httpdocs/wp-content/uploads/shell.php"],
+      });
+      expect(report.findings.some((finding) => finding.code.startsWith("wp-cli-"))).toBe(false);
+      expect(await readFile(join(runtime.root, "ssh.log"), "utf8")).not.toContain("__MISE_CORE_BEGIN__");
+    } finally {
+      await rm(runtime.root, { recursive: true, force: true });
+    }
+  }, 30_000);
+
   it("propagates complete, budget-incomplete, and offset-incomplete state", async () => {
     const runtimes: Array<{ root: string; env: NodeJS.ProcessEnv }> = [];
     try {
@@ -146,6 +218,21 @@ describe("scan CLI end-to-end", () => {
       expect(report.hosts[0]?.wordpress[0]?.installation.domain).toBe("second.test");
     } finally {
       await Promise.all(runtimes.map(({ root }) => rm(root, { recursive: true, force: true })));
+    }
+  }, 30_000);
+
+  it("probes WP capabilities and fetches Toolkit inventory once across host chunks", async () => {
+    const runtime = await prepareRuntime();
+    try {
+      await writeFile(runtime.env.MISE_PLESK_CONFIG!, JSON.stringify({ hosts: ["test"], maxSitesPerHost: 1, maxScanChunksPerHost: 3 }));
+
+      await runScan(["--all-chunks"], runtime.env);
+      const commands = await readFile(join(runtime.root, "ssh.log"), "utf8");
+
+      expect(commands.match(/__MISE_WP_CLI_BEGIN__/g)).toHaveLength(1);
+      expect(commands.match(/plesk ext wp-toolkit --list -plugins -themes -format json/g)).toHaveLength(1);
+    } finally {
+      await rm(runtime.root, { recursive: true, force: true });
     }
   }, 30_000);
 });

@@ -24,12 +24,27 @@ import { formatScanOutput } from "../src/cli-output";
 import { isCompleteScanCycle, isCompleteScanPage, nextScanOffset } from "../src/scan-lifecycle";
 import { shouldContinueScanChunks } from "../src/scan-budget";
 import { readRemoteCapabilities } from "../src/remote-preflight";
+import {
+  createPleskWpToolkitRunner,
+  enrichAuditWithPleskWpToolkit,
+  parsePleskWpToolkitInventory,
+  parseWpCliCapability,
+  type PleskWpToolkitInventory,
+  type WpCliCapability,
+} from "../src/plesk-wp-toolkit";
 
 const inventoryPath = process.env.MISE_PLESK_INVENTORY ?? "inventory.json";
 const configPath = process.env.MISE_PLESK_CONFIG ?? "config.mise-en-plesk.json";
 
 interface VulnerabilityLookupBudget {
   used: number;
+}
+
+interface HostWordPressCapabilities {
+  initialized?: boolean;
+  wpCli?: WpCliCapability;
+  toolkit?: PleskWpToolkitInventory;
+  warnings?: string[];
 }
 
 function usage(): never {
@@ -158,6 +173,7 @@ async function scanHost(
   useSudo = false,
   vulnerabilityCache?: VulnerabilityCache,
   commandTimeoutMs = DEFAULT_SSH_COMMAND_TIMEOUT_MS,
+  hostCapabilities: HostWordPressCapabilities = {},
 ): Promise<{ report: AuditResult["hosts"][number]; scannedInstallationPaths: string[]; complete: boolean; offset: number }> {
   const host = inventory[alias];
   const item = process.env.BW_SESSION ? await getInventoryHostItem(host) : null;
@@ -193,14 +209,49 @@ async function scanHost(
     });
     for (const warning of scan.warnings ?? []) console.error(`[${alias}] warning: ${warning}`);
     const effectiveSudo = useSudo && scan.pleskCliAvailable !== false;
+    const capabilityWarnings = [...(scan.warnings ?? [])];
+    if (!hostCapabilities.initialized) {
+      let wpCli: WpCliCapability = { available: false, detail: "WP-CLI capability probe unavailable" };
+      try {
+        wpCli = parseWpCliCapability(await ssh({ kind: "wp-cli-capability", useSudo: effectiveSudo }));
+      } catch (error: unknown) {
+        capabilityWarnings.push(`WP-CLI capability probe failed: ${error instanceof Error ? error.message : "unknown error"}`);
+      }
+      let toolkit: PleskWpToolkitInventory = { sites: new Map(), warnings: [] };
+      if (scan.pleskCliAvailable !== false) {
+        try {
+          toolkit = parsePleskWpToolkitInventory(await ssh({ kind: "plesk-wp-toolkit-inventory", useSudo: effectiveSudo }));
+          capabilityWarnings.push(...toolkit.warnings);
+        } catch (error: unknown) {
+          capabilityWarnings.push(`Plesk WP Toolkit inventory unavailable: ${error instanceof Error ? error.message : "unknown error"}`);
+        }
+      }
+      hostCapabilities.initialized = true;
+      hostCapabilities.wpCli = wpCli;
+      hostCapabilities.toolkit = toolkit;
+      hostCapabilities.warnings = capabilityWarnings.slice(scan.warnings?.length ?? 0);
+    } else {
+      capabilityWarnings.push(...(hostCapabilities.warnings ?? []));
+    }
+    const wpCliCapability = hostCapabilities.wpCli ?? { available: false, detail: "WP-CLI capability probe unavailable" };
+    const toolkitInventory = hostCapabilities.toolkit ?? { sites: new Map(), warnings: [] };
+    if (!wpCliCapability.available && toolkitInventory.sites.size) {
+      capabilityWarnings.push(`Host WP-CLI unavailable (${wpCliCapability.detail ?? "unknown reason"}); using Plesk WP Toolkit metadata fallback.`);
+    }
+    for (const warning of capabilityWarnings.slice(scan.warnings?.length ?? 0)) console.error(`[${alias}] warning: ${warning}`);
     const selectedWordPress = maxSites === undefined ? scan.wordpress.slice(offset) : scan.wordpress;
     const scannedInstallationPaths = selectedWordPress.map((installation) => installation.path);
     const wordpress = [];
     for (let index = 0; index < selectedWordPress.length; index += maxConcurrentSites) {
       const batch = selectedWordPress.slice(index, index + maxConcurrentSites);
       wordpress.push(...await Promise.all(batch.map(async (installation) => {
-        const batched = createBatchedWpRunners(installation, ssh, { useSudo: effectiveSudo });
-        return auditWordPressInstallation(installation, batched.runner, {
+        const batched = wpCliCapability.available ? createBatchedWpRunners(installation, ssh, { useSudo: effectiveSudo }) : undefined;
+        const toolkitSite = toolkitInventory.sites.get(installation.path.replace(/\/+$/, ""));
+        const toolkit = toolkitSite ? createPleskWpToolkitRunner(toolkitSite, batched?.runner) : undefined;
+        const runner = toolkit?.runner ?? batched?.runner ?? (async () => {
+          throw new Error(wpCliCapability.detail || "wp: command not found");
+        });
+        const audit = await auditWordPressInstallation(installation, runner, {
           useSudo: effectiveSudo,
           enabled: process.env.MISE_PLESK_ENABLE_VULNS === "1",
           vulnerabilityResourceLookup: async (resource, identifier, options) => {
@@ -215,8 +266,22 @@ async function scanHost(
             vulnerabilityBudget.used += 1;
             return lookupVulnerabilities(resource, identifier, { ...options, enabled: true, cache: vulnerabilityCache });
           },
-          suspiciousFileRunner: batched.suspiciousFileRunner,
+          suspiciousFileRunner: batched?.suspiciousFileRunner ?? (async () => ssh({
+            kind: "suspicious-uploads",
+            installationPath: installation.path,
+            useSudo: effectiveSudo,
+          })),
         });
+        if (toolkit && toolkitSite) return enrichAuditWithPleskWpToolkit(audit, toolkitSite, toolkit.diagnostics());
+        if (wpCliCapability.available) return { ...audit, auditSource: "wp-cli" as const };
+        return {
+          ...audit,
+          auditSource: "none" as const,
+          limitations: [
+            `Host WP-CLI unavailable: ${wpCliCapability.detail ?? "unknown reason"}`,
+            "Plesk WP Toolkit has no matching installation registration",
+          ],
+        };
       })));
       console.error(`[${alias}] audited ${Math.min(index + batch.length, selectedWordPress.length)}/${selectedWordPress.length} selected WordPress installation(s)`);
     }
@@ -228,7 +293,7 @@ async function scanHost(
         wordpress,
         ...(scan.health ? { health: scan.health } : {}),
         ...(scan.hostFacts ? { hostFacts: scan.hostFacts } : {}),
-        ...(scan.warnings ? { warnings: scan.warnings } : {}),
+        ...(capabilityWarnings.length ? { warnings: capabilityWarnings } : {}),
       },
       scannedInstallationPaths,
       complete: isCompleteScanPage(scan, maxSites, offset),
@@ -402,6 +467,7 @@ async function main(): Promise<void> {
     for (const alias of aliases) {
       let offset = scanRange.offset;
       const vulnerabilityBudget = { used: 0 };
+      const hostCapabilities: HostWordPressCapabilities = {};
       const useSudo = config.sudoHosts?.includes(alias) ?? false;
       const hostWordPress: WordPressAudit[] = [];
       const hostExecutions: Array<Awaited<ReturnType<typeof scanHost>>> = [];
@@ -409,7 +475,7 @@ async function main(): Promise<void> {
       scanCycleState = prepareScanCycle(scanCycleState, alias, scanRange.offset, startedAt);
       await writeScanCycleState(scanCycleStatePath, scanCycleState);
       while (true) {
-        const execution = await scanHost(alias, inventory, maxLookups, maxConcurrentSites, scanRange.maxSites, offset, vulnerabilityBudget, useSudo, vulnerabilityCache, config.sshCommandTimeoutMs ?? DEFAULT_SSH_COMMAND_TIMEOUT_MS);
+        const execution = await scanHost(alias, inventory, maxLookups, maxConcurrentSites, scanRange.maxSites, offset, vulnerabilityBudget, useSudo, vulnerabilityCache, config.sshCommandTimeoutMs ?? DEFAULT_SSH_COMMAND_TIMEOUT_MS, hostCapabilities);
         executions.push(execution);
         hostExecutions.push(execution);
         chunksProcessed += 1;

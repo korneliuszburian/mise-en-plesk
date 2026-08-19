@@ -26,6 +26,12 @@ export function auditMarkdown(result: AuditResult): string {
       if (site.installation.detectionSignals?.length) lines.push(`- Detection signals: ${site.installation.detectionSignals.join(", ")}`);
       if (site.health.status) lines.push(`- Health status: ${site.health.status}`);
       if (site.health.detail) lines.push(`- Health detail: ${site.health.detail}`);
+      if (site.auditSource) lines.push(`- Audit source: ${site.auditSource}`);
+      for (const limitation of site.limitations ?? []) lines.push(`- Audit limitation: ${limitation}`);
+      if (site.toolkitSignals) {
+        const alive = site.toolkitSignals.alive === undefined ? "unknown" : site.toolkitSignals.alive ? "yes" : "no";
+        lines.push(`- WP Toolkit: ${site.toolkitSignals.stateText ?? "unknown state"}; alive=${alive}; infected=${site.toolkitSignals.infected ? "yes" : "no"}; broken=${site.toolkitSignals.broken ? "yes" : "no"}; unsupported PHP=${site.toolkitSignals.unsupportedPhp ? "yes" : "no"}`);
+      }
       if (site.coreUpdateAvailable !== undefined) lines.push(`- Core update available: ${site.coreUpdateAvailable ? "yes" : "no"}`);
       const themeUpdateCount = (site.themes ?? []).filter((theme) => theme.hasUpdate).length;
       const themeVulnerabilityCount = (site.themes ?? []).filter((theme) => theme.vulnerabilities?.length).length;

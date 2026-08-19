@@ -30,7 +30,14 @@ export interface ThemeInfo {
   vulnerabilities?: PluginVulnerability[];
 }
 
-export type ChecksumStatus = "verified" | "failed";
+export type ChecksumStatus = "verified" | "failed" | "unavailable";
+
+export class AuditCapabilityUnavailableError extends Error {
+  constructor(message: string) {
+    super(message);
+    this.name = "AuditCapabilityUnavailableError";
+  }
+}
 
 export interface WordPressAudit {
   installation: WordPressInstallation;
@@ -43,6 +50,15 @@ export interface WordPressAudit {
   vulnerabilityStatus?: "disabled" | "complete" | "partial" | "unavailable";
   vulnerabilityCheckedAt?: string;
   suspiciousFiles: string[];
+  auditSource?: "wp-cli" | "plesk-wp-toolkit" | "hybrid" | "none";
+  limitations?: string[];
+  toolkitSignals?: {
+    infected: boolean;
+    broken: boolean;
+    alive?: boolean;
+    unsupportedPhp: boolean;
+    stateText?: string;
+  };
   integrity?: {
     coreChecksums: ChecksumStatus;
     pluginChecksums: ChecksumStatus;
@@ -203,14 +219,14 @@ export async function auditWordPressInstallation(
     let coreChecksums: ChecksumStatus = "verified";
     try {
       await runner(installation, "core verify-checksums");
-    } catch {
-      coreChecksums = "failed";
+    } catch (error: unknown) {
+      coreChecksums = error instanceof AuditCapabilityUnavailableError ? "unavailable" : "failed";
     }
     let pluginChecksums: ChecksumStatus = "verified";
     try {
       await runner(installation, "plugin verify-checksums --all --strict");
-    } catch {
-      pluginChecksums = "failed";
+    } catch (error: unknown) {
+      pluginChecksums = error instanceof AuditCapabilityUnavailableError ? "unavailable" : "failed";
     }
     let themes: ThemeInfo[] | undefined;
     try {

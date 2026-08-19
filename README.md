@@ -52,6 +52,20 @@ a Markdown report under `reports/`. Plesk commands are intentionally
 read-only; this project does not delete anything, update plugins/themes, or
 change databases.
 
+Before auditing sites, the scanner probes the host WP-CLI once and reads the
+structured `plesk ext wp-toolkit --list -plugins -themes -format json`
+inventory. A working WP-CLI remains the richest source. If it is missing,
+broken, or fails for an individual installation, the audit falls back to WP
+Toolkit metadata for core, plugin, theme, update, and Toolkit health signals.
+The report records `auditSource` (`wp-cli`, `plesk-wp-toolkit`, `hybrid`, or
+`none` when neither source can audit a discovered path) and
+explicit limitations. WP Toolkit inventory does not expose checksum
+verification or WordPress.org freshness dates, so those fields are marked
+unavailable instead of being reported as successful or failed. Toolkit
+`infected`, `broken`, unsupported-PHP, and not-alive signals are emitted as P1
+findings for manual review. PHP discovery under `wp-content/uploads` remains
+an independent read-only filesystem scan.
+
 Some non-root SSH accounts can read WordPress files but cannot invoke Plesk
 CLI. Add that alias to `sudoHosts` in the local config to enable non-interactive
 `sudo -S` for the fixed read-only Plesk/WP commands on that host. The scanner

@@ -20,7 +20,11 @@ export type FindingCode =
   | "suspicious-upload-php"
   | "monitor-stale"
   | "core-vulnerable"
-  | "theme-vulnerable";
+  | "theme-vulnerable"
+  | "plesk-toolkit-infected"
+  | "plesk-toolkit-broken"
+  | "plesk-toolkit-unsupported-php"
+  | "plesk-toolkit-not-alive";
 
 export type FindingSeverity = "P1" | "P2" | "info";
 
@@ -28,7 +32,8 @@ const findingCodes = new Set<FindingCode>([
   "host-unreachable", "unreachable", "runtime-incompatible", "wp-cli-error", "wp-cli-missing", "wp-cli-permission-denied", "wp-cli-broken", "core-outdated", "core-update",
   "plugin-update", "plugin-abandoned", "plugin-vulnerable", "theme-update",
   "core-checksum-failed", "plugin-checksum-failed", "suspicious-upload-php",
-  "monitor-stale", "core-vulnerable", "theme-vulnerable",
+  "monitor-stale", "core-vulnerable", "theme-vulnerable", "plesk-toolkit-infected",
+  "plesk-toolkit-broken", "plesk-toolkit-unsupported-php", "plesk-toolkit-not-alive",
 ]);
 
 export function isFindingCode(value: unknown): value is FindingCode {
@@ -177,6 +182,18 @@ export function findingsFromAudits(hosts: AuditedHost[], now = new Date()): Find
       }
       if (audit.suspiciousFiles.length) {
         findings.push(makeFinding(host, audit, "suspicious-upload-php", "P1", "PHP files found in uploads (possible backdoors)", "uploads-php", { evidence: audit.suspiciousFiles.join("\n") }));
+      }
+      if (audit.toolkitSignals?.infected) {
+        findings.push(makeFinding(host, audit, "plesk-toolkit-infected", "P1", "Plesk WP Toolkit reports the installation as infected", "toolkit-infected", { evidence: audit.toolkitSignals.stateText }));
+      }
+      if (audit.toolkitSignals?.broken) {
+        findings.push(makeFinding(host, audit, "plesk-toolkit-broken", "P1", "Plesk WP Toolkit reports the installation as broken", "toolkit-broken", { evidence: audit.toolkitSignals.stateText }));
+      }
+      if (audit.toolkitSignals?.unsupportedPhp) {
+        findings.push(makeFinding(host, audit, "plesk-toolkit-unsupported-php", "P1", "Plesk WP Toolkit reports an unsupported PHP runtime", "toolkit-unsupported-php", { evidence: audit.toolkitSignals.stateText }));
+      }
+      if (audit.toolkitSignals?.alive === false) {
+        findings.push(makeFinding(host, audit, "plesk-toolkit-not-alive", "P1", "Plesk WP Toolkit reports the installation as not alive", "toolkit-not-alive", { evidence: audit.toolkitSignals.stateText }));
       }
     }
   }

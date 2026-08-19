@@ -87,6 +87,48 @@ describe("structured findings", () => {
     ]));
   });
 
+  it("treats the Plesk WP Toolkit infected signal as P1 evidence", () => {
+    const findings = findingsFromAudits([{
+      host: "dev-ssh",
+      wordpress: [baseAudit({
+        toolkitSignals: { infected: true, broken: false, alive: true, unsupportedPhp: false, stateText: "Infected" },
+      })],
+    }]);
+
+    expect(findings).toEqual([expect.objectContaining({
+      code: "plesk-toolkit-infected",
+      severity: "P1",
+      evidence: "Infected",
+    })]);
+  });
+
+  it("preserves broken, unsupported PHP, and not-alive Toolkit signals", () => {
+    const findings = findingsFromAudits([{
+      host: "dev-ssh",
+      wordpress: [baseAudit({
+        toolkitSignals: { infected: false, broken: true, alive: false, unsupportedPhp: true, stateText: "Broken" },
+      })],
+    }]);
+
+    expect(findings.map((finding) => finding.code)).toEqual([
+      "plesk-toolkit-broken",
+      "plesk-toolkit-unsupported-php",
+      "plesk-toolkit-not-alive",
+    ]);
+    expect(findings.every((finding) => finding.severity === "P1")).toBe(true);
+  });
+
+  it("does not invent a not-alive finding when Toolkit omits alive", () => {
+    const findings = findingsFromAudits([{
+      host: "dev-ssh",
+      wordpress: [baseAudit({
+        toolkitSignals: { infected: false, broken: false, unsupportedPhp: false, stateText: "Unknown" },
+      })],
+    }]);
+
+    expect(findings).toEqual([]);
+  });
+
   it("preserves the precise WP-CLI health status in finding codes", () => {
     const statuses = ["wp-cli-missing", "wp-cli-permission-denied", "wp-cli-broken"] as const;
     const findings = findingsFromAudits([{

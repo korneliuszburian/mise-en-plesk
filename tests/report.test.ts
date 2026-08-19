@@ -33,6 +33,25 @@ describe("audit reports", () => {
     expect(auditMarkdown(result)).toContain("- Priorities: core is very old");
   });
 
+  it("explains WP Toolkit fallback provenance and limitations", () => {
+    const markdown = auditMarkdown({
+      ...result,
+      hosts: [{
+        ...result.hosts[0],
+        wordpress: [{
+          ...result.hosts[0].wordpress[0],
+          auditSource: "plesk-wp-toolkit",
+          limitations: ["core checksum verification unavailable"],
+          toolkitSignals: { infected: false, broken: false, alive: true, unsupportedPhp: false, stateText: "Working" },
+        }],
+      }],
+    });
+
+    expect(markdown).toContain("- Audit source: plesk-wp-toolkit");
+    expect(markdown).toContain("- Audit limitation: core checksum verification unavailable");
+    expect(markdown).toContain("- WP Toolkit: Working; alive=yes; infected=no; broken=no; unsupported PHP=no");
+  });
+
   it("writes machine-readable JSON when requested", async () => {
     const directory = await mkdtemp(join(tmpdir(), "mise-en-plesk-report-"));
     const path = await writeAuditReport(result, directory, true);

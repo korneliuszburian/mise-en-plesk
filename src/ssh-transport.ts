@@ -2,6 +2,8 @@ export type ReadOnlyCommand =
   | { kind: "ssh-handshake" }
   | { kind: "remote-capabilities" }
   | { kind: "plesk-subscriptions"; useSudo?: boolean }
+  | { kind: "plesk-wp-toolkit-inventory"; useSudo?: boolean }
+  | { kind: "wp-cli-capability"; useSudo?: boolean }
   | { kind: "wordpress-candidates"; useSudo?: boolean; includeAlternateDetection?: boolean; offset?: number; limit?: number }
   | { kind: "plesk-version"; useSudo?: boolean }
   | { kind: "php-version"; useSudo?: boolean }
@@ -91,6 +93,16 @@ export function renderReadOnlyCommand(command: ReadOnlyCommand): string {
       "printf '%s\\n' '__MISE_REMOTE_SYSTEMCTL__'; command -v systemctl 2>&1; :",
     ].join(" ");
     case "plesk-subscriptions": return `${sudoPrefix(command.useSudo)}plesk bin subscription --list`;
+    case "plesk-wp-toolkit-inventory": return `${sudoPrefix(command.useSudo)}plesk ext wp-toolkit --list -plugins -themes -format json`;
+    case "wp-cli-capability": return [
+      "printf '%s\\n' '__MISE_WP_CLI_BEGIN__'",
+      `value=$(${sudoPrefix(command.useSudo)}wp cli version --allow-root 2>&1)`,
+      "status=$?",
+      "printf '%s\\n' \"$value\"",
+      "printf '%s\\n' \"__MISE_WP_CLI_STATUS_${status}__\"",
+      "printf '%s\\n' '__MISE_WP_CLI_END__'",
+      ":",
+    ].join("; ");
     case "wordpress-candidates": return renderWordPressCandidates(command);
     case "plesk-version": return `${sudoPrefix(command.useSudo)}plesk version`;
     case "php-version": return `${sudoPrefix(command.useSudo)}php -v`;
@@ -102,10 +114,10 @@ export function renderReadOnlyCommand(command: ReadOnlyCommand): string {
 
 const forbiddenRemoteMutation = [
   /\b(?:rm|rmdir|mv|cp|chmod|chown|truncate|mkfs|reboot|shutdown|poweroff)\b/i,
-  /\bwp\s+(?!(?:core\s+(?:version|check-update|verify-checksums)|plugin\s+(?:list|verify-checksums)|theme\s+list)\b)/i,
+  /\bwp\s+(?!(?:cli\s+version|core\s+(?:version|check-update|verify-checksums)|plugin\s+(?:list|verify-checksums)|theme\s+list)\b)/i,
   /\bwp\s+.*(?:--exec|--require|--eval)(?:=|\s)/i,
-  /\bplesk\s+(?!(?:bin\s+subscription\s+--list|version)\b)/i,
-  /\bplesk\s+bin\s+subscription\s+--list\s+\S|\bplesk\s+version\s+\S/i,
+  /\bplesk\s+(?!(?:bin\s+subscription\s+--list|ext\s+wp-toolkit\s+--list\s+-plugins\s+-themes\s+-format\s+json|version)\b)/i,
+  /\bplesk\s+bin\s+subscription\s+--list\s+\S|\bplesk\s+version\s+\S|\bplesk\s+ext\s+wp-toolkit\s+--list\s+-plugins\s+-themes\s+-format\s+json\s+\S/i,
   /(?:^|[;&|]\s*|\$\(\s*)php\s+-[rce]\b/i,
   /(?:^|[;&|]\s*|\$\(\s*)php\s+(?!-v(?:\s|$))/i,
   /(?:^|[;&|]\s*|\$\(\s*)php\s+-v\s+\S/i,
