@@ -44,6 +44,12 @@ describe("systemd installer safety gate", () => {
     expect(source).toContain('"$checkout/node_modules/.bin/tsx" --version');
     expect(source).not.toContain('pnpm --dir "$checkout" exec tsx');
   });
+
+  it("quarantines failed state instead of deleting it", async () => {
+    const source = await readFile(script, "utf8");
+    expect(source).toContain('mv --no-clobber "$state_directory" "$quarantine_path"');
+    expect(source).not.toContain('rmdir "$state_directory/reports"');
+  });
 });
 
 describe("systemd credential updater safety gate", () => {

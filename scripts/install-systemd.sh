@@ -126,8 +126,12 @@ rollback() {
     systemctl daemon-reload >/dev/null 2>&1 || true
   fi
   if (( created_state == 1 )); then
-    unlink "$state_directory/config.mise-en-plesk.json" "$state_directory/inventory.json" 2>/dev/null || true
-    rmdir "$state_directory/reports" "$state_directory/logs" "$state_directory" 2>/dev/null || true
+    quarantine_path="${state_directory}.failed-$(date -u +%Y%m%dT%H%M%SZ)-$$"
+    if mv --no-clobber "$state_directory" "$quarantine_path"; then
+      echo "Preserved failed installation state at $quarantine_path." >&2
+    else
+      echo "Could not quarantine failed installation state; leaving it untouched at $state_directory." >&2
+    fi
   fi
   if (( created_user == 1 )); then
     userdel mise-en-plesk >/dev/null 2>&1 || true
