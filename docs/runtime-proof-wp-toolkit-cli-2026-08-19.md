@@ -57,7 +57,27 @@ vendor PHP, alter WordPress/Plesk/database state, or write remote files.
 - `pnpm build`: passed.
 - `git diff --check`: passed.
 
-These bounded proofs validate the official registered-installation adapter.
-A post-commit systemd fleet cycle is still required before this slice is
-considered deployed. Unregistered and Bedrock installations remain a separate
-adapter slice and are not claimed as complete here.
+## Post-commit systemd deployment proof
+
+Commit `014b6af` was deployed to `/opt/mise-en-plesk` on the dev runner after
+CI passed on Node.js 20 and 22. The deployment created and validated the exact
+backup `/var/lib/mise-en-plesk/deployment-backups/014b6af-before`, then passed
+the remote frozen install, 199 tests, typecheck, build, systemd verifier, and
+timer restart.
+
+A fresh systemd cycle finished naturally with exit status 0:
+
+- master bounded chunk: 20 sites; 19 used Toolkit transport, 18 completed with
+  full WP-CLI audit data, 17 core checksum checks verified, and one site
+  retained an explicit WP-CLI error instead of aborting the host scan;
+- dev bounded chunk: 20 sites; 12 registered sites used Toolkit transport and
+  completed reachable audits, while eight unregistered paths remained
+  explicit `auditSource: none` gaps;
+- checksum adapter failures became `unavailable`; only recognized mismatch
+  output produced integrity failures;
+- suspicious-upload findings remained present on both hosts and no remediation
+  command was executed.
+
+This validates the official registered-installation adapter in the deployed
+scheduler. Unregistered and Bedrock installations remain a separate adapter
+slice and are not claimed as complete here.
