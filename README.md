@@ -219,37 +219,20 @@ released automatically when the runner exits. When `MISE_PLESK_REPORTS` is not
 set, the runner uses the configured `reportsDirectory` for both report lookup
 and cursor advancement.
 
-For a systemd deployment, copy
-`deploy/systemd/mise-en-plesk.service.example` and
-`deploy/systemd/mise-en-plesk.timer.example` to `/etc/systemd/system/`, replace
-`/opt/mise-en-plesk` with the real checkout path, create the dedicated
-non-root `mise-en-plesk` service account, and install the short-lived session
-as an encrypted systemd credential at
-`/etc/mise-en-plesk/bw-session.cred`. The unit decrypts it only into the
-runtime credential directory; plaintext is never stored in the checkout or
-committed:
+For a systemd deployment, use the guarded installer from a checkout at
+`/opt/mise-en-plesk`. It is a dry run by default, uses fixed dedicated paths,
+and refuses to overwrite an existing service, timer, or state directory.
+Prepare `config.mise-en-plesk.json`, `inventory.json`, and the credential
+before applying it:
 
 ```sh
-sudo useradd --system --home-dir /var/lib/mise-en-plesk --create-home --shell /usr/sbin/nologin mise-en-plesk
-sudo install -d -o mise-en-plesk -g mise-en-plesk -m 0750 \
-  /var/lib/mise-en-plesk \
-  /var/lib/mise-en-plesk/reports \
-  /var/lib/mise-en-plesk/logs
-# With BW_SESSION present only in the current shell, rotate the encrypted
-# credential without putting it in argv or a plaintext file.
+source scripts/setup-bw-session.sh
 scripts/update-systemd-bw-credential.sh
-
-# Provision the non-secret runtime inputs before enabling the timer. Keep the
-# checkout read-only; the service reads these copies from /var/lib.
-sudo install -o mise-en-plesk -g mise-en-plesk -m 0640 \
-  config.mise-en-plesk.json /var/lib/mise-en-plesk/config.mise-en-plesk.json
-pnpm --silent run mise-plesk-audit sync-ssh
-sudo install -o mise-en-plesk -g mise-en-plesk -m 0640 \
-  inventory.json /var/lib/mise-en-plesk/inventory.json
-sudo systemctl daemon-reload
-sudo systemctl enable --now mise-en-plesk.timer
-systemctl status mise-en-plesk.timer
-journalctl -u mise-en-plesk.service
+sudo --preserve-env=BW_SESSION scripts/update-systemd-bw-credential.sh \
+  --apply --confirm=update-bw-session
+scripts/install-systemd.sh
+sudo scripts/install-systemd.sh --apply --confirm=install-systemd
+scripts/verify-systemd-install.sh
 ```
 
 After installing the units, run the read-only deployment verifier on that
@@ -260,8 +243,11 @@ scripts/verify-systemd-install.sh
 ```
 
 It checks unit syntax, timer state, the dedicated non-root service account,
-the encrypted Bitwarden credential, and the systemd filesystem hardening. It
-does not start, stop, reload, or modify any unit.
+the selected Bitwarden credential mode, and the systemd filesystem hardening.
+It does not start, stop, reload, or modify any unit. On systemd 250 or newer,
+the installer uses an encrypted credential under `/etc/mise-en-plesk`. Older
+systemd uses a root-only, ephemeral credential under `/run/mise-en-plesk`,
+which must be restored after every reboot.
 
 The checkout is mounted read-only by systemd. Runtime state, reports, logs,
 locks, cursors, findings, and notification outbox data live under
@@ -273,7 +259,8 @@ non-secret routing file `/etc/mise-en-plesk/mise-en-plesk.env`; copy
 the service account's Hermes setup is complete. The timer runs the incremental
 one-chunk-per-host mode. It never performs
 remote remediation; `systemctl stop mise-en-plesk.timer` is the local stop
-switch. Rotate the encrypted `bw-session.cred` before the session expires by
-running `source scripts/setup-bw-session.sh` followed by
-`scripts/update-systemd-bw-credential.sh`. Do not put a Bitwarden master
-password or any Plesk credential in the unit files.
+switch. Credential rotation is also a dry run by default. Before the session
+expires, source `scripts/setup-bw-session.sh`, inspect
+`scripts/update-systemd-bw-credential.sh`, then apply with
+`sudo --preserve-env=BW_SESSION scripts/update-systemd-bw-credential.sh --apply --confirm=update-bw-session`.
+Do not put a Bitwarden master password or any Plesk credential in unit files.
