@@ -1,4 +1,5 @@
 import { execFile } from "node:child_process";
+import { readFile } from "node:fs/promises";
 import { promisify } from "node:util";
 import { describe, expect, it } from "vitest";
 
@@ -30,6 +31,12 @@ describe("systemd installer safety gate", () => {
     "--credential-mode=runtime",
   ])("rejects path or credential override %s", async (argument) => {
     await expect(execFileAsync("bash", [script, argument])).rejects.toMatchObject({ code: 78 });
+  });
+
+  it("creates the service HOME before probing Bitwarden as the service account", async () => {
+    const source = await readFile(script, "utf8");
+    expect(source.indexOf('install -d -o mise-en-plesk -g mise-en-plesk -m 0750 "$state_directory"'))
+      .toBeLessThan(source.indexOf('bw --version'));
   });
 });
 

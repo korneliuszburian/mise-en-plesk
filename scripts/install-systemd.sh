@@ -162,6 +162,10 @@ service_uid="$(id -u mise-en-plesk)"
 service_gid="$(id -g mise-en-plesk)"
 (( service_uid > 0 && service_uid < 1000 )) || fail "mise-en-plesk must use a non-root system UID"
 (( service_gid > 0 && service_gid < 1000 )) || fail "mise-en-plesk must use a non-root system GID"
+install -d -o mise-en-plesk -g mise-en-plesk -m 0750 "$state_directory"
+created_state=1
+install -d -o mise-en-plesk -g mise-en-plesk -m 0750 \
+  "$state_directory/reports" "$state_directory/logs"
 readonly service_path="/usr/local/bin:/usr/bin:/bin"
 runuser -u mise-en-plesk -- env -i HOME="$state_directory" PATH="$service_path" test -r "$checkout/package.json"
 runuser -u mise-en-plesk -- env -i HOME="$state_directory" PATH="$service_path" node --version >/dev/null
@@ -172,10 +176,6 @@ runuser -u mise-en-plesk -- env -i HOME="$state_directory" PATH="$service_path" 
 runuser -u mise-en-plesk -- env -i HOME="$state_directory" PATH="$service_path" \
   bash -n "$checkout/scripts/run-scheduled-scan.sh" "$checkout/scripts/run-scheduled-scan-systemd.sh"
 
-install -d -o mise-en-plesk -g mise-en-plesk -m 0750 "$state_directory"
-created_state=1
-install -d -o mise-en-plesk -g mise-en-plesk -m 0750 \
-  "$state_directory/reports" "$state_directory/logs"
 install -o mise-en-plesk -g mise-en-plesk -m 0640 \
   "$checkout/config.mise-en-plesk.json" "$state_directory/config.mise-en-plesk.json"
 install -o mise-en-plesk -g mise-en-plesk -m 0640 \
