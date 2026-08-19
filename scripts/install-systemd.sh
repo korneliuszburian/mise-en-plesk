@@ -69,11 +69,13 @@ fi
 [[ -r "$checkout/deploy/systemd/mise-en-plesk.timer.example" ]] || fail "timer example is missing"
 [[ -r "$checkout/config.mise-en-plesk.json" ]] || fail "scanner config is missing from the checkout"
 [[ -r "$checkout/inventory.json" ]] || fail "inventory is missing from the checkout"
+[[ -r "$checkout/dist/bin/mise-plesk-audit.js" ]] || fail "compiled CLI is missing; run pnpm build in $checkout"
+[[ -r "$checkout/dist/scripts/scan-cursor.js" ]] || fail "compiled cursor helper is missing; run pnpm build in $checkout"
 [[ -s "$credential_path" && ! -L "$credential_path" ]] || fail "BW_SESSION credential is missing, empty, or a symlink: $credential_path"
 
 [[ -x /usr/local/bin/pnpm ]] || fail "/usr/local/bin/pnpm is not available"
 [[ -x /usr/local/bin/bw ]] || fail "/usr/local/bin/bw is not available"
-[[ -x /usr/local/bin/node || -x /usr/bin/node ]] || fail "Node.js is not available in the service PATH"
+[[ -x /usr/local/bin/node ]] || fail "/usr/local/bin/node is not available"
 [[ -x /usr/bin/sshpass ]] || fail "/usr/bin/sshpass is not available"
 command -v systemctl >/dev/null 2>&1 || fail "systemctl is not available"
 command -v systemd-analyze >/dev/null 2>&1 || fail "systemd-analyze is not available"
@@ -177,6 +179,10 @@ runuser -u mise-en-plesk -- env -i HOME="$state_directory" PATH="$service_path" 
 runuser -u mise-en-plesk -- env -i HOME="$state_directory" PATH="$service_path" sshpass -V >/dev/null 2>&1
 runuser -u mise-en-plesk -- env -i HOME="$state_directory" PATH="$service_path" \
   "$checkout/node_modules/.bin/tsx" --version >/dev/null
+runuser -u mise-en-plesk -- env -i HOME="$state_directory" PATH="$service_path" \
+  node --check "$checkout/dist/bin/mise-plesk-audit.js" >/dev/null
+runuser -u mise-en-plesk -- env -i HOME="$state_directory" PATH="$service_path" \
+  node --check "$checkout/dist/scripts/scan-cursor.js" >/dev/null
 runuser -u mise-en-plesk -- env -i HOME="$state_directory" PATH="$service_path" \
   bash -n "$checkout/scripts/run-scheduled-scan.sh" "$checkout/scripts/run-scheduled-scan-systemd.sh"
 

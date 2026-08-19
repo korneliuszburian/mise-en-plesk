@@ -230,6 +230,8 @@ source scripts/setup-bw-session.sh
 scripts/update-systemd-bw-credential.sh
 sudo --preserve-env=BW_SESSION scripts/update-systemd-bw-credential.sh \
   --apply --confirm=update-bw-session
+pnpm install --frozen-lockfile
+pnpm build
 scripts/install-systemd.sh
 sudo scripts/install-systemd.sh --apply --confirm=install-systemd
 scripts/verify-systemd-install.sh

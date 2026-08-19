@@ -31,8 +31,9 @@ Environment=PATH=/usr/local/bin:/usr/bin:/bin
 # Optional non-secret routing configuration; Hermes credentials stay in the
 # service account's HOME and are managed by Hermes itself.
 EnvironmentFile=-/etc/mise-en-plesk/mise-en-plesk.env
-# Install pnpm system-wide at this path, or change this explicit runner path.
-Environment=MISE_PLESK_RUNNER_BIN=/usr/local/bin/pnpm
+# Production runs compiled JavaScript directly; package managers never execute
+# inside the read-only service sandbox.
+Environment=MISE_PLESK_RUNNER_BIN=/usr/local/bin/node
 LoadCredentialEncrypted=BW_SESSION:/etc/mise-en-plesk/bw-session.cred
 UMask=0077
 NoNewPrivileges=yes
@@ -43,5 +44,7 @@ ProtectKernelTunables=yes
 ProtectKernelModules=yes
 ProtectControlGroups=yes
 ReadWritePaths=/var/lib/mise-en-plesk
-ExecStartPre=/usr/bin/test -x /usr/local/bin/pnpm
+ExecStartPre=/usr/bin/test -x /usr/local/bin/node
+ExecStartPre=/usr/bin/test -r /opt/mise-en-plesk/dist/bin/mise-plesk-audit.js
+ExecStartPre=/usr/bin/test -r /opt/mise-en-plesk/dist/scripts/scan-cursor.js
 ExecStart=/usr/bin/bash /opt/mise-en-plesk/scripts/run-scheduled-scan-systemd.sh

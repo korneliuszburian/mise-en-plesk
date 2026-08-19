@@ -50,6 +50,14 @@ describe("systemd installer safety gate", () => {
     expect(source).toContain('mv --no-clobber "$state_directory" "$quarantine_path"');
     expect(source).not.toContain('rmdir "$state_directory/reports"');
   });
+
+  it("requires the compiled CLI and keeps pnpm out of the systemd runtime", async () => {
+    const installer = await readFile(script, "utf8");
+    const unit = await readFile("deploy/systemd/mise-en-plesk.service.example", "utf8");
+    expect(installer).toContain('dist/bin/mise-plesk-audit.js');
+    expect(unit).toContain("Environment=MISE_PLESK_RUNNER_BIN=/usr/local/bin/node");
+    expect(unit).not.toContain("Environment=MISE_PLESK_RUNNER_BIN=/usr/local/bin/pnpm");
+  });
 });
 
 describe("systemd credential updater safety gate", () => {
