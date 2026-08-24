@@ -18,9 +18,9 @@ is a prototype.
 | Vulnerability and risk findings | done | bounded/cacheable WPVulnerability lookups, integrity, abandoned/update/backdoor findings |
 | Persistent lifecycle state | done | stable finding IDs, transition sequence, opened/resolved/reopened events and scoped reconciliation |
 | Markdown / additive JSON reports | done | reports, findings, progress, source/capability evidence and tests |
-| Bounded fleet rotation | done in code; runtime re-proof pending | independent host cursors, chunk budgets, full-cycle state, deferred-page retry and offset-integrity checks |
-| Scheduler deployment | partial | hardened timer is installed on dev, but live checkout is `c7b1536`; reviewed resilience fix `f71ba09` still needs controlled deployment and a successful natural cycle |
-| Monitor heartbeat / stale alert | done in code; runtime re-proof pending | persisted heartbeat plus durable per-host `deferredSince`; repeated zero-progress pages become `monitor-stale` and resolve after recovery |
+| Bounded fleet rotation | done | real master timeout deferred at offset 340 while dev advanced 20 to 40; cursor integrity preserved |
+| Scheduler deployment | done | exact `bf3fd10` deployed on hardened dev runner; fully new-version cycle exited 0 |
+| Monitor heartbeat / stale alert | done | real deferred master persisted in `deferredSince`; no failed heartbeat and retry state remained durable |
 | Notification reliability | done | outbox v2 records only active channels; v1 ambiguous backlog retires; cooldown, partial acceptance, recovery and crash replay tests |
 | Provider semantics | done | `accepted/failed/unknown`; ambiguous network outcomes pause automatic retry; stable event refs prevent silent duplicate confusion |
 | Meta WhatsApp transport | done | approved-template request, strict `wamid.*` acceptance, durable `wamid -> eventReferences` receipts |
@@ -40,16 +40,14 @@ is a prototype.
 - Current local gate: 38 test files / 247 tests, `pnpm typecheck`, `pnpm build`,
   `bash -n scripts/*.sh`, systemd unit verification, and `git diff --check`.
 - Dev runner deployment is exact commit
-  `c7b15368e9f2305806b51536a23aa2d7c1c8bb85`; its verifier passed with checkout
+  `bf3fd108ae66fe05fcd345150428fef4034a5024`; its verifier passed with checkout
   mode `0755`, root ownership, and an enabled, active, non-root hardened timer.
   The prior checkout is preserved under
-  `/var/lib/mise-en-plesk/deployment-backups/c7b15368e9f2305806b51536a23aa2d7c1c8bb85-before/checkout`.
-- The first natural cycle after that deployment reproduced a read-only master
-  discovery timeout at cursor offset 320. Commit `f71ba09` fixes the resulting
-  zero-progress service failure with typed deferred reconciliation, strict
-  report/cursor offset matching, durable per-host degraded state, and no false
-  success log. That commit has not yet been deployed, so scheduler runtime
-  completion is not claimed.
+  `/var/lib/mise-en-plesk/deployment-backups/bf3fd108ae66fe05fcd345150428fef4034a5024-before/checkout`.
+- A fully new-version cycle reproduced a read-only master discovery timeout,
+  preserved offset 340 as deferred, advanced dev from 20 to 40, persisted
+  `deferredSince.master-ssh`, and exited 0 without a false full-success claim.
+  See [`runtime-proof-scheduler-resilience-2026-08-24.md`](runtime-proof-scheduler-resilience-2026-08-24.md).
 - Static classic/Bedrock and natural bounded fleet evidence is recorded in
   [`runtime-proof-static-bedrock-2026-08-19.md`](runtime-proof-static-bedrock-2026-08-19.md).
 - No WhatsApp/Hermes target or credential was configured during deployment; no
@@ -57,13 +55,8 @@ is a prototype.
 
 ## Final external gate
 
-Before the external messaging gate, deploy exact commit `f71ba09` to the dev
-runner with rollback protection and record one successful natural cycle that
-either advances/completes each host page or explicitly defers a timed-out page
-while preserving its cursor and keeping systemd healthy.
-
-The product is also not operationally complete until the selected company
-Meta account supplies:
+The product is not operationally complete until the selected company Meta
+account supplies:
 
 1. a WhatsApp Business Account and sender phone-number ID;
 2. a System User token with `whatsapp_business_messaging`;
@@ -80,6 +73,9 @@ handset `delivered/read/failed` proof remains a separate Meta status-webhook
 integration; until that webhook exists this tool claims provider acceptance,
 never handset delivery.
 
-The package remains pre-release until both the scheduler re-proof and the real
+The exposed dev SSH/sudo credential must also be rotated in the server and its
+Bitwarden Secure Note before final operational sign-off.
+
+The package remains pre-release until credential rotation and the real
 submission/recovery gate are recorded. No reviewed code defect is currently
 known to block those proofs.
