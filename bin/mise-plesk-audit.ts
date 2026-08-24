@@ -1,11 +1,10 @@
 #!/usr/bin/env node
 import { getInventoryHostItem, readInventory, syncFromBitwarden } from "../src/ssh-inventory";
 import { extractSecureNoteSshCredentials } from "../src/bitwarden";
-import { createSshSession, scanPleskHost, DEFAULT_SSH_COMMAND_TIMEOUT_MS } from "../src/plesk-scan";
-import type { ReadOnlyCommand } from "../src/ssh-transport";
-import { auditWordPressInstallation, createBatchedWpRunners, type AuditResult, type WordPressAudit, type ScanProgress } from "../src/wp-audit";
+import { createSshSession, DEFAULT_SSH_COMMAND_TIMEOUT_MS } from "../src/plesk-scan";
+import { type AuditResult, type ScanProgress, type WordPressAudit } from "../src/wp-audit";
 import { writeAuditReport } from "../src/report";
-import { createBoundedVulnerabilityLookup, createFileVulnerabilityCache, type VulnerabilityCache } from "../src/vulnerabilities";
+import { createFileVulnerabilityCache } from "../src/vulnerabilities";
 import { findingsFromAudits } from "../src/findings";
 import { readFindingState, reconcileFindings, writeFindingState, type FindingScope, type FindingEvent } from "../src/finding-state";
 import { appendScanCycleFindings, completeScanCycle, prepareScanCycle, readScanCycleState, writeScanCycleState } from "../src/scan-cycle";
@@ -21,48 +20,13 @@ import { readConfigFile, resolveScanPolicy, type MisePleskConfig } from "../src/
 import { acquireLocalLock, type LocalLock } from "../src/local-lock";
 import { createWhatsAppTestEvent, requireWhatsAppTestConfirmation } from "../src/notification-test";
 import { formatScanOutput } from "../src/cli-output";
-import { isCompleteScanCycle, isCompleteScanPage, nextScanOffset } from "../src/scan-lifecycle";
+import { isCompleteScanCycle, nextScanOffset } from "../src/scan-lifecycle";
 import { shouldContinueScanChunks } from "../src/scan-budget";
 import { readRemoteCapabilities } from "../src/remote-preflight";
-import {
-  createPleskWpToolkitRunner,
-  enrichAuditWithPleskWpToolkit,
-  parsePleskWpToolkitInventory,
-  parseWpCliCapability,
-  type PleskWpToolkitInventory,
-  type WpCliCapability,
-} from "../src/plesk-wp-toolkit";
-import { auditStaticWordPressInstallation } from "../src/static-wp-audit";
-import { enrichAuditWithSiteDiagnostics } from "../src/site-diagnostics";
+import { auditHost, createHostAuditContext, type VulnerabilityLookupBudget } from "../src/host-audit";
 
 const inventoryPath = process.env.MISE_PLESK_INVENTORY ?? "inventory.json";
 const configPath = process.env.MISE_PLESK_CONFIG ?? "config.mise-en-plesk.json";
-
-interface VulnerabilityLookupBudget {
-  used: number;
-}
-
-interface HostWordPressCapabilities {
-  initialized?: boolean;
-  wpCli?: WpCliCapability;
-  toolkit?: PleskWpToolkitInventory;
-  warnings?: string[];
-}
-
-interface ScanHostOptions {
-  maxVulnerabilityLookups?: number;
-  enableVulnerabilityLookups?: boolean;
-  maxConcurrentSites?: number;
-  maxSites?: number;
-  offset?: number;
-  vulnerabilityBudget?: VulnerabilityLookupBudget;
-  useSudo?: boolean;
-  vulnerabilityCache?: VulnerabilityCache;
-  commandTimeoutMs?: number;
-  hostCapabilities?: HostWordPressCapabilities;
-  publicSiteChecks?: boolean;
-  publicSiteCheckTimeoutMs?: number;
-}
 
 function usage(): never {
   console.error("Scan options: [--max-sites=N] [--offset=N] [--max-chunks=N] [--all-chunks]");
@@ -177,193 +141,6 @@ async function persistFindingList(
     whatsappAccepted: notification.whatsappAccepted,
     hermesAccepted: notification.hermesAccepted,
   };
-}
-
-async function scanHost(
-  alias: string,
-  inventory: Awaited<ReturnType<typeof readInventory>>,
-  options: ScanHostOptions = {},
-): Promise<{ report: AuditResult["hosts"][number]; scannedInstallationPaths: string[]; complete: boolean; offset: number }> {
-  const {
-    maxVulnerabilityLookups,
-    enableVulnerabilityLookups = false,
-    maxConcurrentSites = 4,
-    maxSites,
-    offset = 0,
-    vulnerabilityBudget = { used: 0 },
-    useSudo = false,
-    vulnerabilityCache,
-    commandTimeoutMs = DEFAULT_SSH_COMMAND_TIMEOUT_MS,
-    hostCapabilities = {},
-    publicSiteChecks = true,
-    publicSiteCheckTimeoutMs = 10_000,
-  } = options;
-  const host = inventory[alias];
-  const item = process.env.BW_SESSION ? await getInventoryHostItem(host) : null;
-  const credentials = item ? extractSecureNoteSshCredentials(item) : null;
-  console.error(`[${alias}] scanning Plesk host ${host.host}`);
-  let session: Awaited<ReturnType<typeof createSshSession>>;
-  try {
-    session = await createSshSession(host, credentials?.password, useSudo ? credentials?.password : undefined, commandTimeoutMs);
-  } catch (error: unknown) {
-    const detail = error instanceof Error ? error.message.replace(/\s+/g, " ").trim().slice(0, 240) : "SSH session could not be established";
-    console.error(`[${alias}] host unreachable: ${detail}`);
-    return {
-      report: {
-        host: alias,
-        subscriptions: [],
-        wordpress: [],
-        health: { reachable: false, detail },
-        warnings: [`SSH session could not be established: ${detail}`],
-      },
-      scannedInstallationPaths: [],
-      complete: false,
-      offset,
-    };
-  }
-  try {
-    const ssh = (command: ReadOnlyCommand) => session.run(command);
-    const scan = await scanPleskHost(host, (_host, command) => ssh(command), {
-      wordpressOffset: offset,
-      wordpressLimit: maxSites,
-      useSudo,
-      collectHostFacts: offset === 0,
-      includeAlternateWordPressDetection: true,
-    });
-    for (const warning of scan.warnings ?? []) console.error(`[${alias}] warning: ${warning}`);
-    const effectiveSudo = useSudo && scan.pleskCliAvailable !== false;
-    const capabilityWarnings = [...(scan.warnings ?? [])];
-    if (!hostCapabilities.initialized) {
-      let wpCli: WpCliCapability = { available: false, detail: "WP-CLI capability probe unavailable" };
-      try {
-        wpCli = parseWpCliCapability(await ssh({ kind: "wp-cli-capability", useSudo: effectiveSudo }));
-      } catch (error: unknown) {
-        capabilityWarnings.push(`WP-CLI capability probe failed: ${error instanceof Error ? error.message : "unknown error"}`);
-      }
-      let toolkit: PleskWpToolkitInventory = { sites: new Map(), warnings: [] };
-      if (scan.pleskCliAvailable !== false) {
-        try {
-          toolkit = parsePleskWpToolkitInventory(await ssh({ kind: "plesk-wp-toolkit-inventory", useSudo: effectiveSudo }));
-          capabilityWarnings.push(...toolkit.warnings);
-        } catch (error: unknown) {
-          capabilityWarnings.push(`Plesk WP Toolkit inventory unavailable: ${error instanceof Error ? error.message : "unknown error"}`);
-        }
-      }
-      hostCapabilities.initialized = true;
-      hostCapabilities.wpCli = wpCli;
-      hostCapabilities.toolkit = toolkit;
-      hostCapabilities.warnings = capabilityWarnings.slice(scan.warnings?.length ?? 0);
-    } else {
-      capabilityWarnings.push(...(hostCapabilities.warnings ?? []));
-    }
-    const wpCliCapability = hostCapabilities.wpCli ?? { available: false, detail: "WP-CLI capability probe unavailable" };
-    const toolkitInventory = hostCapabilities.toolkit ?? { sites: new Map(), warnings: [] };
-    if (!wpCliCapability.available && toolkitInventory.sites.size) {
-      capabilityWarnings.push(`Host WP-CLI unavailable (${wpCliCapability.detail ?? "unknown reason"}); using the Plesk WP Toolkit bridge with metadata fallback.`);
-    }
-    for (const warning of capabilityWarnings.slice(scan.warnings?.length ?? 0)) console.error(`[${alias}] warning: ${warning}`);
-    const selectedWordPress = maxSites === undefined ? scan.wordpress.slice(offset) : scan.wordpress;
-    const scannedInstallationPaths = selectedWordPress.map((installation) => installation.path);
-    const wordpress = [];
-    const vulnerabilityResourceLookup = createBoundedVulnerabilityLookup({
-      enabled: enableVulnerabilityLookups,
-      maxLookups: maxVulnerabilityLookups,
-      budget: vulnerabilityBudget,
-      cache: vulnerabilityCache,
-    });
-    for (let index = 0; index < selectedWordPress.length; index += maxConcurrentSites) {
-      const batch = selectedWordPress.slice(index, index + maxConcurrentSites);
-      wordpress.push(...await Promise.all(batch.map(async (installation) => {
-        const toolkitSite = toolkitInventory.sites.get(installation.path.replace(/\/+$/, ""));
-        let audit: WordPressAudit;
-        if (!toolkitSite && !wpCliCapability.available) {
-          audit = await auditStaticWordPressInstallation(installation, ssh, {
-            useSudo: effectiveSudo,
-            enabled: enableVulnerabilityLookups,
-            vulnerabilityResourceLookup,
-            sourceLimitations: [
-              `Host WP-CLI unavailable: ${wpCliCapability.detail ?? "unknown reason"}`,
-              "Plesk WP Toolkit has no matching installation registration",
-            ],
-          });
-        } else {
-          const batched = toolkitSite
-            ? createBatchedWpRunners(installation, ssh, {
-              useSudo: effectiveSudo,
-              runtime: { kind: "plesk-wp-toolkit", instanceId: toolkitSite.id },
-            })
-            : wpCliCapability.available ? createBatchedWpRunners(installation, ssh, { useSudo: effectiveSudo }) : undefined;
-          const toolkit = toolkitSite ? createPleskWpToolkitRunner(toolkitSite, batched?.runner) : undefined;
-          const runner = toolkit?.runner ?? batched?.runner ?? (async () => {
-            throw new Error(wpCliCapability.detail || "wp: command not found");
-          });
-          audit = await auditWordPressInstallation(installation, runner, {
-            useSudo: effectiveSudo,
-            enabled: enableVulnerabilityLookups,
-            vulnerabilityResourceLookup,
-            suspiciousFileRunner: batched?.suspiciousFileRunner ?? (async () => ssh({
-              kind: "suspicious-uploads",
-              installationPath: installation.path,
-              useSudo: effectiveSudo,
-            })),
-          });
-          if (!toolkitSite && audit.health.status && audit.health.status !== "unreachable") {
-            audit = await auditStaticWordPressInstallation(installation, ssh, {
-              useSudo: effectiveSudo,
-              enabled: enableVulnerabilityLookups,
-              vulnerabilityResourceLookup,
-              observedHealth: audit.health,
-              sourceLimitations: [
-                `WP-CLI audit failed for this installation: ${audit.health.detail ?? audit.health.status}`,
-                "Plesk WP Toolkit has no matching installation registration",
-              ],
-            });
-          } else if (toolkit && toolkitSite) {
-            audit = { ...enrichAuditWithPleskWpToolkit(audit, toolkitSite, toolkit.diagnostics()), wpCliTransport: "plesk-wp-toolkit" as const };
-          } else if (wpCliCapability.available) {
-            audit = { ...audit, auditSource: "wp-cli" as const };
-          } else {
-            audit = {
-              ...audit,
-              auditSource: "none" as const,
-              limitations: [
-                `Host WP-CLI unavailable: ${wpCliCapability.detail ?? "unknown reason"}`,
-                "Plesk WP Toolkit has no matching installation registration",
-              ],
-            };
-          }
-        }
-        return enrichAuditWithSiteDiagnostics(audit, ssh, {
-          enabled: publicSiteChecks,
-          timeoutMs: publicSiteCheckTimeoutMs,
-          useSudo: effectiveSudo,
-          pleskCliAvailable: scan.pleskCliAvailable,
-        });
-      })));
-      console.error(`[${alias}] audited ${Math.min(index + batch.length, selectedWordPress.length)}/${selectedWordPress.length} selected WordPress installation(s)`);
-    }
-    console.error(`[${alias}] found ${scan.subscriptions.length} subscription(s), ${scan.wordpress.length} WordPress installation(s); selected ${selectedWordPress.length} at offset ${offset}`);
-    return {
-      report: {
-        host: scan.host,
-        subscriptions: scan.subscriptions,
-        wordpress,
-        ...(scan.health ? { health: scan.health } : {}),
-        ...(scan.hostFacts ? { hostFacts: scan.hostFacts } : {}),
-        ...(capabilityWarnings.length ? { warnings: capabilityWarnings } : {}),
-      },
-      scannedInstallationPaths,
-      complete: isCompleteScanPage(scan, maxSites, offset),
-      offset,
-    };
-  } finally {
-    try {
-      await session.close();
-    } catch (error: unknown) {
-      const detail = error instanceof Error ? error.message.replace(/\s+/g, " ").trim().slice(0, 200) : "SSH session close failed";
-      console.error(`[${alias}] SSH session close warning: ${detail}`);
-    }
-  }
 }
 
 async function main(): Promise<void> {
@@ -509,7 +286,7 @@ async function main(): Promise<void> {
       scanPolicy.vulnerabilityCachePath,
       scanPolicy.vulnerabilityCacheTtlMs,
     );
-    const executions: Array<Awaited<ReturnType<typeof scanHost>>> = [];
+    const executions: Array<Awaited<ReturnType<typeof auditHost>>> = [];
     const findingStatePath = process.env.MISE_PLESK_FINDINGS ?? config.findingsStatePath ?? ".mise-en-plesk/findings.json";
     const scanCycleStatePath = process.env.MISE_PLESK_SCAN_CYCLES ?? config.scanCycleStatePath ?? ".mise-en-plesk/scan-cycles.json";
     let findingState = await readFindingState(findingStatePath);
@@ -522,15 +299,15 @@ async function main(): Promise<void> {
     for (const alias of aliases) {
       let offset = scanRange.offset;
       const vulnerabilityBudget = { used: 0 };
-      const hostCapabilities: HostWordPressCapabilities = {};
+      const hostAuditContext = createHostAuditContext();
       const useSudo = config.sudoHosts?.includes(alias) ?? false;
       const hostWordPress: WordPressAudit[] = [];
-      const hostExecutions: Array<Awaited<ReturnType<typeof scanHost>>> = [];
+      const hostExecutions: Array<Awaited<ReturnType<typeof auditHost>>> = [];
       let chunksProcessed = 0;
       scanCycleState = prepareScanCycle(scanCycleState, alias, scanRange.offset, startedAt);
       await writeScanCycleState(scanCycleStatePath, scanCycleState);
       while (true) {
-        const execution = await scanHost(alias, inventory, {
+        const execution = await auditHost(alias, inventory, {
           maxVulnerabilityLookups: scanPolicy.maxVulnerabilityLookupsPerHost,
           enableVulnerabilityLookups: scanPolicy.enableVulnerabilityLookups,
           maxConcurrentSites: scanPolicy.maxConcurrentSitesPerHost,
@@ -540,7 +317,7 @@ async function main(): Promise<void> {
           useSudo,
           vulnerabilityCache,
           commandTimeoutMs: scanPolicy.sshCommandTimeoutMs,
-          hostCapabilities,
+          context: hostAuditContext,
           publicSiteChecks: scanPolicy.publicSiteChecks,
           publicSiteCheckTimeoutMs: scanPolicy.publicSiteCheckTimeoutMs,
         });
