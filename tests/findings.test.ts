@@ -104,15 +104,18 @@ describe("structured findings", () => {
     })]);
   });
 
-  it("does not create a backdoor finding for uploads index placeholders", () => {
+  it("keeps uploads index-named files as a P2 manual-review finding", () => {
     const findings = findingsFromAudits([{
       host: "dev-ssh",
       wordpress: [baseAudit({ suspiciousFiles: ["/uploads/index.php", "/uploads/2026/index.php"] })],
     }]);
 
-    expect(findings).not.toEqual(expect.arrayContaining([
-      expect.objectContaining({ code: "suspicious-upload-php" }),
-    ]));
+    expect(findings).toEqual([expect.objectContaining({
+      code: "suspicious-upload-php",
+      severity: "P2",
+      message: "index.php files found in uploads; manual review required",
+      evidence: "/uploads/index.php\n/uploads/2026/index.php",
+    })]);
   });
 
   it("reports public HTTP and TLS failures separately from Toolkit reachability", () => {

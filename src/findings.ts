@@ -1,5 +1,5 @@
 import { createHash } from "node:crypto";
-import { actionableSuspiciousFiles, hasIncompleteStaticCapabilities, isPluginAbandoned, isVeryOldCore, isWpCliFailure, type WordPressAudit } from "./wp-audit";
+import { classifySuspiciousUploadFiles, hasIncompleteStaticCapabilities, isPluginAbandoned, isVeryOldCore, isWpCliFailure, type WordPressAudit } from "./wp-audit";
 
 export type FindingCode =
   | "host-unreachable"
@@ -214,9 +214,11 @@ export function findingsFromAudits(hosts: AuditedHost[], now = new Date()): Find
       if (audit.integrity?.pluginChecksums === "unavailable" && /permission denied/i.test(audit.integrity.pluginDetail ?? "")) {
         findings.push(makeFinding(host, audit, "plugin-checksum-unavailable", "P2", "WordPress plugin checksum audit is incomplete", "plugin-checksums-unavailable", { evidence: audit.integrity.pluginDetail }));
       }
-      const suspiciousFiles = actionableSuspiciousFiles(audit.suspiciousFiles);
-      if (suspiciousFiles.length) {
-        findings.push(makeFinding(host, audit, "suspicious-upload-php", "P1", "PHP files found in uploads (possible backdoors)", "uploads-php", { evidence: suspiciousFiles.join("\n") }));
+      const suspiciousFiles = classifySuspiciousUploadFiles(audit.suspiciousFiles);
+      if (suspiciousFiles.nonIndexPhpFiles.length) {
+        findings.push(makeFinding(host, audit, "suspicious-upload-php", "P1", "PHP files found in uploads (possible backdoors)", "uploads-php", { evidence: suspiciousFiles.nonIndexPhpFiles.join("\n") }));
+      } else if (suspiciousFiles.indexNamedPhpFiles.length) {
+        findings.push(makeFinding(host, audit, "suspicious-upload-php", "P2", "index.php files found in uploads; manual review required", "uploads-php", { evidence: suspiciousFiles.indexNamedPhpFiles.join("\n") }));
       }
       if (audit.toolkitSignals?.infected) {
         findings.push(makeFinding(host, audit, "plesk-toolkit-infected", "P1", "Plesk WP Toolkit reports the installation as infected", "toolkit-infected", { evidence: audit.toolkitSignals.stateText }));

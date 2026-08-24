@@ -1,7 +1,7 @@
 import { mkdir, writeFile } from "node:fs/promises";
 import { join } from "node:path";
 import type { AuditResult } from "./wp-audit";
-import { actionableSuspiciousFiles } from "./wp-audit";
+import { classifySuspiciousUploadFiles } from "./wp-audit";
 
 export function auditMarkdown(result: AuditResult): string {
   const lines = [`# Plesk WordPress audit`, ``, `Generated: ${result.generatedAt}`, ``];
@@ -76,13 +76,12 @@ export function auditMarkdown(result: AuditResult): string {
       lines.push(site.staticCapabilities?.updateStatus === "unavailable"
         ? `- Plugin risk: update and abandonment status unavailable, ${vulnerablePluginCount} with version-scoped known vulnerabilities`
         : `- Plugin risk: ${updateCount} with updates, ${abandonedCount} abandoned, ${vulnerablePluginCount} with known vulnerabilities`);
-      const suspiciousFiles = actionableSuspiciousFiles(site.suspiciousFiles);
-      const ignoredIndexFiles = site.suspiciousFiles.length - suspiciousFiles.length;
-      if (suspiciousFiles.length) {
-        lines.push(`- Suspicious uploads: ${suspiciousFiles.length} actionable PHP file(s); details are available in JSON`);
-        for (const file of suspiciousFiles.slice(0, 5)) lines.push(`  - ${file}`);
+      const suspiciousFiles = classifySuspiciousUploadFiles(site.suspiciousFiles);
+      if (suspiciousFiles.nonIndexPhpFiles.length) {
+        lines.push(`- Suspicious uploads: ${suspiciousFiles.nonIndexPhpFiles.length} non-index PHP file(s); details are available in JSON`);
+        for (const file of suspiciousFiles.nonIndexPhpFiles.slice(0, 5)) lines.push(`  - ${file}`);
       }
-      if (ignoredIndexFiles) lines.push(`- Upload placeholders: ${ignoredIndexFiles} index.php file(s) retained in JSON but not escalated`);
+      if (suspiciousFiles.indexNamedPhpFiles.length) lines.push(`- Upload index.php files: ${suspiciousFiles.indexNamedPhpFiles.length}; retained for lower-priority manual review`);
       if (site.priorities.length) lines.push(`- Priorities: ${site.priorities.join(", ")}`);
       lines.push("");
     }

@@ -268,7 +268,7 @@ describe("WordPress audit", () => {
     expect(audit.priorities).toContain("PHP files found in uploads (possible backdoors)");
   });
 
-  it("keeps uploads index files as evidence without escalating them as possible backdoors", async () => {
+  it("keeps uploads index files as a lower-priority manual-review signal", async () => {
     const audit = applyHeuristics({
       installation: { path: "/var/www/vhosts/site.test/httpdocs" },
       coreVersion: "6.9.4",
@@ -279,6 +279,7 @@ describe("WordPress audit", () => {
     });
 
     expect(audit.suspiciousFiles).toHaveLength(1);
+    expect(audit.priorities).toContain("index.php files found in uploads; manual review required");
     expect(audit.priorities).not.toContain("PHP files found in uploads (possible backdoors)");
   });
 

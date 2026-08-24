@@ -383,8 +383,17 @@ export function parseSuspiciousFiles(output: string): string[] {
   return output.split(/\r?\n/).map((line) => line.trim()).filter(Boolean);
 }
 
-export function actionableSuspiciousFiles(files: readonly string[]): string[] {
-  return files.filter((file) => !/(^|\/)index\.php$/i.test(file));
+export interface SuspiciousUploadFileClassification {
+  nonIndexPhpFiles: string[];
+  indexNamedPhpFiles: string[];
+}
+
+export function classifySuspiciousUploadFiles(files: readonly string[]): SuspiciousUploadFileClassification {
+  const indexNamedPhpFiles = files.filter((file) => /(^|\/)index\.php$/i.test(file));
+  return {
+    nonIndexPhpFiles: files.filter((file) => !/(^|\/)index\.php$/i.test(file)),
+    indexNamedPhpFiles,
+  };
 }
 
 async function collectSuspiciousFiles(
@@ -445,7 +454,9 @@ export function applyHeuristics(
   if (audit.coreVulnerabilities?.length) priorities.push("WordPress core has known vulnerabilities (via WPVulnerability)");
   if (audit.integrity?.coreChecksums === "failed") priorities.push("WordPress core checksum verification failed");
   if (audit.integrity?.pluginChecksums === "failed") priorities.push("WordPress plugin checksum verification needs manual review");
-  if (actionableSuspiciousFiles(audit.suspiciousFiles).length) priorities.push("PHP files found in uploads (possible backdoors)");
+  const suspiciousUploads = classifySuspiciousUploadFiles(audit.suspiciousFiles);
+  if (suspiciousUploads.nonIndexPhpFiles.length) priorities.push("PHP files found in uploads (possible backdoors)");
+  else if (suspiciousUploads.indexNamedPhpFiles.length) priorities.push("index.php files found in uploads; manual review required");
   return { ...audit, priorities };
 }
 
