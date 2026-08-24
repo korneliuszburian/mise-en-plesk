@@ -291,6 +291,14 @@ describe("systemd runtime bootstrap safety gates", () => {
     expect(verifier).not.toContain("cat \"$whatsapp_credential\"");
   });
 
+  it("supports an explicitly disabled timer for manual-scan mode", async () => {
+    const verifier = await readFile("scripts/verify-systemd-install.sh", "utf8");
+    expect(verifier).toContain("--allow-disabled-timer");
+    expect(verifier).toContain("allow_disabled_timer=1");
+    expect(verifier).toContain('systemctl is-enabled --quiet mise-en-plesk.timer');
+    expect(verifier).toContain('systemctl is-active --quiet mise-en-plesk.timer');
+  });
+
   it("runs the guarded WhatsApp test in a transient hardened unit with the runtime credential", async () => {
     const source = await readFile(whatsappTestScript, "utf8");
     expect(source).toContain("--confirm=<exact configured recipient>");

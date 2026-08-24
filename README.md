@@ -328,6 +328,12 @@ after every reboot with `bootstrap-systemd-bw-runtime.sh`; until then scans
 fail closed before SSH. Public verified SSH host keys remain under the service
 account's `/var/lib/mise-en-plesk/.ssh/known_hosts`.
 
+During manual-scan-only stabilization, disable the scheduler with
+`sudo systemctl disable --now mise-en-plesk.timer` and verify that intentional
+state with `scripts/verify-systemd-install.sh --allow-disabled-timer`. This
+flag relaxes only the enabled/active timer checks; all credential, ownership,
+SSH trust, service-user, and filesystem-hardening checks still run.
+
 The checkout is mounted read-only by systemd. Runtime state, reports, logs,
 locks, cursors, findings, and notification outbox data live under
 `/var/lib/mise-en-plesk`, owned by the dedicated service account. The timer

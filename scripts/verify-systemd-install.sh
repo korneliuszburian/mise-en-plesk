@@ -14,6 +14,7 @@ whatsapp_dropin="/etc/systemd/system/mise-en-plesk.service.d/whatsapp.conf"
 whatsapp_credential="/run/mise-en-plesk/WHATSAPP_ACCESS_TOKEN"
 require_whatsapp=0
 allow_inactive_timer=0
+allow_disabled_timer=0
 
 fail() {
   echo "systemd installation check failed: $*" >&2
@@ -24,8 +25,9 @@ for argument in "$@"; do
   case "$argument" in
     --require-whatsapp) require_whatsapp=1 ;;
     --allow-inactive-timer) allow_inactive_timer=1 ;;
+    --allow-disabled-timer) allow_disabled_timer=1; allow_inactive_timer=1 ;;
     --help)
-      echo "Usage: scripts/verify-systemd-install.sh [--require-whatsapp] [--allow-inactive-timer]"
+      echo "Usage: scripts/verify-systemd-install.sh [--require-whatsapp] [--allow-inactive-timer] [--allow-disabled-timer]"
       exit 0
       ;;
     *) fail "unknown option: $argument" ;;
@@ -86,7 +88,9 @@ if [[ -e "$whatsapp_dropin" ]]; then
 fi
 
 systemd-analyze verify "$service_unit" "$timer_unit"
-systemctl is-enabled --quiet mise-en-plesk.timer || fail "mise-en-plesk.timer is not enabled"
+if (( allow_disabled_timer == 0 )); then
+  systemctl is-enabled --quiet mise-en-plesk.timer || fail "mise-en-plesk.timer is not enabled"
+fi
 if (( allow_inactive_timer == 0 )); then
   systemctl is-active --quiet mise-en-plesk.timer || fail "mise-en-plesk.timer is not active"
 fi
@@ -140,4 +144,5 @@ known_hosts_mode="$(stat -c '%U:%G %a' "$known_hosts_path" 2>/dev/null || true)"
 [[ "$known_hosts_mode" == "mise-en-plesk:mise-en-plesk 600" ]] \
   || fail "known_hosts must be owned by mise-en-plesk mode 0600"
 
-echo "mise-en-plesk systemd installation is enabled, active, non-root, protected, and uses a $credential_kind credential."
+timer_state="$(systemctl is-enabled mise-en-plesk.timer 2>/dev/null || true)/$(systemctl is-active mise-en-plesk.timer 2>/dev/null || true)"
+echo "mise-en-plesk systemd installation is verified with timer $timer_state, a non-root protected service, and a $credential_kind credential."
