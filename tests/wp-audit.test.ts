@@ -283,6 +283,22 @@ describe("WordPress audit", () => {
     expect(audit.priorities).not.toContain("PHP files found in uploads (possible backdoors)");
   });
 
+  it("keeps both upload PHP priorities when index and non-index files coexist", () => {
+    const audit = applyHeuristics({
+      installation: { path: "/var/www/vhosts/site.test/httpdocs" },
+      coreVersion: "6.9.4",
+      plugins: [],
+      vulnerabilities: [],
+      suspiciousFiles: ["/uploads/shell.php", "/uploads/index.php"],
+      health: { reachable: true },
+    });
+
+    expect(audit.priorities).toEqual(expect.arrayContaining([
+      "PHP files found in uploads (possible backdoors)",
+      "index.php files found in uploads; manual review required",
+    ]));
+  });
+
   it("treats checksum timeouts as unavailable instead of checksum failures", async () => {
     const audit = await auditWordPressInstallation({ path: "/var/www/vhosts/slow.test/httpdocs" }, async (_installation, command) => {
       if (command === "core version") return "6.9.4";

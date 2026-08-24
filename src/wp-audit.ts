@@ -389,11 +389,11 @@ export interface SuspiciousUploadFileClassification {
 }
 
 export function classifySuspiciousUploadFiles(files: readonly string[]): SuspiciousUploadFileClassification {
-  const indexNamedPhpFiles = files.filter((file) => /(^|\/)index\.php$/i.test(file));
-  return {
-    nonIndexPhpFiles: files.filter((file) => !/(^|\/)index\.php$/i.test(file)),
-    indexNamedPhpFiles,
-  };
+  const classification: SuspiciousUploadFileClassification = { nonIndexPhpFiles: [], indexNamedPhpFiles: [] };
+  for (const file of files) {
+    (/(^|\/)index\.php$/i.test(file) ? classification.indexNamedPhpFiles : classification.nonIndexPhpFiles).push(file);
+  }
+  return classification;
 }
 
 async function collectSuspiciousFiles(
@@ -456,7 +456,7 @@ export function applyHeuristics(
   if (audit.integrity?.pluginChecksums === "failed") priorities.push("WordPress plugin checksum verification needs manual review");
   const suspiciousUploads = classifySuspiciousUploadFiles(audit.suspiciousFiles);
   if (suspiciousUploads.nonIndexPhpFiles.length) priorities.push("PHP files found in uploads (possible backdoors)");
-  else if (suspiciousUploads.indexNamedPhpFiles.length) priorities.push("index.php files found in uploads; manual review required");
+  if (suspiciousUploads.indexNamedPhpFiles.length) priorities.push("index.php files found in uploads; manual review required");
   return { ...audit, priorities };
 }
 

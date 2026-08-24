@@ -111,11 +111,24 @@ describe("structured findings", () => {
     }]);
 
     expect(findings).toEqual([expect.objectContaining({
-      code: "suspicious-upload-php",
+      code: "upload-index-php",
       severity: "P2",
       message: "index.php files found in uploads; manual review required",
       evidence: "/uploads/index.php\n/uploads/2026/index.php",
     })]);
+  });
+
+  it("reports non-index and index-named upload PHP files independently", () => {
+    const findings = findingsFromAudits([{
+      host: "dev-ssh",
+      wordpress: [baseAudit({ suspiciousFiles: ["/uploads/shell.php", "/uploads/index.php"] })],
+    }]);
+
+    expect(findings).toEqual(expect.arrayContaining([
+      expect.objectContaining({ code: "suspicious-upload-php", severity: "P1", evidence: "/uploads/shell.php" }),
+      expect.objectContaining({ code: "upload-index-php", severity: "P2", evidence: "/uploads/index.php" }),
+    ]));
+    expect(new Set(findings.map((finding) => finding.id)).size).toBe(2);
   });
 
   it("reports public HTTP and TLS failures separately from Toolkit reachability", () => {

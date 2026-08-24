@@ -21,6 +21,7 @@ export type FindingCode =
   | "plugin-checksum-failed"
   | "plugin-checksum-unavailable"
   | "suspicious-upload-php"
+  | "upload-index-php"
   | "monitor-stale"
   | "core-vulnerable"
   | "theme-vulnerable"
@@ -37,7 +38,7 @@ export type FindingSeverity = "P1" | "P2" | "info";
 const findingCodes = new Set<FindingCode>([
   "host-unreachable", "unreachable", "runtime-incompatible", "wp-cli-error", "wp-cli-missing", "wp-cli-permission-denied", "wp-cli-broken", "audit-unavailable", "audit-incomplete", "core-outdated", "core-update",
   "plugin-update", "plugin-abandoned", "plugin-vulnerable", "theme-update",
-  "core-checksum-failed", "plugin-checksum-failed", "plugin-checksum-unavailable", "suspicious-upload-php",
+  "core-checksum-failed", "plugin-checksum-failed", "plugin-checksum-unavailable", "suspicious-upload-php", "upload-index-php",
   "monitor-stale", "core-vulnerable", "theme-vulnerable", "plesk-toolkit-infected",
   "plesk-toolkit-broken", "plesk-toolkit-unsupported-php", "plesk-toolkit-not-alive",
   "tls-certificate-invalid", "public-http-error",
@@ -217,8 +218,9 @@ export function findingsFromAudits(hosts: AuditedHost[], now = new Date()): Find
       const suspiciousFiles = classifySuspiciousUploadFiles(audit.suspiciousFiles);
       if (suspiciousFiles.nonIndexPhpFiles.length) {
         findings.push(makeFinding(host, audit, "suspicious-upload-php", "P1", "PHP files found in uploads (possible backdoors)", "uploads-php", { evidence: suspiciousFiles.nonIndexPhpFiles.join("\n") }));
-      } else if (suspiciousFiles.indexNamedPhpFiles.length) {
-        findings.push(makeFinding(host, audit, "suspicious-upload-php", "P2", "index.php files found in uploads; manual review required", "uploads-php", { evidence: suspiciousFiles.indexNamedPhpFiles.join("\n") }));
+      }
+      if (suspiciousFiles.indexNamedPhpFiles.length) {
+        findings.push(makeFinding(host, audit, "upload-index-php", "P2", "index.php files found in uploads; manual review required", "uploads-index-php", { evidence: suspiciousFiles.indexNamedPhpFiles.join("\n") }));
       }
       if (audit.toolkitSignals?.infected) {
         findings.push(makeFinding(host, audit, "plesk-toolkit-infected", "P1", "Plesk WP Toolkit reports the installation as infected", "toolkit-infected", { evidence: audit.toolkitSignals.stateText }));
