@@ -18,6 +18,8 @@ export interface MisePleskConfig {
   heartbeatPath?: string;
   monitorMaxAgeHours?: number;
   sshCommandTimeoutMs?: number;
+  publicSiteChecks?: boolean;
+  publicSiteCheckTimeoutMs?: number;
 }
 
 function isRecord(value: unknown): value is Record<string, unknown> {
@@ -54,6 +56,12 @@ function integerValue(value: unknown, name: string, source: string, minimum: num
   return result;
 }
 
+function booleanValue(value: unknown, name: string, source: string): boolean | undefined {
+  if (value === undefined) return undefined;
+  if (typeof value !== "boolean") throw new Error(`${name} must be a boolean: ${source}`);
+  return value;
+}
+
 export function validateConfig(value: unknown, source = "config.mise-en-plesk.json"): MisePleskConfig {
   if (!isRecord(value)) throw new Error(`Config must be a JSON object: ${source}`);
   return {
@@ -74,6 +82,8 @@ export function validateConfig(value: unknown, source = "config.mise-en-plesk.js
     heartbeatPath: pathValue(value.heartbeatPath, "heartbeatPath", source),
     monitorMaxAgeHours: numberValue(value.monitorMaxAgeHours, "monitorMaxAgeHours", source, Number.MIN_VALUE),
     sshCommandTimeoutMs: integerValue(value.sshCommandTimeoutMs, "sshCommandTimeoutMs", source, 1_000),
+    publicSiteChecks: booleanValue(value.publicSiteChecks, "publicSiteChecks", source),
+    publicSiteCheckTimeoutMs: integerValue(value.publicSiteCheckTimeoutMs, "publicSiteCheckTimeoutMs", source, 1_000),
   };
 }
 

@@ -26,6 +26,17 @@ export function auditMarkdown(result: AuditResult): string {
       if (site.installation.detectionSignals?.length) lines.push(`- Detection signals: ${site.installation.detectionSignals.join(", ")}`);
       if (site.health.status) lines.push(`- Health status: ${site.health.status}`);
       if (site.health.detail) lines.push(`- Health detail: ${site.health.detail}`);
+      if (site.publicSiteHealth) {
+        const publicHttp = site.publicSiteHealth.http;
+        lines.push(`- Public HTTPS: ${publicHttp.reachable ? `HTTP ${publicHttp.status ?? "unknown"}` : `unreachable (${publicHttp.error ?? "unknown error"})`}`);
+        const publicTls = site.publicSiteHealth.tls;
+        lines.push(`- Public TLS: ${publicTls.status === "valid" ? "valid" : `${publicTls.status} (${publicTls.error ?? "unknown error"})`}`);
+        if (site.publicSiteHealth.tls.validTo) lines.push(`- TLS valid until: ${site.publicSiteHealth.tls.validTo}`);
+      }
+      if (site.pleskSiteInfo) {
+        lines.push(`- Plesk site status: ${site.pleskSiteInfo.status}`);
+        if (site.pleskSiteInfo.certificate) lines.push(`- Plesk configured certificate: ${site.pleskSiteInfo.certificate}`);
+      }
       if (site.auditSource) lines.push(`- Audit source: ${site.auditSource}`);
       if (site.wpCliTransport) lines.push(`- WP-CLI transport: ${site.wpCliTransport}`);
       if (site.layout) {

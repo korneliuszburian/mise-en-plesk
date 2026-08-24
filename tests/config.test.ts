@@ -12,9 +12,11 @@ describe("mise-en-plesk config", () => {
       maxVulnerabilityLookupsPerHost: 10,
       vulnerabilityCacheTtlHours: 12,
       sshCommandTimeoutMs: 60000,
+      publicSiteChecks: true,
+      publicSiteCheckTimeoutMs: 10000,
       findingsStatePath: ".mise-en-plesk/findings.json",
       scanCycleStatePath: ".mise-en-plesk/scan-cycles.json",
-    })).toMatchObject({ hosts: ["master-ssh", "dev-ssh"], maxConcurrentSitesPerHost: 4, maxScanChunksPerHost: 100, sshCommandTimeoutMs: 60000, scanCycleStatePath: ".mise-en-plesk/scan-cycles.json" });
+    })).toMatchObject({ hosts: ["master-ssh", "dev-ssh"], maxConcurrentSitesPerHost: 4, maxScanChunksPerHost: 100, sshCommandTimeoutMs: 60000, publicSiteChecks: true, publicSiteCheckTimeoutMs: 10000, scanCycleStatePath: ".mise-en-plesk/scan-cycles.json" });
   });
 
   it("rejects invalid numeric limits and duplicate aliases", () => {
@@ -23,5 +25,7 @@ describe("mise-en-plesk config", () => {
     expect(() => validateConfig({ hosts: ["../reports"] })).toThrow("safe aliases");
     expect(() => validateConfig({ sshCommandTimeoutMs: 999 })).toThrow("sshCommandTimeoutMs");
     expect(() => validateConfig({ maxScanChunksPerHost: 0 })).toThrow("maxScanChunksPerHost");
+    expect(() => validateConfig({ publicSiteChecks: "yes" })).toThrow("publicSiteChecks");
+    expect(() => validateConfig({ publicSiteCheckTimeoutMs: 999 })).toThrow("publicSiteCheckTimeoutMs");
   });
 });

@@ -6,6 +6,7 @@ export type ReadOnlyCommand =
   | { kind: "remote-capabilities" }
   | { kind: "plesk-subscriptions"; useSudo?: boolean }
   | { kind: "plesk-wp-toolkit-inventory"; useSudo?: boolean }
+  | { kind: "plesk-site-info"; domain: string; useSudo?: boolean }
   | { kind: "wp-cli-capability"; useSudo?: boolean }
   | { kind: "wordpress-candidates"; useSudo?: boolean; includeAlternateDetection?: boolean; offset?: number; limit?: number }
   | { kind: "plesk-version"; useSudo?: boolean }
@@ -78,6 +79,14 @@ function assertPleskVhostPath(value: string): void {
     || value.includes("/./")
     || /[\u0000-\u001f\u007f]/.test(value)) {
     throw new Error("remote WordPress path must be a canonical absolute Plesk vhost path");
+  }
+}
+
+function assertDnsHostname(value: string): void {
+  if (value.length > 253
+    || !value.includes(".")
+    || !/^(?:[A-Za-z0-9](?:[A-Za-z0-9-]{0,61}[A-Za-z0-9])?\.)+[A-Za-z0-9](?:[A-Za-z0-9-]{0,61}[A-Za-z0-9])?$/.test(value)) {
+    throw new Error("Plesk site inspection requires a valid DNS hostname");
   }
 }
 
@@ -181,6 +190,9 @@ export function renderReadOnlyCommand(command: ReadOnlyCommand): string {
     ].join(" ");
     case "plesk-subscriptions": return `${sudoPrefix(command.useSudo)}plesk bin subscription --list`;
     case "plesk-wp-toolkit-inventory": return `${sudoPrefix(command.useSudo)}plesk ext wp-toolkit --list -plugins -themes -format json`;
+    case "plesk-site-info":
+      assertDnsHostname(command.domain);
+      return `${sudoPrefix(command.useSudo)}plesk bin site --info ${shellQuote(command.domain)}`;
     case "wp-cli-capability": return [
       "printf '%s\\n' '__MISE_WP_CLI_BEGIN__'",
       `value=$(${sudoPrefix(command.useSudo)}wp cli version --allow-root 2>&1)`,
@@ -206,7 +218,7 @@ const forbiddenRemoteMutation = [
   /\b(?:rm|rmdir|mv|cp|chmod|chown|truncate|mkfs|reboot|shutdown|poweroff)\b/i,
   /\bwp\s+(?!(?:cli\s+version|core\s+(?:version|check-update|verify-checksums)|plugin\s+(?:list|verify-checksums)|theme\s+list)\b)/i,
   /\bwp\s+.*(?:--exec|--require|--eval)(?:=|\s)/i,
-  /\bplesk\s+(?!(?:bin\s+subscription\s+--list|ext\s+wp-toolkit\s+--list\s+-plugins\s+-themes\s+-format\s+json|version)\b)/i,
+  /\bplesk\s+(?!(?:bin\s+subscription\s+--list\b|bin\s+site\s+--info\s+'[A-Za-z0-9.-]+'(?:\s|$)|ext\s+wp-toolkit\s+--list\s+-plugins\s+-themes\s+-format\s+json\b|version\b))/i,
   /\bplesk\s+bin\s+subscription\s+--list\s+\S|\bplesk\s+version\s+\S|\bplesk\s+ext\s+wp-toolkit\s+--list\s+-plugins\s+-themes\s+-format\s+json\s+\S/i,
   /(?:^|[;&|]\s*|\$\(\s*)php\s+-[rce]\b/i,
   /(?:^|[;&|]\s*|\$\(\s*)php\s+(?!-v(?:\s|$))/i,

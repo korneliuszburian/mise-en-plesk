@@ -13,5 +13,7 @@
   "notificationHistoryPath": ".mise-en-plesk/notification-history.json",
   "notificationCooldownHours": 24,
   "heartbeatPath": ".mise-en-plesk/heartbeat.json",
-  "monitorMaxAgeHours": 2
+  "monitorMaxAgeHours": 2,
+  "publicSiteChecks": true,
+  "publicSiteCheckTimeoutMs": 10000
 }

@@ -19,6 +19,7 @@ export type FindingCode =
   | "theme-update"
   | "core-checksum-failed"
   | "plugin-checksum-failed"
+  | "plugin-checksum-unavailable"
   | "suspicious-upload-php"
   | "monitor-stale"
   | "core-vulnerable"
@@ -26,16 +27,21 @@ export type FindingCode =
   | "plesk-toolkit-infected"
   | "plesk-toolkit-broken"
   | "plesk-toolkit-unsupported-php"
-  | "plesk-toolkit-not-alive";
+  | "plesk-toolkit-not-alive"
+  | "tls-certificate-invalid"
+  | "public-http-error"
+  | "plesk-site-suspended";
 
 export type FindingSeverity = "P1" | "P2" | "info";
 
 const findingCodes = new Set<FindingCode>([
   "host-unreachable", "unreachable", "runtime-incompatible", "wp-cli-error", "wp-cli-missing", "wp-cli-permission-denied", "wp-cli-broken", "audit-unavailable", "audit-incomplete", "core-outdated", "core-update",
   "plugin-update", "plugin-abandoned", "plugin-vulnerable", "theme-update",
-  "core-checksum-failed", "plugin-checksum-failed", "suspicious-upload-php",
+  "core-checksum-failed", "plugin-checksum-failed", "plugin-checksum-unavailable", "suspicious-upload-php",
   "monitor-stale", "core-vulnerable", "theme-vulnerable", "plesk-toolkit-infected",
   "plesk-toolkit-broken", "plesk-toolkit-unsupported-php", "plesk-toolkit-not-alive",
+  "tls-certificate-invalid", "public-http-error",
+  "plesk-site-suspended",
 ]);
 
 export function isFindingCode(value: unknown): value is FindingCode {
@@ -106,6 +112,23 @@ export function findingsFromAudits(hosts: AuditedHost[], now = new Date()): Find
       });
     }
     for (const audit of wordpress) {
+      const publicSeverity: FindingSeverity = audit.installation.classification?.kind === "staging" || audit.installation.classification?.kind === "backup" ? "P2" : "P1";
+      if (audit.publicSiteHealth?.tls.status === "invalid") {
+        findings.push(makeFinding(host, audit, "tls-certificate-invalid", publicSeverity, "Public TLS certificate is invalid", "public-tls", {
+          evidence: audit.publicSiteHealth.tls.error,
+        }));
+      }
+      const publicHttp = audit.publicSiteHealth?.http;
+      if (!audit.pleskSiteInfo?.suspended && publicHttp && (!publicHttp.reachable || publicHttp.status === undefined || publicHttp.status >= 500)) {
+        findings.push(makeFinding(host, audit, "public-http-error", publicSeverity, "Public website is unavailable", "public-http", {
+          evidence: publicHttp.status === undefined ? publicHttp.error : `HTTP ${publicHttp.status}`,
+        }));
+      }
+      if (audit.pleskSiteInfo?.suspended) {
+        findings.push(makeFinding(host, audit, "plesk-site-suspended", publicSeverity, "Plesk website is administratively suspended", "plesk-site-status", {
+          evidence: audit.pleskSiteInfo.status,
+        }));
+      }
       if (!audit.health.reachable) {
         findings.push(makeFinding(host, audit, "unreachable", "P1", "installation is unreachable", "installation", { evidence: audit.health.detail }));
       }
@@ -187,6 +210,9 @@ export function findingsFromAudits(hosts: AuditedHost[], now = new Date()): Find
       }
       if (audit.integrity?.pluginChecksums === "failed") {
         findings.push(makeFinding(host, audit, "plugin-checksum-failed", "P2", "WordPress plugin checksum verification needs manual review", "plugin-checksums", { evidence: audit.integrity.pluginDetail }));
+      }
+      if (audit.integrity?.pluginChecksums === "unavailable" && /permission denied/i.test(audit.integrity.pluginDetail ?? "")) {
+        findings.push(makeFinding(host, audit, "plugin-checksum-unavailable", "P2", "WordPress plugin checksum audit is incomplete", "plugin-checksums-unavailable", { evidence: audit.integrity.pluginDetail }));
       }
       if (audit.suspiciousFiles.length) {
         findings.push(makeFinding(host, audit, "suspicious-upload-php", "P1", "PHP files found in uploads (possible backdoors)", "uploads-php", { evidence: audit.suspiciousFiles.join("\n") }));

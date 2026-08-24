@@ -28,7 +28,7 @@ export interface PleskWpToolkitInventory {
 }
 
 export interface PleskWpToolkitDiagnostics {
-  source: "wp-cli" | "plesk-wp-toolkit" | "hybrid";
+  source: "plesk-wp-toolkit";
   limitations: string[];
 }
 
@@ -177,13 +177,10 @@ export function createPleskWpToolkitRunner(
   site: PleskWpToolkitSite,
   primary?: WpCommandRunner,
 ): { runner: WpCommandRunner; diagnostics(): PleskWpToolkitDiagnostics } {
-  let primarySucceeded = false;
-  let toolkitUsed = false;
   const unavailable = new Set<string>();
   const primaryFailures = new Set<string>();
 
   const fallback = (command: string): string => {
-    toolkitUsed = true;
     if (command === READ_ONLY_WP_COMMANDS[0]) return site.version;
     if (command === READ_ONLY_WP_COMMANDS[1]) return site.outdatedWp ? "[{}]" : "[]";
     if (command === READ_ONLY_WP_COMMANDS[3]) {
@@ -207,7 +204,6 @@ export function createPleskWpToolkitRunner(
       if (primary) {
         try {
           const output = await primary(installation, command);
-          primarySucceeded = true;
           return output;
         } catch (error: unknown) {
           const rawDetail = error instanceof Error ? error.message : String(error);
@@ -228,7 +224,10 @@ export function createPleskWpToolkitRunner(
       return fallback(command);
     },
     diagnostics: () => ({
-      source: toolkitUsed ? primarySucceeded ? "hybrid" : "plesk-wp-toolkit" : "wp-cli",
+      // Both the executable bridge and its structured metadata fallback are
+      // provided by Plesk WP Toolkit. Calling this plain "wp-cli" hides the
+      // adapter that selected the site's PHP/runtime context.
+      source: "plesk-wp-toolkit",
       limitations: [...primaryFailures, ...unavailable],
     }),
   };

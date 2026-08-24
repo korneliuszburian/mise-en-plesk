@@ -58,6 +58,37 @@ describe("audit reports", () => {
     expect(markdown).toContain("- WP Toolkit: Working; alive=yes; infected=no; broken=no; unsupported PHP=no");
   });
 
+  it("reports public HTTP and TLS independently from internal WordPress health", () => {
+    const markdown = auditMarkdown({
+      ...result,
+      hosts: [{
+        ...result.hosts[0],
+        wordpress: [{
+          ...result.hosts[0].wordpress[0],
+          publicSiteHealth: {
+            url: "https://example.test/",
+            checkedAt: "2026-08-24T15:13:29.000Z",
+            tls: { status: "invalid", error: "certificate has expired", validTo: "2026-06-21T11:40:54.000Z" },
+            http: { reachable: true, status: 503, finalUrl: "https://example.test/" },
+          },
+          pleskSiteInfo: {
+            domain: "example.test",
+            status: "The domain was suspended by the administrator.",
+            suspended: true,
+            certificate: "Lets Encrypt example.test",
+          },
+        }],
+      }],
+    });
+
+    expect(markdown).toContain("- Reachable: yes");
+    expect(markdown).toContain("- Public HTTPS: HTTP 503");
+    expect(markdown).toContain("- Public TLS: invalid (certificate has expired)");
+    expect(markdown).toContain("- TLS valid until: 2026-06-21T11:40:54.000Z");
+    expect(markdown).toContain("- Plesk site status: The domain was suspended by the administrator.");
+    expect(markdown).toContain("- Plesk configured certificate: Lets Encrypt example.test");
+  });
+
   it("renders actionable checksum failure details", () => {
     const markdown = auditMarkdown({
       ...result,

@@ -87,4 +87,14 @@ describe("read-only SSH command transport", () => {
       runtime: { kind: "plesk-wp-toolkit", instanceId: 0 },
     })).toThrow("positive safe integer");
   });
+
+  it("allows only informational Plesk site inspection for a validated domain", () => {
+    const rendered = renderReadOnlyCommand({ kind: "plesk-site-info", domain: "solozaszkola.dev.proudsite.pl", useSudo: true });
+    expect(rendered).toBe("sudo -S -p '' -- plesk bin site --info 'solozaszkola.dev.proudsite.pl'");
+    expect(() => assertReadOnlyRenderedCommand(rendered)).not.toThrow();
+    expect(() => renderReadOnlyCommand({ kind: "plesk-site-info", domain: "site.test; rm -rf /", useSudo: true }))
+      .toThrow("valid DNS hostname");
+    expect(() => assertReadOnlyRenderedCommand("plesk bin site --update site.test -status disabled"))
+      .toThrow("mutation detected");
+  });
 });

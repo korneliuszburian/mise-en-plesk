@@ -21,6 +21,7 @@ is a prototype.
 | Bounded fleet rotation | done | real master timeout deferred at offset 340 while dev advanced 20 to 40; cursor integrity preserved |
 | Scheduler deployment | done | exact `bf3fd10` deployed on hardened dev runner; fully new-version cycle exited 0 |
 | Monitor heartbeat / stale alert | done | real deferred master persisted in `deferredSince`; no failed heartbeat and retry state remained durable |
+| Public HTTP/TLS availability | done | independent bounded GET/TLS probe, SSRF guard, typed Plesk suspension diagnostics, real staging 503/expired-certificate proof |
 | Notification reliability | done | outbox v2 records only active channels; v1 ambiguous backlog retires; cooldown, partial acceptance, recovery and crash replay tests |
 | Provider semantics | done | `accepted/failed/unknown`; ambiguous network outcomes pause automatic retry; stable event refs prevent silent duplicate confusion |
 | Meta WhatsApp transport | done | approved-template request, strict `wamid.*` acceptance, durable `wamid -> eventReferences` receipts |

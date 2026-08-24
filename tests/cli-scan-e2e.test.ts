@@ -218,6 +218,7 @@ async function prepareRuntime(): Promise<{ root: string; env: NodeJS.ProcessEnv 
     MISE_PLESK_FINDINGS: join(root, "findings.json"),
     MISE_PLESK_SCAN_CYCLES: join(root, "scan-cycles.json"),
     MISE_PLESK_RUN_LOCK: join(root, "scan.lock"),
+    MISE_PLESK_DISABLE_PUBLIC_SITE_CHECKS: "1",
     FAKE_BW_LOG: join(root, "bw.log"),
     FAKE_SSH_LOG: join(root, "ssh.log"),
   };
@@ -288,7 +289,7 @@ describe("scan CLI end-to-end", () => {
 
       expect(report.hosts[0]?.wordpress[0]).toMatchObject({
         coreVersion: "6.6.1",
-        auditSource: "wp-cli",
+        auditSource: "plesk-wp-toolkit",
         wpCliTransport: "plesk-wp-toolkit",
         integrity: { coreChecksums: "verified", pluginChecksums: "verified" },
         suspiciousFiles: [],

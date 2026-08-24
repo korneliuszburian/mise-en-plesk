@@ -33,6 +33,7 @@ import {
   type WpCliCapability,
 } from "../src/plesk-wp-toolkit";
 import { auditStaticWordPressInstallation } from "../src/static-wp-audit";
+import { enrichAuditWithSiteDiagnostics } from "../src/site-diagnostics";
 
 const inventoryPath = process.env.MISE_PLESK_INVENTORY ?? "inventory.json";
 const configPath = process.env.MISE_PLESK_CONFIG ?? "config.mise-en-plesk.json";
@@ -175,6 +176,8 @@ async function scanHost(
   vulnerabilityCache?: VulnerabilityCache,
   commandTimeoutMs = DEFAULT_SSH_COMMAND_TIMEOUT_MS,
   hostCapabilities: HostWordPressCapabilities = {},
+  publicSiteChecks = true,
+  publicSiteCheckTimeoutMs = 10_000,
 ): Promise<{ report: AuditResult["hosts"][number]; scannedInstallationPaths: string[]; complete: boolean; offset: number }> {
   const host = inventory[alias];
   const item = process.env.BW_SESSION ? await getInventoryHostItem(host) : null;
@@ -253,8 +256,9 @@ async function scanHost(
       const batch = selectedWordPress.slice(index, index + maxConcurrentSites);
       wordpress.push(...await Promise.all(batch.map(async (installation) => {
         const toolkitSite = toolkitInventory.sites.get(installation.path.replace(/\/+$/, ""));
+        let audit: WordPressAudit;
         if (!toolkitSite && !wpCliCapability.available) {
-          return auditStaticWordPressInstallation(installation, ssh, {
+          audit = await auditStaticWordPressInstallation(installation, ssh, {
             useSudo: effectiveSudo,
             enabled: process.env.MISE_PLESK_ENABLE_VULNS === "1",
             vulnerabilityResourceLookup,
@@ -263,51 +267,59 @@ async function scanHost(
               "Plesk WP Toolkit has no matching installation registration",
             ],
           });
-        }
-        const batched = toolkitSite
-          ? createBatchedWpRunners(installation, ssh, {
-            useSudo: effectiveSudo,
-            runtime: { kind: "plesk-wp-toolkit", instanceId: toolkitSite.id },
-          })
-          : wpCliCapability.available ? createBatchedWpRunners(installation, ssh, { useSudo: effectiveSudo }) : undefined;
-        const toolkit = toolkitSite ? createPleskWpToolkitRunner(toolkitSite, batched?.runner) : undefined;
-        const runner = toolkit?.runner ?? batched?.runner ?? (async () => {
-          throw new Error(wpCliCapability.detail || "wp: command not found");
-        });
-        const audit = await auditWordPressInstallation(installation, runner, {
-          useSudo: effectiveSudo,
-          enabled: process.env.MISE_PLESK_ENABLE_VULNS === "1",
-          vulnerabilityResourceLookup,
-          suspiciousFileRunner: batched?.suspiciousFileRunner ?? (async () => ssh({
-            kind: "suspicious-uploads",
-            installationPath: installation.path,
-            useSudo: effectiveSudo,
-          })),
-        });
-        if (!toolkitSite && audit.health.status && audit.health.status !== "unreachable") {
-          return auditStaticWordPressInstallation(installation, ssh, {
+        } else {
+          const batched = toolkitSite
+            ? createBatchedWpRunners(installation, ssh, {
+              useSudo: effectiveSudo,
+              runtime: { kind: "plesk-wp-toolkit", instanceId: toolkitSite.id },
+            })
+            : wpCliCapability.available ? createBatchedWpRunners(installation, ssh, { useSudo: effectiveSudo }) : undefined;
+          const toolkit = toolkitSite ? createPleskWpToolkitRunner(toolkitSite, batched?.runner) : undefined;
+          const runner = toolkit?.runner ?? batched?.runner ?? (async () => {
+            throw new Error(wpCliCapability.detail || "wp: command not found");
+          });
+          audit = await auditWordPressInstallation(installation, runner, {
             useSudo: effectiveSudo,
             enabled: process.env.MISE_PLESK_ENABLE_VULNS === "1",
             vulnerabilityResourceLookup,
-            observedHealth: audit.health,
-            sourceLimitations: [
-              `WP-CLI audit failed for this installation: ${audit.health.detail ?? audit.health.status}`,
-              "Plesk WP Toolkit has no matching installation registration",
-            ],
+            suspiciousFileRunner: batched?.suspiciousFileRunner ?? (async () => ssh({
+              kind: "suspicious-uploads",
+              installationPath: installation.path,
+              useSudo: effectiveSudo,
+            })),
           });
+          if (!toolkitSite && audit.health.status && audit.health.status !== "unreachable") {
+            audit = await auditStaticWordPressInstallation(installation, ssh, {
+              useSudo: effectiveSudo,
+              enabled: process.env.MISE_PLESK_ENABLE_VULNS === "1",
+              vulnerabilityResourceLookup,
+              observedHealth: audit.health,
+              sourceLimitations: [
+                `WP-CLI audit failed for this installation: ${audit.health.detail ?? audit.health.status}`,
+                "Plesk WP Toolkit has no matching installation registration",
+              ],
+            });
+          } else if (toolkit && toolkitSite) {
+            audit = { ...enrichAuditWithPleskWpToolkit(audit, toolkitSite, toolkit.diagnostics()), wpCliTransport: "plesk-wp-toolkit" as const };
+          } else if (wpCliCapability.available) {
+            audit = { ...audit, auditSource: "wp-cli" as const };
+          } else {
+            audit = {
+              ...audit,
+              auditSource: "none" as const,
+              limitations: [
+                `Host WP-CLI unavailable: ${wpCliCapability.detail ?? "unknown reason"}`,
+                "Plesk WP Toolkit has no matching installation registration",
+              ],
+            };
+          }
         }
-        if (toolkit && toolkitSite) {
-          return { ...enrichAuditWithPleskWpToolkit(audit, toolkitSite, toolkit.diagnostics()), wpCliTransport: "plesk-wp-toolkit" as const };
-        }
-        if (wpCliCapability.available) return { ...audit, auditSource: "wp-cli" as const };
-        return {
-          ...audit,
-          auditSource: "none" as const,
-          limitations: [
-            `Host WP-CLI unavailable: ${wpCliCapability.detail ?? "unknown reason"}`,
-            "Plesk WP Toolkit has no matching installation registration",
-          ],
-        };
+        return enrichAuditWithSiteDiagnostics(audit, ssh, {
+          enabled: publicSiteChecks,
+          timeoutMs: publicSiteCheckTimeoutMs,
+          useSudo: effectiveSudo,
+          pleskCliAvailable: scan.pleskCliAvailable,
+        });
       })));
       console.error(`[${alias}] audited ${Math.min(index + batch.length, selectedWordPress.length)}/${selectedWordPress.length} selected WordPress installation(s)`);
     }
@@ -509,7 +521,21 @@ async function main(): Promise<void> {
       scanCycleState = prepareScanCycle(scanCycleState, alias, scanRange.offset, startedAt);
       await writeScanCycleState(scanCycleStatePath, scanCycleState);
       while (true) {
-        const execution = await scanHost(alias, inventory, maxLookups, maxConcurrentSites, scanRange.maxSites, offset, vulnerabilityBudget, useSudo, vulnerabilityCache, config.sshCommandTimeoutMs ?? DEFAULT_SSH_COMMAND_TIMEOUT_MS, hostCapabilities);
+        const execution = await scanHost(
+          alias,
+          inventory,
+          maxLookups,
+          maxConcurrentSites,
+          scanRange.maxSites,
+          offset,
+          vulnerabilityBudget,
+          useSudo,
+          vulnerabilityCache,
+          config.sshCommandTimeoutMs ?? DEFAULT_SSH_COMMAND_TIMEOUT_MS,
+          hostCapabilities,
+          (config.publicSiteChecks ?? true) && process.env.MISE_PLESK_DISABLE_PUBLIC_SITE_CHECKS !== "1",
+          config.publicSiteCheckTimeoutMs ?? 10_000,
+        );
         executions.push(execution);
         hostExecutions.push(execution);
         chunksProcessed += 1;

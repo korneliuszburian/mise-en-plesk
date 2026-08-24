@@ -104,6 +104,73 @@ describe("structured findings", () => {
     })]);
   });
 
+  it("reports public HTTP and TLS failures separately from Toolkit reachability", () => {
+    const findings = findingsFromAudits([{
+      host: "dev-ssh",
+      wordpress: [baseAudit({
+        installation: { path: "/var/www/vhosts/solozaszkola.dev.proudsite.pl/httpdocs", domain: "solozaszkola.dev.proudsite.pl" },
+        health: { reachable: true },
+        publicSiteHealth: {
+          url: "https://solozaszkola.dev.proudsite.pl/",
+          checkedAt: "2026-08-24T15:13:29.000Z",
+          tls: { status: "invalid", error: "certificate has expired", validTo: "2026-06-21T11:40:54.000Z" },
+          http: { reachable: true, status: 503, finalUrl: "https://solozaszkola.dev.proudsite.pl/" },
+        },
+      })],
+    }]);
+
+    expect(findings).toEqual(expect.arrayContaining([
+      expect.objectContaining({ code: "tls-certificate-invalid", severity: "P1" }),
+      expect.objectContaining({ code: "public-http-error", severity: "P1", evidence: "HTTP 503" }),
+    ]));
+  });
+
+  it("downgrades a known staging suspension to P2 while keeping its cause explicit", () => {
+    const findings = findingsFromAudits([{
+      host: "dev-ssh",
+      wordpress: [baseAudit({
+        installation: {
+          path: "/var/www/vhosts/solozaszkola.dev.proudsite.pl/httpdocs",
+          domain: "solozaszkola.dev.proudsite.pl",
+          classification: { kind: "staging", reason: "staging marker found in the domain or path" },
+        },
+        health: { reachable: true },
+        pleskSiteInfo: { domain: "solozaszkola.dev.proudsite.pl", status: "The domain was suspended by the administrator.", suspended: true },
+        publicSiteHealth: {
+          url: "https://solozaszkola.dev.proudsite.pl/",
+          checkedAt: "2026-08-24T15:13:29.000Z",
+          tls: { status: "invalid", error: "certificate has expired" },
+          http: { reachable: true, status: 503, finalUrl: "https://solozaszkola.dev.proudsite.pl/" },
+        },
+      })],
+    }]);
+
+    expect(findings).toEqual(expect.arrayContaining([
+      expect.objectContaining({ code: "plesk-site-suspended", severity: "P2" }),
+      expect.objectContaining({ code: "tls-certificate-invalid", severity: "P2" }),
+    ]));
+    expect(findings.some((finding) => finding.code === "public-http-error")).toBe(false);
+  });
+
+  it("keeps permission-denied plugin checksums as an explicit incomplete audit", () => {
+    const findings = findingsFromAudits([{
+      host: "dev-ssh",
+      wordpress: [baseAudit({
+        integrity: {
+          coreChecksums: "verified",
+          pluginChecksums: "unavailable",
+          pluginDetail: "WP-CLI execution permission denied",
+        },
+      })],
+    }]);
+
+    expect(findings).toContainEqual(expect.objectContaining({
+      code: "plugin-checksum-unavailable",
+      severity: "P2",
+      evidence: "WP-CLI execution permission denied",
+    }));
+  });
+
   it("preserves broken, unsupported PHP, and not-alive Toolkit signals", () => {
     const findings = findingsFromAudits([{
       host: "dev-ssh",

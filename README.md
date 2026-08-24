@@ -72,7 +72,7 @@ not produce vulnerable-plugin/theme findings. It never loads application PHP.
 Plugin versions, activation/update state, runtime health, and checksums remain
 explicit limitations of this adapter.
 
-The report records `auditSource` (`wp-cli`, `plesk-wp-toolkit`, `hybrid`,
+The report records `auditSource` (`wp-cli`, `plesk-wp-toolkit`,
 `static-filesystem`, or `none` when no source can audit a discovered path) and
 explicit limitations. WP Toolkit inventory does not expose checksum
 verification or WordPress.org freshness dates, so those fields are marked
@@ -85,6 +85,21 @@ The scanner intentionally does not execute WP Toolkit's internal vendor PHP
 files. Those paths are not a documented compatibility interface. The runtime
 adapter rationale and Bedrock path model are recorded in
 `docs/research-plesk-php-wp-cli-adapter-2026-08-19.md`.
+
+For every installation with a domain, the scanner also performs an independent
+public HTTPS availability check by default. This is deliberately separate from
+WP Toolkit's internal `alive` signal: a readable WordPress installation may
+still be suspended in Plesk, return HTTP 5xx, or serve an invalid certificate.
+The probe uses a bounded GET, follows at most five HTTPS redirects, validates
+TLS normally, rejects private/reserved destinations, and never retains the
+response body. After a TLS failure it may make one diagnostic request without
+certificate verification to collect the HTTP status and served certificate;
+the TLS verdict remains failed. Set `publicSiteChecks` to `false` to disable
+all public probes, or configure `publicSiteCheckTimeoutMs` (default `10000`).
+When a probe fails and Plesk CLI is available, the scanner runs only the
+allowlisted informational `plesk bin site --info <domain>` command to record
+whether the website is administratively suspended. Production/unknown public
+failures are P1; staging and backup failures are P2.
 
 Some non-root SSH accounts can read WordPress files but cannot invoke Plesk
 CLI. Add that alias to `sudoHosts` in the local config to enable non-interactive

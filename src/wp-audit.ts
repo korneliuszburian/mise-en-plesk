@@ -12,6 +12,8 @@ import {
 } from "./vulnerabilities";
 import type { Finding } from "./findings";
 import type { FindingEvent } from "./finding-state";
+import type { PublicSiteHealth } from "./public-site-health";
+import type { PleskSiteInfo } from "./plesk-site-info";
 import { parseFramedBatch, type FramedBatchSection } from "./framed-batch";
 import { isReadOnlyWpCommand, renderReadOnlyCommand, renderWpCliCommand, WP_AUDIT_COMMAND_SECTIONS, type ReadOnlyCommand, type WpAuditSection, type WpExecutionContext } from "./ssh-transport";
 
@@ -53,7 +55,9 @@ export interface WordPressAudit {
   vulnerabilityStatus?: "disabled" | "complete" | "partial" | "unavailable";
   vulnerabilityCheckedAt?: string;
   suspiciousFiles: string[];
-  auditSource?: "wp-cli" | "plesk-wp-toolkit" | "hybrid" | "static-filesystem" | "none";
+  publicSiteHealth?: PublicSiteHealth;
+  pleskSiteInfo?: PleskSiteInfo;
+  auditSource?: "wp-cli" | "plesk-wp-toolkit" | "static-filesystem" | "none";
   layout?: {
     kind: "classic" | "bedrock";
     projectRoot: string;
