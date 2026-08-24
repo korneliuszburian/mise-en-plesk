@@ -159,6 +159,11 @@ are cached locally for 12 hours by default in the ignored
 `.mise-en-plesk/vulnerabilities.json`; configure `vulnerabilityCachePath` or
 `vulnerabilityCacheTtlHours` to change this. Lookup budgets also include core
 and theme resources, and a budget-exhausted result is reported as `partial`.
+Plugin and theme endpoints return historical records for a slug, so the scanner
+evaluates each record's official version operators against the installed
+version. Only proven matches become vulnerability findings; missing or malformed
+ranges remain unscoped intelligence in JSON/Markdown. See
+[the version-applicability research](docs/research-wpvulnerability-version-matching-2026-08-24.md).
 
 The following are manual-review signals, never automatic repairs: very old
 core, abandoned plugins, known-vulnerable plugins, and PHP files under

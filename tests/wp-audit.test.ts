@@ -329,7 +329,14 @@ describe("WordPress audit", () => {
         requestedSlug = slug;
         return {
         slug: "sample-plugin",
-        vulnerabilities: [{ id: "CVE-2026-0001", title: "Example issue", severity: "high", cve: ["CVE-2026-0001"], source: "WPVulnerability" }],
+        vulnerabilities: [{
+          id: "CVE-2026-0001",
+          title: "Example issue",
+          severity: "high",
+          cve: ["CVE-2026-0001"],
+          source: "WPVulnerability",
+          affectedVersions: { maxVersion: "1.1", maxOperator: "lt" },
+        }],
         };
       },
     });
@@ -352,7 +359,7 @@ describe("WordPress audit", () => {
       vulnerabilityResourceLookup: async (resource, identifier) => {
         requested.push(`${resource}:${identifier}`);
         if (resource === "core") return { status: "known", summary: { resource, identifier, vulnerabilities: [{ id: "CVE-2026-0005", title: "Core issue", cve: [], source: "WPVulnerability" }] } };
-        if (resource === "theme") return { status: "known", summary: { resource, identifier, vulnerabilities: [{ id: "CVE-2026-0006", title: "Theme issue", cve: [], source: "WPVulnerability" }] } };
+        if (resource === "theme") return { status: "known", summary: { resource, identifier, vulnerabilities: [{ id: "CVE-2026-0006", title: "Theme issue", cve: [], source: "WPVulnerability", affectedVersions: { maxVersion: "2.0", maxOperator: "lt" } }] } };
         return { status: "empty" };
       },
     });
@@ -365,5 +372,57 @@ describe("WordPress audit", () => {
       "theme custom-theme has known vulnerabilities (via WPVulnerability)",
       "WordPress core has known vulnerabilities (via WPVulnerability)",
     ]);
+  });
+
+  it("keeps historical and unknown-range records out of confirmed plugin findings", async () => {
+    const audit = await auditWordPressInstallation({ path: "/var/www/vhosts/example.test/httpdocs" }, async (_installation, command) => {
+      if (command === "core version") return "6.9.4";
+      if (command.startsWith("plugin list")) return JSON.stringify([{ name: "sample-plugin", version: "5.0.0", status: "active", update: "none" }]);
+      if (command.startsWith("theme list")) return "[]";
+      return "ok";
+    }, {
+      enabled: true,
+      vulnerabilityResourceLookup: async (resource, identifier) => {
+        if (resource !== "plugin") return { status: "empty" };
+        return {
+          status: "known",
+          summary: {
+            resource,
+            identifier,
+            vulnerabilities: [
+              { id: "historical", title: "Old issue", cve: [], source: "WPVulnerability", affectedVersions: { maxVersion: "2.0.0", maxOperator: "lt" } },
+              { id: "unknown", title: "Missing range", cve: [], source: "WPVulnerability" },
+            ],
+          },
+        };
+      },
+    });
+
+    expect(audit.plugins[0]?.vulnerabilities).toEqual([]);
+    expect(audit.priorities).not.toContain("plugin sample-plugin has known vulnerabilities (via WPVulnerability)");
+    expect(audit.unscopedVulnerabilityIntelligence).toEqual([{
+      resource: "plugin",
+      identifier: "sample-plugin",
+      vulnerabilities: [{ id: "unknown", title: "Missing range", cve: [], source: "WPVulnerability" }],
+    }]);
+  });
+
+  it("skips the core API when WP-CLI does not return a comparable exact version", async () => {
+    const requested: string[] = [];
+    const audit = await auditWordPressInstallation({ path: "/var/www/vhosts/example.test/httpdocs" }, async (_installation, command) => {
+      if (command === "core version") return "Warning: unexpected output";
+      if (command.startsWith("plugin list") || command.startsWith("theme list")) return "[]";
+      return "ok";
+    }, {
+      enabled: true,
+      vulnerabilityResourceLookup: async (resource, identifier) => {
+        requested.push(`${resource}:${identifier}`);
+        return { status: "empty" };
+      },
+    });
+
+    expect(requested.some((entry) => entry.startsWith("core:"))).toBe(false);
+    expect(audit.vulnerabilityStatus).toBe("unavailable");
+    expect(audit.limitations).toContain("core vulnerability lookup skipped because the installed core version is invalid");
   });
 });

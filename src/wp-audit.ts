@@ -1,6 +1,8 @@
 import { randomBytes } from "node:crypto";
 import type { HostFacts, HostHealth, WordPressInstallation } from "./plesk-scan";
 import {
+  classifyVulnerabilityApplicability,
+  isComparableVersion,
   lookupPluginVulnerabilities,
   lookupVulnerabilities,
   type PluginVulnerability,
@@ -208,6 +210,7 @@ export async function auditWordPressInstallation(
     coreVersion = (await runner(installation, "core version")).trim();
     const vulnerabilityStatuses: VulnerabilityLookupStatus[] = [];
     const vulnerabilityCheckedAt: string[] = [];
+    const unscopedVulnerabilityIntelligence: VulnerabilityResourceSummary[] = [];
     const lookupResource = options.vulnerabilityResourceLookup ?? lookupVulnerabilities;
     const resourceResult = async (resource: VulnerabilityResource, identifier: string) => {
       const result = await lookupResource(resource, identifier, options);
@@ -228,6 +231,7 @@ export async function auditWordPressInstallation(
       if (!plugin || typeof plugin !== "object") throw new Error("wp plugin list contained an invalid item");
       const value = plugin as Record<string, unknown>;
       const name = String(value.name ?? "");
+      const version = String(value.version ?? "");
       let vulnerabilitySummary: PluginVulnerabilitySummary | null = null;
       if (options.vulnerabilityLookup) {
         vulnerabilitySummary = await options.vulnerabilityLookup(pluginSlug(name), options);
@@ -236,14 +240,22 @@ export async function auditWordPressInstallation(
         const result = await resourceResult("plugin", pluginSlug(name));
         vulnerabilitySummary = result.summary ? { slug: pluginSlug(name), vulnerabilities: result.summary.vulnerabilities } : null;
       }
+      const vulnerabilityRecords = vulnerabilitySummary?.vulnerabilities ?? [];
+      const applicableVulnerabilities = vulnerabilityRecords.filter((vulnerability) =>
+        classifyVulnerabilityApplicability(vulnerability, version) === "applies");
+      const unknownVulnerabilities = vulnerabilityRecords.filter((vulnerability) =>
+        classifyVulnerabilityApplicability(vulnerability, version) === "unknown");
+      if (unknownVulnerabilities.length) {
+        unscopedVulnerabilityIntelligence.push({ resource: "plugin", identifier: pluginSlug(name), vulnerabilities: unknownVulnerabilities });
+      }
       return {
         name,
-        version: String(value.version ?? ""),
+        version,
         active: value.status === "active",
         hasUpdate: value.update === "available" || Boolean(value.update_version),
         wporgStatus: typeof value.wporg_status === "string" ? value.wporg_status : undefined,
         wporgLastUpdated: typeof value.wporg_last_updated === "string" ? value.wporg_last_updated : undefined,
-        vulnerabilities: vulnerabilitySummary?.vulnerabilities ?? [],
+        vulnerabilities: applicableVulnerabilities,
       };
     }));
     let coreChecksums: ChecksumStatus = "verified";
@@ -270,20 +282,39 @@ export async function auditWordPressInstallation(
         if (!theme || typeof theme !== "object") throw new Error("wp theme list contained an invalid item");
         const value = theme as Record<string, unknown>;
         const name = String(value.name ?? "");
+        const version = String(value.version ?? "");
         const vulnerabilityResult = await resourceResult("theme", name);
+        const vulnerabilityRecords = vulnerabilityResult.summary?.vulnerabilities ?? [];
+        const applicableVulnerabilities = vulnerabilityRecords.filter((vulnerability) =>
+          classifyVulnerabilityApplicability(vulnerability, version) === "applies");
+        const unknownVulnerabilities = vulnerabilityRecords.filter((vulnerability) =>
+          classifyVulnerabilityApplicability(vulnerability, version) === "unknown");
+        if (unknownVulnerabilities.length) {
+          unscopedVulnerabilityIntelligence.push({ resource: "theme", identifier: name, vulnerabilities: unknownVulnerabilities });
+        }
         return {
           name,
-          version: String(value.version ?? ""),
+          version,
           active: value.status === "active",
           hasUpdate: value.update === "available" || Boolean(value.update_version),
-          ...(vulnerabilityResult.summary?.vulnerabilities.length ? { vulnerabilities: vulnerabilityResult.summary.vulnerabilities } : {}),
+          ...(applicableVulnerabilities.length ? { vulnerabilities: applicableVulnerabilities } : {}),
         };
       }));
     } catch {
       themes = undefined;
     }
-    const coreVulnerabilityResult = await resourceResult("core", coreVersion);
+    const coreVulnerabilityResult = isComparableVersion(coreVersion)
+      ? await resourceResult("core", coreVersion)
+      : (() => {
+        vulnerabilityStatuses.push("unavailable");
+        return { status: "unavailable" as const, summary: undefined };
+      })();
     const suspiciousFiles = await collectSuspiciousFiles(installation, options);
+    unscopedVulnerabilityIntelligence.sort((left, right) => {
+      const leftKey = `${left.resource}:${left.identifier}`;
+      const rightKey = `${right.resource}:${right.identifier}`;
+      return leftKey < rightKey ? -1 : leftKey > rightKey ? 1 : 0;
+    });
     const vulnerabilities = plugins.flatMap((plugin) => {
       const summary = plugin.vulnerabilities;
       return summary.length ? [{ slug: pluginSlug(plugin.name), vulnerabilities: summary }] : [];
@@ -296,6 +327,8 @@ export async function auditWordPressInstallation(
       plugins,
       themes,
       vulnerabilities,
+      ...(unscopedVulnerabilityIntelligence.length ? { unscopedVulnerabilityIntelligence } : {}),
+      ...(!isComparableVersion(coreVersion) ? { limitations: ["core vulnerability lookup skipped because the installed core version is invalid"] } : {}),
       ...(coreVulnerabilityResult.summary?.vulnerabilities.length ? { coreVulnerabilities: coreVulnerabilityResult.summary.vulnerabilities } : {}),
       ...(vulnerabilityStatus !== "disabled" ? { vulnerabilityStatus } : {}),
       ...(vulnerabilityCheckedAt.length ? { vulnerabilityCheckedAt: vulnerabilityCheckedAt.sort().at(-1) } : {}),
