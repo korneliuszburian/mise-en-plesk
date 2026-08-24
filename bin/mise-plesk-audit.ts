@@ -15,7 +15,7 @@ import { sendFindingEventsViaHermes, sendHermesText } from "../src/hermes";
 import { createNotificationAdapters } from "../src/notification-adapters";
 import { createNotificationDelivery, type NotificationDelivery } from "../src/notification-delivery";
 import { runPreflight } from "../src/preflight";
-import { createMonitorStaleFinding, readHeartbeat, writeHeartbeat } from "../src/monitor-health";
+import { createMonitorStaleFinding, readHeartbeat, reconcileDeferredHosts, writeHeartbeat } from "../src/monitor-health";
 import { parseCliArguments } from "../src/cli-args";
 import { readConfigFile, type MisePleskConfig } from "../src/config";
 import { acquireLocalLock, type LocalLock } from "../src/local-lock";
@@ -460,7 +460,13 @@ async function main(): Promise<void> {
     const scanRange = readScanRange(flags, config);
     const heartbeatPath = process.env.MISE_PLESK_HEARTBEAT ?? config.heartbeatPath ?? ".mise-en-plesk/heartbeat.json";
     const startedAt = new Date().toISOString();
-    await writeHeartbeat(heartbeatPath, { version: 1, target, startedAt });
+    const previousHeartbeat = await readHeartbeat(heartbeatPath);
+    await writeHeartbeat(heartbeatPath, {
+      version: 1,
+      target,
+      startedAt,
+      ...(previousHeartbeat?.deferredSince ? { deferredSince: previousHeartbeat.deferredSince } : {}),
+    });
     const inventory = await readInventory(inventoryPath);
     const aliases = target === "all" ? config.hosts ?? [] : [target];
     if (!aliases.length) throw new Error(`No hosts configured in ${configPath}.`);
@@ -584,7 +590,27 @@ async function main(): Promise<void> {
     const currentFindings = findingsFromAudits(preliminaryResult.hosts);
     const result: AuditResult = { ...preliminaryResult, findings: currentFindings, findingEvents };
     const reportPath = await writeAuditReport(result, process.env.MISE_PLESK_REPORTS ?? config.reportsDirectory ?? "reports", json, process.env.MISE_PLESK_REPORT_SUFFIX ?? "");
-    await writeHeartbeat(heartbeatPath, { version: 1, target, startedAt, completedAt: new Date().toISOString(), scanComplete, reportPath });
+    const completedAt = new Date().toISOString();
+    const deferredSince = reconcileDeferredHosts(
+      previousHeartbeat?.deferredSince,
+      aliases.map((alias) => {
+        const finalExecution = executions.filter((execution) => execution.report.host === alias).at(-1);
+        return {
+          host: alias,
+          progressed: Boolean(finalExecution && (finalExecution.complete || finalExecution.scannedInstallationPaths.length > 0)),
+        };
+      }),
+      completedAt,
+    );
+    await writeHeartbeat(heartbeatPath, {
+      version: 1,
+      target,
+      startedAt,
+      completedAt,
+      scanComplete,
+      reportPath,
+      ...(Object.keys(deferredSince).length ? { deferredSince } : {}),
+    });
     console.log(formatScanOutput(result, { reportPath, json, alertAccepted, whatsappAccepted, hermesAccepted }));
     return;
   }

@@ -126,7 +126,7 @@ export async function runPreflight(options: PreflightOptions = {}): Promise<Pref
         !heartbeat
           ? `missing; no completed scan recorded at ${options.heartbeatPath}`
           : stale
-            ? `stale; last completed scan is ${heartbeat.completedAt ?? "unknown"}`
+            ? `stale; last completed scan is ${heartbeat.completedAt ?? "unknown"}${Object.keys(heartbeat.deferredSince ?? {}).length ? `; deferred hosts: ${Object.keys(heartbeat.deferredSince ?? {}).join(", ")}` : ""}`
             : `last completed scan: ${heartbeat.completedAt}`,
         false,
       ));

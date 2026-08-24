@@ -12,6 +12,13 @@ export interface ScanCursor {
   hosts: Record<string, ScanCursorEntry>;
 }
 
+export interface ScanCursorReconciliation {
+  cursor: ScanCursor;
+  outcome: "advanced" | "completed" | "deferred";
+  previousOffset: number;
+  nextOffset: number;
+}
+
 export function emptyScanCursor(): ScanCursor {
   return { version: 1, hosts: {} };
 }
@@ -38,6 +45,17 @@ export function advanceScanCursor(
   cursor: ScanCursor,
   progress: ScanProgress,
 ): ScanCursor {
+  const reconciliation = reconcileScanCursor(cursor, progress);
+  if (reconciliation.outcome === "deferred") {
+    throw new Error(`scan progress made no progress for ${progress.host}`);
+  }
+  return reconciliation.cursor;
+}
+
+export function reconcileScanCursor(
+  cursor: ScanCursor,
+  progress: ScanProgress,
+): ScanCursorReconciliation {
   if (typeof progress.complete !== "boolean") throw new Error("scan progress has an invalid completion flag");
   if (!progress.host || !Number.isSafeInteger(progress.offset) || progress.offset < 0) {
     throw new Error("scan progress has an invalid host or offset");
@@ -45,19 +63,28 @@ export function advanceScanCursor(
   if (!Number.isSafeInteger(progress.scanned) || progress.scanned < 0) {
     throw new Error("scan progress has an invalid scanned count");
   }
-  if (!progress.complete && progress.scanned < 1) {
-    throw new Error(`scan progress made no progress for ${progress.host}`);
+  const expectedOffset = cursor.hosts[progress.host]?.offset ?? 0;
+  if (progress.offset !== expectedOffset) {
+    throw new Error(`scan progress offset ${progress.offset} does not match cursor ${expectedOffset} for ${progress.host}`);
   }
   if (!progress.complete && progress.offset > Number.MAX_SAFE_INTEGER - progress.scanned) {
     throw new Error(`scan progress exceeded safe integer range for ${progress.host}`);
   }
+  if (!progress.complete && progress.scanned === 0) {
+    return { cursor, outcome: "deferred", previousOffset: expectedOffset, nextOffset: expectedOffset };
+  }
   const nextOffset = progress.complete ? 0 : progress.offset + progress.scanned;
   return {
-    version: 1,
-    hosts: {
-      ...cursor.hosts,
-      [progress.host]: { offset: nextOffset, updatedAt: new Date().toISOString() },
+    cursor: {
+      version: 1,
+      hosts: {
+        ...cursor.hosts,
+        [progress.host]: { offset: nextOffset, updatedAt: new Date().toISOString() },
+      },
     },
+    outcome: progress.complete ? "completed" : "advanced",
+    previousOffset: progress.offset,
+    nextOffset,
   };
 }
 

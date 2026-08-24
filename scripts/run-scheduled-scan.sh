@@ -40,10 +40,18 @@ export MISE_PLESK_RUN_LOCK="$lock_file"
 export MISE_PLESK_RUN_LOCK_HELD=1
 run_audit monitor-health --json
 run_audit doctor --json
+deferred_pages=0
+incomplete_cycles=0
+config_path="${MISE_PLESK_CONFIG:-$repo_root/config.mise-en-plesk.json}"
 if [[ "${MISE_PLESK_SCHEDULE_ALL_CHUNKS:-0}" == "1" ]]; then
   run_audit scan "$target" --json --max-sites="$chunk_size" --all-chunks >/dev/null
+  heartbeat_path="${MISE_PLESK_HEARTBEAT:-}"
+  if [[ -z "$heartbeat_path" ]]; then
+    heartbeat_path="$($node_bin -e 'const fs=require("node:fs"); const config=JSON.parse(fs.readFileSync(process.argv[1], "utf8")); process.stdout.write(config.heartbeatPath ?? ".mise-en-plesk/heartbeat.json")' "$config_path")"
+  fi
+  scan_complete="$($node_bin -e 'const fs=require("node:fs"); const heartbeat=JSON.parse(fs.readFileSync(process.argv[1], "utf8")); process.stdout.write(heartbeat.scanComplete === true ? "true" : "false")' "$heartbeat_path")"
+  [[ "$scan_complete" == "true" ]] || incomplete_cycles=1
 else
-  config_path="${MISE_PLESK_CONFIG:-$repo_root/config.mise-en-plesk.json}"
   if [[ "$target" == "all" ]]; then
     mapfile -t scheduled_targets < <("$node_bin" -e 'const fs=require("node:fs"); const config=JSON.parse(fs.readFileSync(process.argv[1], "utf8")); for (const host of config.hosts ?? []) console.log(host)' "$config_path")
   else
@@ -71,7 +79,17 @@ else
     suffix="-$scheduled_target-$run_stamp"
     report_path="$report_dir/plesk-wp-audit-$(date -u +%Y%m%d)${suffix}.json"
     MISE_PLESK_REPORT_SUFFIX="$suffix" run_audit scan "$scheduled_target" --json --max-sites="$chunk_size" --offset="$offset" >/dev/null
-    "${cursor_runner[@]}" advance "$cursor_file" "$scheduled_target" "$report_path"
+    reconciliation="$("${cursor_runner[@]}" reconcile "$cursor_file" "$scheduled_target" "$report_path")"
+    reconciliation_outcome="$($node_bin -e 'const value=JSON.parse(process.argv[1]); if (!["advanced","completed","deferred"].includes(value.outcome)) process.exit(65); process.stdout.write(value.outcome)' "$reconciliation")"
+    reconciliation_next_offset="$($node_bin -e 'process.stdout.write(String(JSON.parse(process.argv[1]).nextOffset))' "$reconciliation")"
+    echo "$offset -> $reconciliation_next_offset ($reconciliation_outcome)"
+    [[ "$reconciliation_outcome" != "deferred" ]] || deferred_pages=$((deferred_pages + 1))
   done
 fi
-echo "[$(date -u +%Y-%m-%dT%H:%M:%SZ)] scan finished successfully"
+if (( deferred_pages > 0 )); then
+  echo "[$(date -u +%Y-%m-%dT%H:%M:%SZ)] scan finished with $deferred_pages deferred host page(s); cursors were preserved for retry"
+elif (( incomplete_cycles > 0 )); then
+  echo "[$(date -u +%Y-%m-%dT%H:%M:%SZ)] scan finished with an incomplete bounded cycle; remaining pages will be retried"
+else
+  echo "[$(date -u +%Y-%m-%dT%H:%M:%SZ)] scan finished successfully"
+fi
