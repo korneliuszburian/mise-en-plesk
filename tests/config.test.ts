@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { validateConfig, vulnerabilityLookupsEnabled } from "../src/config";
+import { resolveScanPolicy, validateConfig, vulnerabilityLookupsEnabled } from "../src/config";
 
 describe("mise-en-plesk config", () => {
   it("accepts bounded scan settings and preserves configured paths", () => {
@@ -25,6 +25,41 @@ describe("mise-en-plesk config", () => {
     expect(vulnerabilityLookupsEnabled({ enableVulnerabilityLookups: true }, {})).toBe(true);
     expect(vulnerabilityLookupsEnabled({}, { MISE_PLESK_ENABLE_VULNS: "1" })).toBe(true);
     expect(vulnerabilityLookupsEnabled({ enableVulnerabilityLookups: false }, { MISE_PLESK_ENABLE_VULNS: "0" })).toBe(false);
+  });
+
+  it("resolves one complete scan policy from defaults, config, and environment", () => {
+    expect(resolveScanPolicy({}, {})).toEqual({
+      enableVulnerabilityLookups: false,
+      maxVulnerabilityLookupsPerHost: undefined,
+      vulnerabilityCachePath: ".mise-en-plesk/vulnerabilities.json",
+      vulnerabilityCacheTtlMs: 12 * 60 * 60 * 1000,
+      maxConcurrentSitesPerHost: 4,
+      sshCommandTimeoutMs: 60_000,
+      publicSiteChecks: true,
+      publicSiteCheckTimeoutMs: 10_000,
+    });
+    expect(resolveScanPolicy({
+      enableVulnerabilityLookups: true,
+      maxVulnerabilityLookupsPerHost: 7,
+      vulnerabilityCachePath: "/tmp/vulns.json",
+      vulnerabilityCacheTtlHours: 3,
+      maxConcurrentSitesPerHost: 2,
+      sshCommandTimeoutMs: 90_000,
+      publicSiteChecks: true,
+      publicSiteCheckTimeoutMs: 4_000,
+    }, {
+      MISE_PLESK_VULN_CACHE: "/runtime/vulns.json",
+      MISE_PLESK_DISABLE_PUBLIC_SITE_CHECKS: "1",
+    })).toEqual({
+      enableVulnerabilityLookups: true,
+      maxVulnerabilityLookupsPerHost: 7,
+      vulnerabilityCachePath: "/runtime/vulns.json",
+      vulnerabilityCacheTtlMs: 3 * 60 * 60 * 1000,
+      maxConcurrentSitesPerHost: 2,
+      sshCommandTimeoutMs: 90_000,
+      publicSiteChecks: false,
+      publicSiteCheckTimeoutMs: 4_000,
+    });
   });
 
   it("rejects invalid numeric limits and duplicate aliases", () => {

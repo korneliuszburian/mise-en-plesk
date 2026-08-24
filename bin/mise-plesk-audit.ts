@@ -17,7 +17,7 @@ import { createNotificationDelivery, type NotificationDelivery } from "../src/no
 import { runPreflight } from "../src/preflight";
 import { createMonitorStaleFinding, readHeartbeat, reconcileDeferredHosts, writeHeartbeat } from "../src/monitor-health";
 import { parseCliArguments } from "../src/cli-args";
-import { readConfigFile, vulnerabilityLookupsEnabled, type MisePleskConfig } from "../src/config";
+import { readConfigFile, resolveScanPolicy, type MisePleskConfig } from "../src/config";
 import { acquireLocalLock, type LocalLock } from "../src/local-lock";
 import { createWhatsAppTestEvent, requireWhatsAppTestConfirmation } from "../src/notification-test";
 import { formatScanOutput } from "../src/cli-output";
@@ -504,22 +504,11 @@ async function main(): Promise<void> {
     for (const alias of aliases) {
       if (!inventory[alias]) throw new Error(`Unknown inventory target: ${alias}`);
     }
-    const maxLookups = config.maxVulnerabilityLookupsPerHost;
-    const enableVulnerabilityLookups = vulnerabilityLookupsEnabled(config);
-    if (maxLookups !== undefined && (!Number.isInteger(maxLookups) || maxLookups < 0)) {
-      throw new Error("maxVulnerabilityLookupsPerHost must be a non-negative integer.");
-    }
-    if (config.vulnerabilityCacheTtlHours !== undefined && (!Number.isFinite(config.vulnerabilityCacheTtlHours) || config.vulnerabilityCacheTtlHours <= 0)) {
-      throw new Error("vulnerabilityCacheTtlHours must be a positive number.");
-    }
+    const scanPolicy = resolveScanPolicy(config);
     const vulnerabilityCache = createFileVulnerabilityCache(
-      process.env.MISE_PLESK_VULN_CACHE ?? config.vulnerabilityCachePath ?? ".mise-en-plesk/vulnerabilities.json",
-      (config.vulnerabilityCacheTtlHours ?? 12) * 60 * 60 * 1000,
+      scanPolicy.vulnerabilityCachePath,
+      scanPolicy.vulnerabilityCacheTtlMs,
     );
-    const maxConcurrentSites = config.maxConcurrentSitesPerHost ?? 4;
-    if (!Number.isInteger(maxConcurrentSites) || maxConcurrentSites < 1) {
-      throw new Error("maxConcurrentSitesPerHost must be a positive integer.");
-    }
     const executions: Array<Awaited<ReturnType<typeof scanHost>>> = [];
     const findingStatePath = process.env.MISE_PLESK_FINDINGS ?? config.findingsStatePath ?? ".mise-en-plesk/findings.json";
     const scanCycleStatePath = process.env.MISE_PLESK_SCAN_CYCLES ?? config.scanCycleStatePath ?? ".mise-en-plesk/scan-cycles.json";
@@ -542,18 +531,18 @@ async function main(): Promise<void> {
       await writeScanCycleState(scanCycleStatePath, scanCycleState);
       while (true) {
         const execution = await scanHost(alias, inventory, {
-          maxVulnerabilityLookups: maxLookups,
-          enableVulnerabilityLookups,
-          maxConcurrentSites,
+          maxVulnerabilityLookups: scanPolicy.maxVulnerabilityLookupsPerHost,
+          enableVulnerabilityLookups: scanPolicy.enableVulnerabilityLookups,
+          maxConcurrentSites: scanPolicy.maxConcurrentSitesPerHost,
           maxSites: scanRange.maxSites,
           offset,
           vulnerabilityBudget,
           useSudo,
           vulnerabilityCache,
-          commandTimeoutMs: config.sshCommandTimeoutMs ?? DEFAULT_SSH_COMMAND_TIMEOUT_MS,
+          commandTimeoutMs: scanPolicy.sshCommandTimeoutMs,
           hostCapabilities,
-          publicSiteChecks: (config.publicSiteChecks ?? true) && process.env.MISE_PLESK_DISABLE_PUBLIC_SITE_CHECKS !== "1",
-          publicSiteCheckTimeoutMs: config.publicSiteCheckTimeoutMs ?? 10_000,
+          publicSiteChecks: scanPolicy.publicSiteChecks,
+          publicSiteCheckTimeoutMs: scanPolicy.publicSiteCheckTimeoutMs,
         });
         executions.push(execution);
         hostExecutions.push(execution);

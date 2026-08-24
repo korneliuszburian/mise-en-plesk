@@ -23,6 +23,23 @@ export interface MisePleskConfig {
   publicSiteCheckTimeoutMs?: number;
 }
 
+export interface ScanPolicy {
+  enableVulnerabilityLookups: boolean;
+  maxVulnerabilityLookupsPerHost?: number;
+  vulnerabilityCachePath: string;
+  vulnerabilityCacheTtlMs: number;
+  maxConcurrentSitesPerHost: number;
+  sshCommandTimeoutMs: number;
+  publicSiteChecks: boolean;
+  publicSiteCheckTimeoutMs: number;
+}
+
+export interface ScanPolicyEnvironment {
+  MISE_PLESK_ENABLE_VULNS?: string;
+  MISE_PLESK_VULN_CACHE?: string;
+  MISE_PLESK_DISABLE_PUBLIC_SITE_CHECKS?: string;
+}
+
 function isRecord(value: unknown): value is Record<string, unknown> {
   return Boolean(value) && typeof value === "object" && !Array.isArray(value);
 }
@@ -94,6 +111,22 @@ export function vulnerabilityLookupsEnabled(
   env: { MISE_PLESK_ENABLE_VULNS?: string } = process.env,
 ): boolean {
   return config.enableVulnerabilityLookups === true || env.MISE_PLESK_ENABLE_VULNS === "1";
+}
+
+export function resolveScanPolicy(
+  config: MisePleskConfig,
+  env: ScanPolicyEnvironment = process.env,
+): ScanPolicy {
+  return {
+    enableVulnerabilityLookups: vulnerabilityLookupsEnabled(config, env),
+    maxVulnerabilityLookupsPerHost: config.maxVulnerabilityLookupsPerHost,
+    vulnerabilityCachePath: env.MISE_PLESK_VULN_CACHE ?? config.vulnerabilityCachePath ?? ".mise-en-plesk/vulnerabilities.json",
+    vulnerabilityCacheTtlMs: (config.vulnerabilityCacheTtlHours ?? 12) * 60 * 60 * 1000,
+    maxConcurrentSitesPerHost: config.maxConcurrentSitesPerHost ?? 4,
+    sshCommandTimeoutMs: config.sshCommandTimeoutMs ?? 60_000,
+    publicSiteChecks: (config.publicSiteChecks ?? true) && env.MISE_PLESK_DISABLE_PUBLIC_SITE_CHECKS !== "1",
+    publicSiteCheckTimeoutMs: config.publicSiteCheckTimeoutMs ?? 10_000,
+  };
 }
 
 export async function readConfigFile(path: string): Promise<MisePleskConfig> {
