@@ -91,8 +91,11 @@ export function auditMarkdown(result: AuditResult): string {
 
 export async function writeAuditReport(result: AuditResult, directory = "reports", json = false, filenameSuffix = ""): Promise<string> {
   await mkdir(directory, { recursive: true });
-  const date = new Date().toISOString().slice(0, 10).replaceAll("-", "");
-  const path = join(directory, `plesk-wp-audit-${date}${filenameSuffix}.${json ? "json" : "md"}`);
-  await writeFile(path, json ? `${JSON.stringify(result, null, 2)}\n` : auditMarkdown(result), "utf8");
+  const generatedAt = new Date(result.generatedAt);
+  if (!Number.isFinite(generatedAt.getTime())) throw new Error("AuditResult.generatedAt must be a valid date");
+  const date = generatedAt.toISOString().slice(0, 10).replaceAll("-", "");
+  const uniqueSuffix = filenameSuffix || `-${generatedAt.toISOString().replace(/[-:.]/g, "")}`;
+  const path = join(directory, `plesk-wp-audit-${date}${uniqueSuffix}.${json ? "json" : "md"}`);
+  await writeFile(path, json ? `${JSON.stringify(result, null, 2)}\n` : auditMarkdown(result), { encoding: "utf8", flag: "wx" });
   return path;
 }

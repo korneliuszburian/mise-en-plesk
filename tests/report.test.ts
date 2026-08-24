@@ -131,7 +131,13 @@ describe("audit reports", () => {
     const path = await writeAuditReport(result, directory, true);
 
     await expect(readFile(path, "utf8")).resolves.toContain('"generatedAt": "2026-08-12T00:00:00.000Z"');
-    expect(path).toMatch(/plesk-wp-audit-\d{8}\.json$/);
+    expect(path).toMatch(/plesk-wp-audit-\d{8}-20260812T000000000Z\.json$/);
+  });
+
+  it("refuses to overwrite an existing report", async () => {
+    const directory = await mkdtemp(join(tmpdir(), "mise-en-plesk-report-no-clobber-"));
+    await writeAuditReport(result, directory, true);
+    await expect(writeAuditReport(result, directory, true)).rejects.toMatchObject({ code: "EEXIST" });
   });
 
   it("supports a suffix for rotated per-host reports", async () => {
