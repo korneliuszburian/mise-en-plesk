@@ -20,8 +20,9 @@ Risk signals requiring manual review include very old core, abandoned plugin,
 vulnerable plugin, or PHP files under `wp-content/uploads`; their finding
 severity determines alert routing (for example, abandoned plugins are P2,
 while critical/high vulnerabilities and backdoor indicators are P1). With
-`MISE_PLESK_ENABLE_VULNS=1`, the audit performs opt-in lookups against the
-WPVulnerability API; otherwise it performs no vulnerability API requests. The
+`MISE_PLESK_ENABLE_VULNS=1` or `enableVulnerabilityLookups: true` in the local
+config, the audit performs opt-in lookups against the WPVulnerability API;
+otherwise it performs no vulnerability API requests. The
 monitor heartbeat and `monitor-stale` finding are local operational signals;
 they never trigger remote commands or remediation.
 

@@ -236,6 +236,29 @@ async function runScan(args: string[], env: NodeJS.ProcessEnv): Promise<{ heartb
 }
 
 describe("scan CLI end-to-end", () => {
+  it("enables vulnerability classification from config without environment opt-in or network access", async () => {
+    const runtime = await prepareRuntime();
+    try {
+      delete runtime.env.MISE_PLESK_ENABLE_VULNS;
+      await writeFile(runtime.env.MISE_PLESK_CONFIG!, JSON.stringify({
+        hosts: ["test"],
+        maxSitesPerHost: 1,
+        enableVulnerabilityLookups: true,
+        maxVulnerabilityLookupsPerHost: 0,
+      }));
+
+      await runScan([], runtime.env);
+      const reportName = (await readdir(runtime.env.MISE_PLESK_REPORTS!)).find((name) => name.endsWith(".json"));
+      const report = JSON.parse(await readFile(join(runtime.env.MISE_PLESK_REPORTS!, reportName!), "utf8")) as {
+        hosts: Array<{ wordpress: Array<{ vulnerabilityStatus?: string }> }>;
+      };
+
+      expect(report.hosts[0]?.wordpress[0]?.vulnerabilityStatus).toBe("partial");
+    } finally {
+      await rm(runtime.root, { recursive: true, force: true });
+    }
+  }, 30_000);
+
   it("reports an explicit source gap when broken WP-CLI has no Toolkit registration", async () => {
     const runtime = await prepareRuntime();
     try {

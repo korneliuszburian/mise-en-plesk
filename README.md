@@ -149,9 +149,10 @@ explicit full sweep. Rotated JSON reports receive host and UTC-run suffixes so
 successive cycles do not overwrite one another.
 
 Online vulnerability lookups are opt-in. Set
-`MISE_PLESK_ENABLE_VULNS=1` before running `scan` to query the public
-WPVulnerability API. With the variable unset (or any value other than `1`),
-the scanner performs no external vulnerability API requests. The opt-in lookup
+`"enableVulnerabilityLookups": true` in `config.mise-en-plesk.json`, or set
+`MISE_PLESK_ENABLE_VULNS=1` for a one-off invocation, to query the public
+WPVulnerability API. With neither switch enabled, the scanner performs no
+external vulnerability API requests. The opt-in lookup
 covers plugins, themes, and core. API failures are reported as `unavailable`,
 never treated as safe, and never trigger remediation. Known and empty responses
 are cached locally for 12 hours by default in the ignored

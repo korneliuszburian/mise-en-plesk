@@ -5,6 +5,7 @@ export interface MisePleskConfig {
   hosts?: string[];
   sudoHosts?: string[];
   maxVulnerabilityLookupsPerHost?: number;
+  enableVulnerabilityLookups?: boolean;
   vulnerabilityCachePath?: string;
   vulnerabilityCacheTtlHours?: number;
   maxConcurrentSitesPerHost?: number;
@@ -69,6 +70,7 @@ export function validateConfig(value: unknown, source = "config.mise-en-plesk.js
     hosts: aliases(value.hosts, "hosts", source),
     sudoHosts: aliases(value.sudoHosts, "sudoHosts", source),
     maxVulnerabilityLookupsPerHost: integerValue(value.maxVulnerabilityLookupsPerHost, "maxVulnerabilityLookupsPerHost", source, 0),
+    enableVulnerabilityLookups: booleanValue(value.enableVulnerabilityLookups, "enableVulnerabilityLookups", source),
     vulnerabilityCachePath: pathValue(value.vulnerabilityCachePath, "vulnerabilityCachePath", source),
     vulnerabilityCacheTtlHours: numberValue(value.vulnerabilityCacheTtlHours, "vulnerabilityCacheTtlHours", source, Number.MIN_VALUE),
     maxConcurrentSitesPerHost: integerValue(value.maxConcurrentSitesPerHost, "maxConcurrentSitesPerHost", source, 1),
@@ -85,6 +87,13 @@ export function validateConfig(value: unknown, source = "config.mise-en-plesk.js
     publicSiteChecks: booleanValue(value.publicSiteChecks, "publicSiteChecks", source),
     publicSiteCheckTimeoutMs: integerValue(value.publicSiteCheckTimeoutMs, "publicSiteCheckTimeoutMs", source, 1_000),
   };
+}
+
+export function vulnerabilityLookupsEnabled(
+  config: Pick<MisePleskConfig, "enableVulnerabilityLookups">,
+  env: { MISE_PLESK_ENABLE_VULNS?: string } = process.env,
+): boolean {
+  return config.enableVulnerabilityLookups === true || env.MISE_PLESK_ENABLE_VULNS === "1";
 }
 
 export async function readConfigFile(path: string): Promise<MisePleskConfig> {

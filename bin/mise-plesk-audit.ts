@@ -17,7 +17,7 @@ import { createNotificationDelivery, type NotificationDelivery } from "../src/no
 import { runPreflight } from "../src/preflight";
 import { createMonitorStaleFinding, readHeartbeat, reconcileDeferredHosts, writeHeartbeat } from "../src/monitor-health";
 import { parseCliArguments } from "../src/cli-args";
-import { readConfigFile, type MisePleskConfig } from "../src/config";
+import { readConfigFile, vulnerabilityLookupsEnabled, type MisePleskConfig } from "../src/config";
 import { acquireLocalLock, type LocalLock } from "../src/local-lock";
 import { createWhatsAppTestEvent, requireWhatsAppTestConfirmation } from "../src/notification-test";
 import { formatScanOutput } from "../src/cli-output";
@@ -47,6 +47,21 @@ interface HostWordPressCapabilities {
   wpCli?: WpCliCapability;
   toolkit?: PleskWpToolkitInventory;
   warnings?: string[];
+}
+
+interface ScanHostOptions {
+  maxVulnerabilityLookups?: number;
+  enableVulnerabilityLookups?: boolean;
+  maxConcurrentSites?: number;
+  maxSites?: number;
+  offset?: number;
+  vulnerabilityBudget?: VulnerabilityLookupBudget;
+  useSudo?: boolean;
+  vulnerabilityCache?: VulnerabilityCache;
+  commandTimeoutMs?: number;
+  hostCapabilities?: HostWordPressCapabilities;
+  publicSiteChecks?: boolean;
+  publicSiteCheckTimeoutMs?: number;
 }
 
 function usage(): never {
@@ -167,18 +182,22 @@ async function persistFindingList(
 async function scanHost(
   alias: string,
   inventory: Awaited<ReturnType<typeof readInventory>>,
-  maxVulnerabilityLookups?: number,
-  maxConcurrentSites = 4,
-  maxSites?: number,
-  offset = 0,
-  vulnerabilityBudget: VulnerabilityLookupBudget = { used: 0 },
-  useSudo = false,
-  vulnerabilityCache?: VulnerabilityCache,
-  commandTimeoutMs = DEFAULT_SSH_COMMAND_TIMEOUT_MS,
-  hostCapabilities: HostWordPressCapabilities = {},
-  publicSiteChecks = true,
-  publicSiteCheckTimeoutMs = 10_000,
+  options: ScanHostOptions = {},
 ): Promise<{ report: AuditResult["hosts"][number]; scannedInstallationPaths: string[]; complete: boolean; offset: number }> {
+  const {
+    maxVulnerabilityLookups,
+    enableVulnerabilityLookups = false,
+    maxConcurrentSites = 4,
+    maxSites,
+    offset = 0,
+    vulnerabilityBudget = { used: 0 },
+    useSudo = false,
+    vulnerabilityCache,
+    commandTimeoutMs = DEFAULT_SSH_COMMAND_TIMEOUT_MS,
+    hostCapabilities = {},
+    publicSiteChecks = true,
+    publicSiteCheckTimeoutMs = 10_000,
+  } = options;
   const host = inventory[alias];
   const item = process.env.BW_SESSION ? await getInventoryHostItem(host) : null;
   const credentials = item ? extractSecureNoteSshCredentials(item) : null;
@@ -247,7 +266,7 @@ async function scanHost(
     const scannedInstallationPaths = selectedWordPress.map((installation) => installation.path);
     const wordpress = [];
     const vulnerabilityResourceLookup = createBoundedVulnerabilityLookup({
-      enabled: process.env.MISE_PLESK_ENABLE_VULNS === "1",
+      enabled: enableVulnerabilityLookups,
       maxLookups: maxVulnerabilityLookups,
       budget: vulnerabilityBudget,
       cache: vulnerabilityCache,
@@ -260,7 +279,7 @@ async function scanHost(
         if (!toolkitSite && !wpCliCapability.available) {
           audit = await auditStaticWordPressInstallation(installation, ssh, {
             useSudo: effectiveSudo,
-            enabled: process.env.MISE_PLESK_ENABLE_VULNS === "1",
+            enabled: enableVulnerabilityLookups,
             vulnerabilityResourceLookup,
             sourceLimitations: [
               `Host WP-CLI unavailable: ${wpCliCapability.detail ?? "unknown reason"}`,
@@ -280,7 +299,7 @@ async function scanHost(
           });
           audit = await auditWordPressInstallation(installation, runner, {
             useSudo: effectiveSudo,
-            enabled: process.env.MISE_PLESK_ENABLE_VULNS === "1",
+            enabled: enableVulnerabilityLookups,
             vulnerabilityResourceLookup,
             suspiciousFileRunner: batched?.suspiciousFileRunner ?? (async () => ssh({
               kind: "suspicious-uploads",
@@ -291,7 +310,7 @@ async function scanHost(
           if (!toolkitSite && audit.health.status && audit.health.status !== "unreachable") {
             audit = await auditStaticWordPressInstallation(installation, ssh, {
               useSudo: effectiveSudo,
-              enabled: process.env.MISE_PLESK_ENABLE_VULNS === "1",
+              enabled: enableVulnerabilityLookups,
               vulnerabilityResourceLookup,
               observedHealth: audit.health,
               sourceLimitations: [
@@ -486,6 +505,7 @@ async function main(): Promise<void> {
       if (!inventory[alias]) throw new Error(`Unknown inventory target: ${alias}`);
     }
     const maxLookups = config.maxVulnerabilityLookupsPerHost;
+    const enableVulnerabilityLookups = vulnerabilityLookupsEnabled(config);
     if (maxLookups !== undefined && (!Number.isInteger(maxLookups) || maxLookups < 0)) {
       throw new Error("maxVulnerabilityLookupsPerHost must be a non-negative integer.");
     }
@@ -521,21 +541,20 @@ async function main(): Promise<void> {
       scanCycleState = prepareScanCycle(scanCycleState, alias, scanRange.offset, startedAt);
       await writeScanCycleState(scanCycleStatePath, scanCycleState);
       while (true) {
-        const execution = await scanHost(
-          alias,
-          inventory,
-          maxLookups,
+        const execution = await scanHost(alias, inventory, {
+          maxVulnerabilityLookups: maxLookups,
+          enableVulnerabilityLookups,
           maxConcurrentSites,
-          scanRange.maxSites,
+          maxSites: scanRange.maxSites,
           offset,
           vulnerabilityBudget,
           useSudo,
           vulnerabilityCache,
-          config.sshCommandTimeoutMs ?? DEFAULT_SSH_COMMAND_TIMEOUT_MS,
+          commandTimeoutMs: config.sshCommandTimeoutMs ?? DEFAULT_SSH_COMMAND_TIMEOUT_MS,
           hostCapabilities,
-          (config.publicSiteChecks ?? true) && process.env.MISE_PLESK_DISABLE_PUBLIC_SITE_CHECKS !== "1",
-          config.publicSiteCheckTimeoutMs ?? 10_000,
-        );
+          publicSiteChecks: (config.publicSiteChecks ?? true) && process.env.MISE_PLESK_DISABLE_PUBLIC_SITE_CHECKS !== "1",
+          publicSiteCheckTimeoutMs: config.publicSiteCheckTimeoutMs ?? 10_000,
+        });
         executions.push(execution);
         hostExecutions.push(execution);
         chunksProcessed += 1;
