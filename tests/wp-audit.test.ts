@@ -268,6 +268,39 @@ describe("WordPress audit", () => {
     expect(audit.priorities).toContain("PHP files found in uploads (possible backdoors)");
   });
 
+  it("keeps uploads index files as evidence without escalating them as possible backdoors", async () => {
+    const audit = applyHeuristics({
+      installation: { path: "/var/www/vhosts/site.test/httpdocs" },
+      coreVersion: "6.9.4",
+      plugins: [],
+      vulnerabilities: [],
+      suspiciousFiles: ["/var/www/vhosts/site.test/httpdocs/wp-content/uploads/2026/08/index.php"],
+      health: { reachable: true },
+    });
+
+    expect(audit.suspiciousFiles).toHaveLength(1);
+    expect(audit.priorities).not.toContain("PHP files found in uploads (possible backdoors)");
+  });
+
+  it("treats checksum timeouts as unavailable instead of checksum failures", async () => {
+    const audit = await auditWordPressInstallation({ path: "/var/www/vhosts/slow.test/httpdocs" }, async (_installation, command) => {
+      if (command === "core version") return "6.9.4";
+      if (command.startsWith("core check-update")) return "[]";
+      if (command.startsWith("plugin list")) return "[]";
+      if (command.startsWith("theme list")) return "[]";
+      if (command === "core verify-checksums") throw new Error("WP-CLI command timed out");
+      if (command.startsWith("plugin verify-checksums")) return "Success";
+      return "ok";
+    });
+
+    expect(audit.integrity).toMatchObject({
+      coreChecksums: "unavailable",
+      coreDetail: "WP-CLI command timed out",
+      pluginChecksums: "verified",
+    });
+    expect(audit.priorities).not.toContain("WordPress core checksum verification failed");
+  });
+
   it("attaches vulnerability summaries from an injected lookup", async () => {
     let requestedSlug = "";
     const audit = await auditWordPressInstallation({ path: "/var/www/vhosts/example.test/httpdocs" }, async (_installation, command) => {

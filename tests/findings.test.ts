@@ -104,6 +104,17 @@ describe("structured findings", () => {
     })]);
   });
 
+  it("does not create a backdoor finding for uploads index placeholders", () => {
+    const findings = findingsFromAudits([{
+      host: "dev-ssh",
+      wordpress: [baseAudit({ suspiciousFiles: ["/uploads/index.php", "/uploads/2026/index.php"] })],
+    }]);
+
+    expect(findings).not.toEqual(expect.arrayContaining([
+      expect.objectContaining({ code: "suspicious-upload-php" }),
+    ]));
+  });
+
   it("reports public HTTP and TLS failures separately from Toolkit reachability", () => {
     const findings = findingsFromAudits([{
       host: "dev-ssh",

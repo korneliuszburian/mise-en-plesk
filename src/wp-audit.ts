@@ -251,16 +251,16 @@ export async function auditWordPressInstallation(
     try {
       await runner(installation, "core verify-checksums");
     } catch (error: unknown) {
-      coreChecksums = error instanceof AuditCapabilityUnavailableError ? "unavailable" : "failed";
       coreDetail = shortAuditDetail(error);
+      coreChecksums = checksumStatusFromError(error, coreDetail);
     }
     let pluginChecksums: ChecksumStatus = "verified";
     let pluginDetail: string | undefined;
     try {
       await runner(installation, "plugin verify-checksums --all --strict");
     } catch (error: unknown) {
-      pluginChecksums = error instanceof AuditCapabilityUnavailableError ? "unavailable" : "failed";
       pluginDetail = shortAuditDetail(error);
+      pluginChecksums = checksumStatusFromError(error, pluginDetail);
     }
     let themes: ThemeInfo[] | undefined;
     try {
@@ -343,6 +343,12 @@ function shortAuditDetail(error: unknown): string {
   return safeWpCliFailureDetail(error);
 }
 
+function checksumStatusFromError(error: unknown, detail: string): Exclude<ChecksumStatus, "verified"> {
+  return !(error instanceof AuditCapabilityUnavailableError) && detail === "WP-CLI reported checksum mismatches"
+    ? "failed"
+    : "unavailable";
+}
+
 function classifyAuditError(error: unknown): WordPressAudit["health"] {
   const detail = error instanceof Error ? error.message : String(error);
   const shortDetail = safeWpCliFailureDetail(error);
@@ -375,6 +381,10 @@ export function isWpCliFailure(
 
 export function parseSuspiciousFiles(output: string): string[] {
   return output.split(/\r?\n/).map((line) => line.trim()).filter(Boolean);
+}
+
+export function actionableSuspiciousFiles(files: readonly string[]): string[] {
+  return files.filter((file) => !/(^|\/)index\.php$/i.test(file));
 }
 
 async function collectSuspiciousFiles(
@@ -435,7 +445,7 @@ export function applyHeuristics(
   if (audit.coreVulnerabilities?.length) priorities.push("WordPress core has known vulnerabilities (via WPVulnerability)");
   if (audit.integrity?.coreChecksums === "failed") priorities.push("WordPress core checksum verification failed");
   if (audit.integrity?.pluginChecksums === "failed") priorities.push("WordPress plugin checksum verification needs manual review");
-  if (audit.suspiciousFiles.length) priorities.push("PHP files found in uploads (possible backdoors)");
+  if (actionableSuspiciousFiles(audit.suspiciousFiles).length) priorities.push("PHP files found in uploads (possible backdoors)");
   return { ...audit, priorities };
 }
 
